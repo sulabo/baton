@@ -69,7 +69,7 @@ Claude Code 스킬입니다. 긴 대화를 억지로 끌고 가는 대신 작업
 
 ```bash
 git clone https://github.com/sulabo/baton.git ~/.claude/skills/handoff
-chmod +x ~/.claude/skills/handoff/*.sh
+chmod +x <skill-dir>/*.sh
 ```
 
 폴더 이름이 곧 스킬 이름입니다. `handoff`로 두면 Claude Code에서 "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토"라고 하면 발동합니다.
