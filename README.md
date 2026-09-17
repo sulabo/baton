@@ -1,4 +1,6 @@
-# Handoff — 세션 인계서를 쓰면서 영구 기록으로 올릴 것을 함께 골라내는 스킬
+# baton
+
+**세션에서 세션으로 넘기는 배턴. 넘기면서 영구 기록으로 올릴 것을 함께 골라낸다.**
 
 Claude Code 스킬입니다. 긴 대화를 억지로 끌고 가는 대신 작업 상태를 짧은 파일로 남기고,
 **그 김에 "이건 매번 다시 정하고 있는 것 아닌가"를 판정합니다.**
@@ -66,11 +68,11 @@ Claude Code 스킬입니다. 긴 대화를 억지로 끌고 가는 대신 작업
 ## 설치
 
 ```bash
-git clone https://github.com/sulabo/handoff-skill.git ~/.claude/skills/handoff
+git clone https://github.com/sulabo/baton.git ~/.claude/skills/handoff
 chmod +x ~/.claude/skills/handoff/*.sh
 ```
 
-Claude Code에서 "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토"라고 하면 발동합니다.
+폴더 이름이 곧 스킬 이름입니다. `handoff`로 두면 Claude Code에서 "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토"라고 하면 발동합니다.
 
 `HANDOFF.md`가 **git에 추적되고 있어야** 승격 검토가 동작합니다. 과거 판을 못 보면
 이 검토는 성립하지 않습니다.
@@ -119,7 +121,7 @@ Claude Code에서 "핸드오프 작성해줘", "인계서 남겨줘", "승격 �
 
 ## 짝이 되는 스킬
 
-[ontology](https://github.com/sulabo/ontology-skill) — 이 스킬이 올린 승격 후보가
+[driftmap](https://github.com/sulabo/driftmap) — 이 스킬이 올린 승격 후보가
 `DECISIONS.md`에 결정으로 들어가면, 그 결정이 건드린 개념을 온톨로지가 역산해
 재확인 대상으로 잡습니다. 코드는 그대로인데 결정만 움직인 상태가 곧 미구현입니다.
 
