@@ -139,7 +139,7 @@ rejected:  tool_result 포함 / mixed / 기타
   M1 = 26 · M0 = 0 · Mmulti = 0 · P = 26 · C = 26
   교차 확인(연결된 26개): payload.session_id == 파일명 UUID  26 / 26
   교차 확인(파일 전부):   payload.id == 파일명 UUID  127 / 127
-  구성: 루트 세션 31 · 포크 스레드 96 (forked_from_id 있음. session_id는 부모, history.jsonl에 없음)
+  구성: 루트 세션 30 · 포크 스레드 97 (forked_from_id 있음. session_id는 부모, history.jsonl에 없음)
   → 정체성 필드는 payload.id. 5판 초고의 "31/127"은 session_id로 비교한 결과이며 오류가 아니라 포크였다.
   → Codex 프롬프트 추출은 history.jsonl이 아니라 세션 파일을 직접 읽는다. 포크 96개는 history에 없다.
   실행: python3 observer/measure/codex_join_census.py   (script sha256 앞 12자 fe4f5b9ab52c)
