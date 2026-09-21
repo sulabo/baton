@@ -3,6 +3,8 @@
 
   baton_init.py extract <project_root>          .baton/tasks.jsonl · run.json
   baton_init.py sample  <project_root> [--seed N]  .baton/samples/0A.jsonl · 0B.jsonl
+  baton_init.py label   <project_root> --step 0A|0B [--show] [--answer ID y|n|u]   .baton/labels.jsonl
+    대화형. 규칙 예측은 보여주지 않는다(이 조각에는 없다). 0B는 앞 프롬프트를 같이 보여 준다.
 
 이 조각의 범위: Claude Code 세션 기록만. Codex 세션 파일은 프롬프트 레코드 형식을 아직
 확인하지 않아 --source codex 는 거부한다(스텁 아님, 범위 밖). 규칙·채점(STEP 1·2)은 없다.
@@ -78,8 +80,8 @@ def extract(root, source):
             c = d.get("message", {}).get("content")
             schema = content_schema(c)
             text = human_text(c, schema)
-            row = {"source": "claude", "file": os.path.basename(f), "ts": ts.isoformat() if ts else None,
-                   "content_schema": schema}
+            row = {"id": f"{os.path.basename(f)[:8]}:{counts['raw_user_events']}", "source": "claude",
+                   "file": os.path.basename(f), "ts": ts.isoformat() if ts else None, "content_schema": schema}
             key = ("accepted" if text and not text.startswith("<") else "rejected", schema)
             schema_pop[f"{key[0]}/{key[1]}"] = schema_pop.get(f"{key[0]}/{key[1]}", 0) + 1
             if not text or text.startswith("<"):
@@ -159,8 +161,58 @@ def cmd_sample(a):
         print(f"  {name}: " + " · ".join(f"{m['stratum']} {m['sample_n']}/{m['population_n']}{' EXHAUSTED' if m['exhausted'] else ''}" for m in meta))
     print("  라벨링 화면에서 규칙 예측을 숨긴다 — 이 조각에는 예측 자체가 없다.")
 
+QUESTION = {"0A": "사람이 친 프롬프트인가? (도구 결과·시스템 메시지가 아닌)",
+            "0B": "앞 프롬프트와 다른 새 작업의 시작인가?"}
+
+def load_samples(out, step):
+    lines = [l for l in open(out / "samples" / f"{step}.jsonl", encoding="utf-8") if l.strip()]
+    return json.loads(lines[0])["sampling_meta"], [json.loads(l) for l in lines[1:]]
+
+def load_labels(out):
+    p = out / "labels.jsonl"
+    return {(r["step"], r["id"]): r for r in (json.loads(l) for l in open(p, encoding="utf-8") if l.strip())} if p.exists() else {}
+
+def previous_prompt(rows, r):
+    """0-B 판단에는 앞 프롬프트가 필요하다. 같은 파일의 직전 accepted 행."""
+    same = [x for x in rows if x["file"] == r["file"] and x["extractor_decision"] == "accepted" and x.get("ts") and x["ts"] < r["ts"]]
+    return same[-1]["text"] if same else None
+
+def cmd_label(a):
+    root = norm(a.project_root); out = Path(root) / ".baton"
+    rows = [json.loads(l) for l in open(out / "tasks.jsonl", encoding="utf-8") if l.strip()]
+    meta, samples = load_samples(out, a.step); done = load_labels(out)
+    pending = [r for r in samples if (a.step, r["id"]) not in done]
+    print(f"[{a.step}] 표본 {len(samples)} · 답함 {len(samples)-len(pending)} · 남음 {len(pending)}")
+    if a.answer:
+        sid, ans = a.answer
+        r = next((x for x in samples if x["id"] == sid), None)
+        if not r: sys.exit(f"표본에 없는 id: {sid}")
+        with open(out / "labels.jsonl", "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"step": a.step, "id": sid, "stratum": r["stratum"], "answer": ans,
+                                 "labeled_at": now().isoformat()}, ensure_ascii=False) + "\n")
+        print(f"  기록: {sid} → {ans}"); return
+    for r in pending:
+        print("\n" + "─" * 60)
+        print(f"id {r['id']} · 층 {r['stratum']} · 구조 {r['content_schema']}")
+        if a.step == "0B":
+            pv = previous_prompt(rows, r)
+            print(f"앞 프롬프트: {pv[:120] if pv else '(없음 — 세션 첫 프롬프트)'}")
+            print(f"공백: {r.get('gap_minutes')}분")
+        print(f"이 프롬프트: {(r.get('text') or '(텍스트 없음 — ' + r['content_schema'] + ')')[:200]}")
+        print(f"질문: {QUESTION[a.step]}  [y/n/u=모르겠음/q=중단]")
+        if a.show: continue
+        ans = input("> ").strip().lower()
+        if ans == "q": break
+        if ans not in ("y", "n", "u"): print("  y/n/u 중 하나"); continue
+        with open(out / "labels.jsonl", "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"step": a.step, "id": r["id"], "stratum": r["stratum"], "answer": ans,
+                                 "labeled_at": now().isoformat()}, ensure_ascii=False) + "\n")
+    if a.show: print("\n(--show: 보기만. 답은 --show 없이 다시 실행)")
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); sub = ap.add_subparsers(dest="cmd", required=True)
     e = sub.add_parser("extract"); e.add_argument("project_root"); e.add_argument("--source", default="claude")
     s = sub.add_parser("sample"); s.add_argument("project_root"); s.add_argument("--seed", type=int, default=20260921)
-    a = ap.parse_args(); {"extract": cmd_extract, "sample": cmd_sample}[a.cmd](a)
+    l = sub.add_parser("label"); l.add_argument("project_root"); l.add_argument("--step", choices=["0A", "0B"], required=True)
+    l.add_argument("--show", action="store_true", help="답하지 않고 보기만"); l.add_argument("--answer", nargs=2, metavar=("ID", "Y_N_U"))
+    a = ap.parse_args(); {"extract": cmd_extract, "sample": cmd_sample, "label": cmd_label}[a.cmd](a)
