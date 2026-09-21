@@ -14,6 +14,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SHORT = 15
+# '<'로 시작하지 않는 시스템 주입 문장. 0-A 채점 예시에서 발견해 추가(2026-09-21).
+SYSTEM_PREFIXES = ("Base directory for this skill", "Another Claude session sent a message",
+                   "[Request interrupted", "This session is being continued", "Caveat: The messages below")
+def is_system(text): return text.startswith("<") or text.startswith(SYSTEM_PREFIXES)
 GAP_BUCKETS = [("gap_0_15", 0, 15), ("gap_15_30", 15, 30), ("gap_30_60", 30, 60), ("gap_60_plus", 60, None)]
 
 def norm(p): return unicodedata.normalize("NFC", str(Path(p).expanduser().resolve()))
@@ -82,9 +86,9 @@ def extract(root, source):
             text = human_text(c, schema)
             row = {"id": f"{os.path.basename(f)[:8]}:{counts['raw_user_events']}", "source": "claude",
                    "file": os.path.basename(f), "ts": ts.isoformat() if ts else None, "content_schema": schema}
-            key = ("accepted" if text and not text.startswith("<") else "rejected", schema)
+            key = ("accepted" if text and not is_system(text) else "rejected", schema)
             schema_pop[f"{key[0]}/{key[1]}"] = schema_pop.get(f"{key[0]}/{key[1]}", 0) + 1
-            if not text or text.startswith("<"):
+            if not text or is_system(text):
                 row.update(extractor_decision="rejected",
                            reject_reason="system_tag" if text else schema)
                 rows.append(row); continue
