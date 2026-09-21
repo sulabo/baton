@@ -8,7 +8,7 @@ import json, glob, os, re, subprocess, statistics, collections
 from datetime import datetime, timezone
 
 REPO = "<project>"
-SESS = "~/.claude/projects/-Users-seongwoo-Documents------------26-05/*.jsonl"
+SESS = "~/.claude/projects/<transcript-dir>"
 KS = (3, 5, 10)
 EXT = re.compile(r"\.(md|css|astro|ts|tsx|js|jsx|json|py|html|yml|yaml|sh|mjs|txt|csv|svg|png|jpg|pdf)$", re.I)
 
