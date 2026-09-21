@@ -23,7 +23,8 @@ V010 = {v for vs in R.GLOBAL_RULES["task_types"].values() for v in vs}
 def norm(p): return unicodedata.normalize("NFC", str(Path(p).expanduser().resolve()))
 # 이미지가 붙은 프롬프트에 하네스가 끼워 넣는 좌표 안내문. 사람 말이 아니다. 사전에서 걷어낸다.
 HARNESS_TEMPLATES = [re.compile(r"\[Image #\d+\]"),
-                     re.compile(r"Image original \d+x\d+ displayed at .*?to map to original\.?", re.S)]
+                     # 실제 형태: [Image: original 1400x4798, displayed at 584x2000. Multiply coordinates by 2.40 to map to original image.]
+                     re.compile(r"\[Image: original .*?to map to original image\.?\]", re.S)]
 def strip_harness(text):
     for pat in HARNESS_TEMPLATES: text = pat.sub(" ", text)
     return text
