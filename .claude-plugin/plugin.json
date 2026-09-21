@@ -1,10 +1,10 @@
 {
-  "name": "driftguard",
+  "name": "baton",
   "version": "0.1.0",
   "description": "개념 단위로 지식의 어긋남을 추적해 다시 읽을 것만 고르고, 세션을 넘길 때 영구 기록으로 올릴 것을 골라내는 플러그인.",
   "author": { "name": "sulabo" },
-  "repository": "https://github.com/sulabo/driftguard",
-  "homepage": "https://github.com/sulabo/driftguard",
+  "repository": "https://github.com/sulabo/baton",
+  "homepage": "https://github.com/sulabo/baton",
   "license": "MIT",
   "keywords": [
     "claude-code", "plugin", "knowledge-graph", "handoff",

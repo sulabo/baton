@@ -9,7 +9,7 @@ case "$INPUT" in
 esac
 case "$INPUT" in
   *"0건"*|*"없음"*|*"메타 줄 0개"*)
-    echo '{"continue":true,"systemMessage":"[driftguard] 0건이 나왔다. 진짜 없는 것인지, 형식이 안 맞아 못 센 것인지 구분해서 보고한다. 형식 불일치 줄을 먼저 확인한다."}'
+    echo '{"continue":true,"systemMessage":"[baton] 0건이 나왔다. 진짜 없는 것인지, 형식이 안 맞아 못 센 것인지 구분해서 보고한다. 형식 불일치 줄을 먼저 확인한다."}'
     ;;
   *) exit 0 ;;
 esac

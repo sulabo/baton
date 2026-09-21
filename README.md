@@ -1,6 +1,6 @@
-# driftguard
+# baton
 
-**프로젝트 지식을 개념 단위로 추적해, 다시 읽을 것만 고르는 Claude Code 플러그인.**
+**다음으로 계속 이어가기 위한 배턴.** 프로젝트 지식을 개념 단위로 추적하고, 세션을 넘길 때 필요한 것만 넘기는 Claude Code 플러그인.
 
 두 가지 일을 합니다. 프로젝트의 **결정·코드·문서가 어긋난 지점**을 개념 단위로 추적하고,
 **세션을 넘길 때** 영구 기록으로 올릴 것을 골라냅니다.
@@ -45,8 +45,8 @@
 ## 설치
 
 ```bash
-/plugin marketplace add sulabo/driftguard
-/plugin install driftguard@driftguard
+/plugin marketplace add sulabo/baton
+/plugin install baton@baton
 ```
 
 ## 무엇이 들어 있나
@@ -66,7 +66,7 @@
 |---|---|
 | `/drift` | 어느 개념이 재확인 대상인지 계산. 0이면 거기서 끝 |
 | `/promote` | 인계서에서 영구 기록으로 올릴 것 찾기 |
-| `/driftguard-doctor` | 이 저장소에서 돌 준비가 됐는지 점검 |
+| `/baton-doctor` | 이 저장소에서 돌 준비가 됐는지 점검 |
 
 ### 훅 둘
 

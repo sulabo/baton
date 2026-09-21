@@ -1,5 +1,5 @@
 {
-  "description": "driftguard — 개념 지도 신선도 알림과 0건 구분 가드",
+  "description": "baton — 개념 지도 신선도 알림과 0건 구분 가드",
   "hooks": {
     "SessionStart": [
       {
