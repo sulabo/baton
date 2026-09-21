@@ -1,11 +1,11 @@
 # BATON V0 — 작업 추출을 먼저 검증하고, 규칙을 채점한다
 
-상태: 3판 (코덱스 2차 검토 반영)
+상태: 4판 (코덱스 3차 검토 반영)
 관계: `NORTH_STAR.md`의 첫 구현 단계. 여기 없는 것은 V0가 아니다.
 
-수치 표기 규칙. 이 문서의 모든 숫자에는 태그가 붙는다.
-`[MEASURED]` 실제로 쟀고 방법이 적혀 있다 · `[ILLUSTRATIVE]` 모양만 보여주는 예시 · `[ESTIMATE]` 추정.
-태그 없는 숫자는 없다.
+수치 표기 규칙. **모든 경험적 수치에는 태그가 붙는다.** 설계 파라미터(표본 수, 시간 구간 경계)는 붙이지 않는다.
+`[MEASURED]` 쟀고 방법이 적혀 있다 · `[MEASURED, PRE-VALIDATION]` 쟀으나 그 도구 자체가 아직 검증 전 ·
+`[ILLUSTRATIVE]` 모양만 보여주는 예시 · `[ESTIMATE]` 추정.
 
 ## 한 줄
 
@@ -14,126 +14,71 @@
 
 ## V0가 답하는 질문 (정확히)
 
-> **프로젝트의 현재 구조(개념 지도·AGENTS.md·폴더)만 보고 만든 규칙이,
+> **과거 작업 기록을 직접 참조하지 않고 구성한 현재 BATON 규칙이,
 > 사용자가 과거에 실제로 쓴 작업 표현을 얼마나 설명하는가?**
 
-"규칙이 과거에도 옳았는가"가 아니다. 규칙은 기록을 보지 않고 만든다. 기록은 채점에만 쓴다.
-이 둘을 섞으면 규칙을 만든 데이터로 규칙을 채점하는 것이 되어 성적이 좋아 보이기만 한다.
-2판은 이 점에서 틀려 있었고, 3판에서 고쳤다.
+3판은 "프로젝트 구조만 보고 만든 규칙"이라 했는데 틀린 표현이었다. `baton configure`에서 **사람이**
+도메인을 정하므로 규칙은 구조 + 사람의 1회 설정이다. 그 사람은 과거 작업을 기억하고 있다.
+이것을 막지 않는다. 제품의 실제 초기 설정이 그렇기 때문이다. 막는 것은 **기록 파일을 열어 보고 규칙을
+쓰는 것**과 **채점 결과를 보고 규칙을 고친 뒤 같은 기록으로 다시 채점하는 것**이다.
 
-## 2판 → 3판
+## 3판 → 4판
 
-코덱스 2차 검토 반영. 세 가지가 실질적으로 바뀌었다.
+코덱스 3차 검토 반영. 구조는 그대로이고 **측정 경계를 잠그는 장치**가 들어갔다.
 
-- **규칙 생성에 과거 기록을 쓰지 않는다.** 2판은 "도메인 규칙은 그 프로젝트 기록으로 보정한다"고
-  했는데, 그 기록으로 채점도 하니 학습·평가 데이터가 같았다. V0에서는 기록을 평가에만 쓴다.
-  표본이 커지면 V1에서 70/30 분할을 검토한다.
-- **`candidate_domains` 자동 제안을 뺐다.** "엔딩 판정, 잔상 → 게임 시스템"이라는 이름은 규칙만으로
-  나오지 않는다. AI 추론이거나 사람이다. 게다가 baton이 제안한 분류를 사람이 승인하고 그걸로 baton을
-  채점하면 순환이다. 도메인은 사람이 `baton configure`에서 정한다.
-- **STEP 0을 둘로 나눴다.** 사람 프롬프트 추출기 자체를 먼저 검증한다. 추출기가 프롬프트의 20%를
-  놓치면 그 뒤의 경계 정밀도는 무의미하다.
+- **전역 규칙은 제품에 내장된 일반 분류 체계로 고정한다.** 3판의 "사용자의 말 습관을 보고 손으로 쓴다"는
+  누출 경로였다. 그 말 습관을 아는 사람은 기록을 본 사람이다.
+- **동결 절차와 지문(fingerprint).** 규칙·도메인 설정·평가 말뭉치의 해시를 `run.json`에 남기고,
+  규칙이 바뀌면 새 실행 번호로 기록한다. 덮어쓰지 않는다.
+- **표본은 개수가 아니라 층으로 정의한다.** 0-A는 내용 구조별, 0-B는 겹치지 않는 공백 구간별.
+- **"330 → 86"이 재현되지 않았다.** 다시 재니 333 → 76이다. 아래에 출처를 전부 적고 이전 숫자를 폐기한다.
+- 커밋 어휘 진단은 기본 실행에서 빼고 선택 명령으로 내린다.
 
-작은 것: "semantic disambiguation opportunity" → **"rule ambiguity resolution opportunity"**.
-애매함이 규칙 버그(명백한 구를 놓침) 때문일 수 있어서 "semantic"은 원인을 앞서 말한 것이었다.
-커밋 어휘는 규칙에 넣지 않고 진단으로만 남긴다.
-
-2차 검토 때 붙여넣기가 "도메인 채점 (프로젝트: 앱)"에서 잘려 코덱스가 그 뒤를 못 봤다.
-`LOW_SAMPLE` 절과 `run.json` 매니페스트는 2판에도 있었다. 이번 요청문은 끝에 확인 표식을 둔다.
-
-## 단계
+## 단계와 동결 순서
 
 ```
-STEP 0-A  사람 프롬프트 추출 검증 (사람)
-STEP 0-B  작업 경계 검증 (사람)
-STEP 1    규칙 초안 — 프로젝트 구조에서만
-STEP 2    규칙 채점 — 과거 기록으로만
+0.  전역 규칙 = 내장 v0.1.0  (프로젝트를 보기 전에 이미 고정)
+1.  STEP 1   프로젝트 규칙 초안 — 구조에서만
+2.  configure 사람이 도메인 정의
+3.  freeze   rules.yaml · domain config 해시 저장
+4.  STEP 0-A 사람 프롬프트 추출 검증
+5.  STEP 0-B 작업 경계 검증
+6.  STEP 2   규칙 채점
 ```
 
-앞 단계가 검증돼야 다음으로 간다. 0-A가 틀리면 0-B가 무의미하고, 0-B가 틀리면 2가 무의미하다.
+**3번 이후 규칙을 고치면 그것은 새 실행(run #2)이다.** 같은 말뭉치로 다시 채점한 결과를
+run #1을 덮어 기록하지 않는다.
 
-### STEP 0-A — 사람 프롬프트 추출 검증
+### 전역 규칙 — 내장, 버전 고정
 
-세션 기록의 `"type":"user"`에는 도구 결과가 섞여 있다. 추출기는 `content`가 문자열이거나
-`text` 블록만 있는 것을 사람 프롬프트로 본다. **이 규칙이 맞는지 먼저 본다.**
-
-- 추출기가 **받아들인 것 20건**과 **버린 것 20건**을 사람이 본다. 버린 쪽을 안 보면 놓친 프롬프트를 모른다.
-- 길이로 거르지 않는다. "빌드 고쳐줘"는 여섯 글자지만 완전한 작업이다. 짧으면 `SHORT_PROMPT` 표시만.
-- 결과: 받아들인 것 중 사람 프롬프트 비율, 버린 것 중 사람 프롬프트 비율. 둘 다 `[MEASURED]`로 남긴다.
-
-### STEP 0-B — 작업 경계 검증
-
-출처를 **분리**한다. 한 모집단으로 합치지 않는다.
-
-| 출처 | V0 역할 |
-|---|---|
-| Claude Code 세션 기록 | 주 평가 대상 |
-| Codex 세션 기록 | 주 평가 대상 |
-| git 커밋 메시지 | **평가 제외, 규칙 생성 제외.** 진단만 (아래) |
-
-커밋은 작업 지시가 아니라 결과 서술이다. 문체가 다르고, 프롬프트 하나가 커밋 다섯을 만들면
-같은 사건이 다섯 번 뽑힌다. "refactor session token cache" 같은 개발자 어휘가 규칙에 들어가면
-사용자가 한 번도 안 쓴 말로 도메인을 정하게 된다.
-
-**프로젝트 귀속.** 세션 기록 폴더명은 한글이 대시로 바뀌어 역산이 안 된다. 파일 안 `cwd`로 맞춘다.
-비교는 `Path.resolve()` 후 NFC 정규화. 정규식으로 경로를 맞추지 않는다.
-
-**Codex 연결.** `history.jsonl`의 `session_id`를 세션 **파일명 끝 UUID를 파싱해 등호 비교**한다.
-부분 문자열 포함이 아니다.
-
-```
-[MEASURED] 2026-09-21 · glob sessions/**/*.jsonl (숨김 파일 제외) · 파일명 끝 UUID 정규식 · 등호 비교
-  History rows 207 (parse 실패 0) · distinct session_id H = 26
-  Session files S = 127 · 파일명 UUID 파싱 실패 0
-  M1 (정확히 하나) = 26 · M0 (없음) = 0 · Mmulti (여럿) = 0
-  P (매치+파싱) = 26 · C (매치+cwd) = 26
-  판정: 통과. Mmulti = 0 이 구현의 필수 조건이다.
+```yaml
+global_rules:
+  version: "v0.1.0"
+  task_types: [debugging, implementation, design, question, refactor, test, documentation]
+  verbs_ko: {debugging: [고쳐, 안 돼, 에러], implementation: [만들어, 추가해], ...}
 ```
 
-**작업 경계는 후보로만 뽑고 사람이 확정한다.**
+출처는 "사용자의 말 습관"이 아니라 **BATON 제품의 기본 분류**다. 프로젝트 데이터를 본 뒤 바꾸지 않는다.
+개인화된 전역 규칙은 V0에 없다. 원하면 V1에서 별도 기능으로, 보정 집합과 검증 집합을 나눠서 한다.
 
-```
-SESSION_FIRST   세션의 첫 사람 프롬프트
-GAP_CANDIDATE   직전 프롬프트와 공백이 있는 것. gap_minutes를 기록
-```
+**남는 누출.** 한국어 동사 목록을 쓰는 사람은 이 사용자의 기록을 이미 봤다(이 문서 작성자 포함).
+완전히 막을 방법은 다른 사람이 쓰는 것뿐이다. V0의 완화책은 셋이다. 말뭉치 특정 표현이 아니라
+**일반 명령형 동사만** 넣는다. 프로젝트 init 전에 고정한다. 이 문단을 스펙에 남긴다.
 
-30분을 경계로 정하지 않는다. `SESSION_FIRST` 20건, `GAP_CANDIDATE` 30건(공백 분포 고르게)에
-"새 작업인가"를 붙인다. 그러면 15·30·60분 기준의 정밀도를 비교할 수 있다.
-**표본을 늘리려고 공백 기준을 조정하지 않는다.**
-
-`[MEASURED]` 2026-09-21, 문서 프로젝트: 후보 330건 중 30분 기준이 86건을 골랐다.
-이것은 휴리스틱이 86건을 골랐다는 뜻이지 86건이 진짜 작업 시작이라는 뜻이 아니다.
-`[ESTIMATE]` 0-A·0-B 라벨 40+50건은 근거 없이 잡은 양이다. 재검토 항목.
-
-### STEP 1 — 규칙 초안 (프로젝트 구조에서만)
-
-**과거 기록을 보지 않는다.** 이게 V0의 핵심 제약이다.
-
-규칙은 두 종류다.
-
-| 종류 | 판단 대상 | 출처 | 프로젝트 간 공유 |
-|---|---|---|---|
-| 전역 규칙 | 작업 종류(디버깅·구현·설계·질문), 지시 동사 | 사용자 말 습관. **V0에서는 손으로 쓴 초기 목록** | 된다 |
-| 프로젝트 규칙 | 도메인, 개념, 스킬 대응 | 개념 지도·AGENTS.md·폴더 | **안 된다** |
-
-**도메인은 `init`이 정하지 않는다.**
+### STEP 1 — 프로젝트 규칙 초안 (구조에서만)
 
 ```yaml
 domains:
-  status: unconfigured          # baton configure 전까지
-
-domain_evidence:                 # 도메인을 알아채는 어휘. 도메인이 아니다
+  status: unconfigured
+domain_evidence:
   from_concepts: [엔딩 판정, 잔상, 레이저]
   from_agents_md: [그래프 적립 장치]
   from_dirs: [src, specs, sim-tests]
-
-diagnostics:
-  commit_vocabulary:             # 규칙에 안 들어간다. 겹침만 잰다
-    terms: 183                   # [ILLUSTRATIVE]
-    reappear_in_prompts: 52      # [ILLUSTRATIVE]
 ```
 
-`baton configure`에서 **사람이** 도메인 이름을 정하고 증거 어휘를 연결한다.
+과거 기록을 보지 않는다. 커밋 메시지도 보지 않는다. 도메인 자동 제안은 없다.
+
+### configure — 사람이 도메인 정의
 
 ```yaml
 domains:
@@ -141,98 +86,140 @@ domains:
     evidence: [엔딩 판정, 잔상]
 ```
 
-자동 제안은 `NORTH_STAR.md`에만 남긴다. V0에서 하면 baton이 만든 분류를 baton이 채점하게 된다.
+이 단계가 끝나면 `freeze`. 이후 STEP 0-A·0-B·2 동안 `rules.yaml`을 건드리지 않는다.
 
-규칙 결과는 확률이 아니라 **상태**다. `MATCHED` 증거가 하나로 모임 · `AMBIGUOUS` 둘 이상에 걸림 ·
-`NO_MATCH` 증거 없음. 증거 우선순위: 명시 태그 > 정확한 구 > 두 단어 조합 > 단독 키워드.
-단독 키워드는 도메인을 정하지 못한다.
+### STEP 0-A — 사람 프롬프트 추출 검증
 
-### STEP 2 — 규칙 채점 (과거 기록으로만)
+`"type":"user"`에는 도구 결과가 섞여 있다. 추출기는 `content`가 문자열이거나 `text` 블록만 있는 것을
+사람 프롬프트로 본다. 길이로 거르지 않는다.
 
-층별 최소치. 총량 기준은 쓰지 않는다.
+**표본은 내용 구조별 층화.** 받아들인 쪽과 버린 쪽 각각에서 발견되는 구조마다 뽑는다.
 
 ```
-MATCHED 20 · AMBIGUOUS 20 · NO_MATCH 10
+accepted:  plain string / text block only / 기타 발견 구조
+rejected:  tool_result 포함 / mixed / 기타
+각 층 최소 5건. 어느 층을 몇 건 봤는지 기록.
 ```
 
-**라벨링 화면에서 규칙의 예측을 숨긴다.** 저장 후에만 보여 준다.
+이 수는 **초기 오류 탐지용 최소 수작업 예산**이지 통계적 충분성이 아니다.
 
-**정답은 하나가 아닐 수 있다.** `label_type: SINGLE | MULTI | NONE | UNCLEAR`, `domains: [...]`.
-"인증 API 고치고 배포까지"는 두 도메인이 정답이고 규칙의 `AMBIGUOUS`가 맞은 것이다.
+`[MEASURED, PRE-VALIDATION]` 15자 필터가 버리던 양. 아래 출처 블록의 386 대 333. 즉 추출기가 받아들인
+프롬프트의 14%를 길이 필터가 버리고 있었다. "빌드 고쳐줘"류가 거기 있다. 필터를 뺀 근거.
+
+### STEP 0-B — 작업 경계 검증
+
+출처를 분리한다. Claude·Codex 세션은 평가 대상, 커밋은 제외.
+
+**프로젝트 귀속.** 파일 안 `cwd`를 `Path.resolve()` 후 NFC 정규화로 비교.
+
+**Codex 연결.** `history.session_id`와 세션 파일명 끝 UUID를 파싱해 등호 비교. 파일 첫 줄
+`payload.session_id`로 교차 확인.
+
+```
+[MEASURED] 2026-09-21 · glob sessions/**/*.jsonl (숨김 제외) · 파일명 끝 UUID 정규식 · 등호 비교
+  history rows 207 · parse 실패 0 · missing session_id 0 · text 0 · ts 0 · distinct H = 26
+  session files S = 127 · 파일명 UUID 파싱 실패 0
+  M1 = 26 · M0 = 0 · Mmulti = 0 · P = 26 · C = 26
+  교차 확인: 첫 줄 payload.session_id == 파일명 UUID  127 / 127
+  판정: 통과.
+  기록: 중간에 "96개 불일치"가 나왔으나 정규식이 payload.id 앞의 다른 id를 잡은 측정 오류였다.
+```
+
+**작업 경계 후보.** `SESSION_FIRST`와 `GAP_CANDIDATE`(gap_minutes 기록). 30분을 경계로 정하지 않는다.
+
+**표본은 겹치지 않는 공백 구간별.** 15·30·60분은 중첩 문턱이라 "고르게"가 정의되지 않았다.
+
+```
+SESSION_FIRST            최소 10
+0  < gap < 15분          최소 10
+15 <= gap < 30분         최소 10
+30 <= gap < 60분         최소 10
+60 <= gap                최소 10
+```
+
+같은 라벨로 어느 문턱의 정밀도든 나중에 계산한다. 표본을 늘리려고 구간을 조정하지 않는다.
+
+```
+[MEASURED, PRE-VALIDATION] 2026-09-21 · 재측정. 이전 판의 "330 → 86"은 재현되지 않아 폐기.
+  Project root: (문서 프로젝트)
+  Source: Claude Code만 · Codex 미포함 · session files 24 · 기간 2026-08-22 ~ 09-21
+  Raw user-type events: 3038
+  Extractor accepted (구조 필터만): 386
+    그중 15자 이상: 333          ← 이전 판의 "330"에 해당. 파일이 늘어 3 차이
+  Among 333: SESSION_FIRST 17 · gap>=30분 59 · union 76   ← 이전 판의 "86"에 해당
+  차이 원인: 세션 파일 증가, 경계 비교가 > 에서 >= 로. 이전 실행의 정확한 조건은 기록이 없어 복원 불가.
+  Dedup 없음 · 0-A 검증 전 출력 · 스크립트: 이 문서 작성 세션의 python3 블록 (구현 시 파일로 고정)
+```
+
+### STEP 2 — 규칙 채점
+
+층별 최소치 `MATCHED 20 · AMBIGUOUS 20 · NO_MATCH 10`. 예측을 숨기고 라벨. `label_type: SINGLE | MULTI | NONE | UNCLEAR`.
 
 ## 성적표 `.baton/calibration.md`
 
-**층별 지표만.** 전체 정확도 한 숫자는 내지 않는다.
-아래는 `[ILLUSTRATIVE]` — 모양만 보여주는 예시이고 측정값이 아니다.
+층별 지표만. 아래 숫자는 전부 `[ILLUSTRATIVE]`.
 
 ```
 [ILLUSTRATIVE]
-STEP 0-A  추출기
-  받아들인 20건 중 사람 프롬프트     XX%
-  버린 20건 중 사람 프롬프트         XX%   ← 놓친 비율
+run #1 · rules_sha256 ab12… · domain_config_sha256 cd34… · corpus_sha256 ef56…
+global_rules v0.1.0 · configured_at … · evaluation_started_at …
 
-STEP 0-B  경계
-  SESSION_FIRST 새 작업 비율         XX%  (20건)
-  GAP >= 15/30/60분 새 작업 비율     XX% / XX% / XX%
-
-STEP 2  프로젝트 규칙 (문서 프로젝트, 20/20/10)
-  MATCHED 중 맞힘                     XX%
-  AMBIGUOUS 중 사람은 단일           XX%   ← rule ambiguity resolution opportunity
-  AMBIGUOUS 중 사람도 MULTI          XX%   ← 규칙이 맞은 것
-  NO_MATCH 중 사람은 답이 있음       XX%   ← 어휘 부족
-
-전역 규칙 (작업 종류, 4개 프로젝트 합산)
-  MATCHED 중 맞힘                     XX%
-
-진단
-  커밋 어휘 N개 중 프롬프트 재등장  XX%
+STEP 0-A  추출기 (구조별)
+  accepted/plain string     XX%  (n)     rejected/tool_result   XX%  (n)
+STEP 0-B  경계 (구간별)
+  SESSION_FIRST XX% · [0,15) XX% · [15,30) XX% · [30,60) XX% · [60,∞) XX%
+STEP 2    프로젝트 규칙 (20/20/10)
+  MATCHED 중 맞힘 XX% · AMBIGUOUS 중 단일 XX% (rule ambiguity resolution opportunity)
+  AMBIGUOUS 중 MULTI XX% (규칙이 맞음) · NO_MATCH 중 답 있음 XX%
+전역 규칙 v0.1.0 (작업 종류, 프로젝트 합산)   MATCHED 중 맞힘 XX%
 ```
 
-**"rule ambiguity resolution opportunity"의 뜻.** 규칙이 애매하다 했는데 사람은 하나로 답한 비율.
-Jev의 최대치가 아니다. 규칙 버그(명백한 구를 놓침)일 수도 있다. 나중에
-"규칙으로 고칠 수 있었음 / Jev 비교 가치 있음 / 사람도 사실 애매함"으로 나눈다.
-Jev의 실제 가치는 **같은 라벨 집합에서 Rules only 대 Rules + Jev 직접 비교**로만 나온다.
+"rule ambiguity resolution opportunity"는 Jev 최대치가 아니다. 규칙 버그일 수 있다.
+Jev 가치는 같은 라벨 집합에서 Rules only 대 Rules + Jev 직접 비교로만.
 
-**시간 누출.** 개념 지도가 최근에 커졌으면 지금 어휘로 과거를 채점하는 것이다. V0에서 허용하되
-성적표 머리에 이 문장을 적는다.
-
-**표본이 적으면 숫자 대신 상태.**
-```
-[ILLUSTRATIVE]  도메인 채점 (앱 프로젝트) · 표본 15건 · 상태 LOW_SAMPLE · 수치 없음
-```
-"프로젝트당 50건" 문턱은 없다. 기준선을 만드는 단계다.
+시간 누출(개념 지도가 최근 커짐)은 허용하되 성적표 머리에 적는다. 표본이 적으면 `LOW_SAMPLE`.
 
 ## `init` 실행 계약
 
-- 단계를 순서대로. 실패하면 `run.json`에 `{"run_status":"FAILED","failed_stage":"...","reason":"..."}`.
-- 결과는 임시 파일에 쓰고 성공 후 rename. 반쯤 쓰인 `calibration.md`가 완료로 보이면 안 된다.
-- 모든 수치는 **센 것 · 못 센 것 · 이유**를 함께. 0은 "없음"이 아니라 "못 셌음"일 수 있다.
+- `run.json`: `run_status`, `failed_stage`, `reason`, `rules_sha256`, `domain_config_sha256`,
+  `corpus_sha256`, `global_rules_version`, `configured_at`, `evaluation_started_at`.
+- 결과는 임시 파일 후 rename. 규칙 변경 시 `run #N+1`. 덮어쓰지 않는다.
+- 모든 경험적 수치는 센 것 · 못 센 것 · 이유 · 태그.
+
+## 선택 진단 (기본 실행 아님)
+
+```
+baton diagnose commits
+```
+
+커밋 어휘가 프롬프트에 **문자 그대로** 재등장하는 비율만 잰다. "겹침"의 정의(대소문자, 하이픈,
+한/영 대응)를 명령 안에 적는다. **결과로 V1 사용 여부를 정하지 않는다.** 어휘가 안 겹쳐도 정보 가치가
+없다는 뜻이 아니다.
 
 ## V0에 없는 것
 
-훅 · 컨텍스트 제거 · 스킬 필터 · 자동 핸드오프 · 에이전트 라우팅 · Jev · 그래프·온톨로지 수정 ·
-기존 driftmap·baton 스킬 변경 · 전체 정확도 한 숫자 · **도메인 자동 제안** · **기록으로 규칙 보정**.
+훅 · 컨텍스트 제거 · 스킬 필터 · 자동 핸드오프 · 라우팅 · Jev · 그래프·온톨로지 수정 · 기존 스킬 변경 ·
+전체 정확도 한 숫자 · 도메인 자동 제안 · 기록으로 규칙 보정 · **개인화 전역 규칙** · 커밋 어휘의 규칙 반영.
 
 ## 파일
 
 ```
 .baton/
-  rules.yaml        전역/프로젝트 구분. domains.status
-  tasks.jsonl       source · boundary_type · gap_minutes · SHORT_PROMPT · extractor_decision
-  labels.jsonl      0-A 추출 라벨 · 0-B 경계 라벨 · 2 도메인 라벨(label_type)
-  calibration.md    성적표. 모든 수치에 태그
-  run.json          매니페스트
+  rules.yaml        global(version) + project. domains.status
+  tasks.jsonl       source · boundary_type · gap_minutes · SHORT_PROMPT · content_schema · extractor_decision
+  labels.jsonl      0-A · 0-B · 2
+  calibration.md    run # · 지문 · 태그된 수치
+  run.json
 ```
-
-구현: `observer/baton_init.py` 하나 + `baton configure` + 규칙 파일 형식.
 
 ## 구현 전 재검토가 필요한 자리
 
-1. 0-A 20+20, 0-B 20+30 표본이 충분한가. `[ESTIMATE]`.
-2. 전역 규칙의 초기 목록을 "손으로 쓴다"고 했는데, 그것도 결국 과거 기록을 본 사람이 쓰는 것이다.
-   누출을 완전히 막으려면 규칙 작성자가 STEP 2 표본을 보기 전에 써야 한다. 순서를 강제할 방법.
-3. 커밋 어휘 진단이 실익이 있는가. 겹침이 낮으면 V1에서도 안 쓰는 것으로 결론.
+1. 0-A 층별 최소 5건, 0-B 구간별 최소 10건. `[ESTIMATE]`.
+2. 한국어 일반 동사 목록의 작성자 누출(위 "남는 누출"). 완화책 셋으로 충분한가, 아니면 목록을 비우고
+   영어 task_type만 두고 시작할 것인가.
+3. 이전 판 수치가 재현되지 않은 것을 계기로: **측정 스크립트를 문서가 아니라 저장소 파일로 고정**하고
+   실행 명령을 수치 옆에 적는 규칙을 V0 계약에 넣을 것인가.
 
-이전 판 열린 질문 중 닫힌 것: 도메인 자동 제안(뺌) · 커밋 어휘 규칙 반영(뺌) · Codex 연결 전수 검증(통과).
+닫힌 것: 도메인 자동 제안 · 커밋 어휘 규칙 반영 · Codex 연결(교차 확인까지) · 표본 정의 방식.
 
 ──── 끝. 이 줄까지 보였으면 전문이 전달된 것이다. ────
