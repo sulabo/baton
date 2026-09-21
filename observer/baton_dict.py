@@ -21,7 +21,14 @@ STOP = {"그", "이", "저", "그리고", "그런데", "근데", "일단", "우�
 V010 = {v for vs in R.GLOBAL_RULES["task_types"].values() for v in vs}
 
 def norm(p): return unicodedata.normalize("NFC", str(Path(p).expanduser().resolve()))
+# 이미지가 붙은 프롬프트에 하네스가 끼워 넣는 좌표 안내문. 사람 말이 아니다. 사전에서 걷어낸다.
+HARNESS_TEMPLATES = [re.compile(r"\[Image #\d+\]"),
+                     re.compile(r"Image original \d+x\d+ displayed at .*?to map to original\.?", re.S)]
+def strip_harness(text):
+    for pat in HARNESS_TEMPLATES: text = pat.sub(" ", text)
+    return text
 def tokens(text):
+    text = strip_harness(text)
     return [t for t in re.split(r"[\s,.!?~…\"'()\[\]/·:]+", text) if t and t not in STOP]
 
 def build(root, top):
@@ -48,6 +55,7 @@ def build(root, top):
     d = {"built_at": datetime.now(timezone.utc).isoformat(), "source_until": until, "n_prompts": len(acc),
          "note": "분류기가 아니다. 빈도 목록이다. 작업 종류 대응은 사람이 붙인다. source_until 이후 프롬프트가 시험 집합.",
          "verbs": vlist, "bigrams": glist,
+         "harness_template_stripped_rows": sum(1 for r in acc if r["text"] != strip_harness(r["text"])),
          "corpus_sha256": hashlib.sha256("".join(r["text"] for r in acc).encode()).hexdigest()}
     (out / "dict.json").write_text(json.dumps(d, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     covered = sum(1 for r in acc if any(t.endswith(ENDINGS) and in_v010(t) for t in tokens(r["text"])))
