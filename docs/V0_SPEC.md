@@ -137,9 +137,12 @@ rejected:  tool_result 포함 / mixed / 기타
   history rows 207 · parse 실패 0 · missing session_id 0 · text 0 · ts 0 · distinct H = 26
   session files S = 127 · 파일명 UUID 파싱 실패 0
   M1 = 26 · M0 = 0 · Mmulti = 0 · P = 26 · C = 26
-  교차 확인(연결된 것): payload.session_id == 파일명 UUID  26 / 26
-  교차 확인(파일 전부): payload.session_id == 파일명 UUID  31 / 127
-  실행: python3 observer/measure/codex_join_census.py   (script sha256 앞 12자 c838d5450d90)
+  교차 확인(연결된 26개): payload.session_id == 파일명 UUID  26 / 26
+  교차 확인(파일 전부):   payload.id == 파일명 UUID  127 / 127
+  구성: 루트 세션 31 · 포크 스레드 96 (forked_from_id 있음. session_id는 부모, history.jsonl에 없음)
+  → 정체성 필드는 payload.id. 5판 초고의 "31/127"은 session_id로 비교한 결과이며 오류가 아니라 포크였다.
+  → Codex 프롬프트 추출은 history.jsonl이 아니라 세션 파일을 직접 읽는다. 포크 96개는 history에 없다.
+  실행: python3 observer/measure/codex_join_census.py   (script sha256 앞 12자 fe4f5b9ab52c)
   판정: 통과.
   기록: 중간에 "96개 불일치"가 나왔으나 정규식이 payload.id 앞의 다른 id를 잡은 측정 오류였다.
 ```

@@ -41,15 +41,18 @@ print("  방법: glob sessions/**/*.jsonl (숨김 제외) · 파일명 끝 UUID 
 print(f"  history rows {rows} · parse 실패 {bad} · missing session_id {missing['session_id']} · text {missing['text']} · ts {missing['ts']} · distinct H = {len(Hd)}")
 print(f"  session files S = {len(S)} · 파일명 UUID 파싱 실패 {unparsed}")
 print(f"  M1 = {m1} · M0 = {m0} · Mmulti = {mm} · P = {parsed} · C = {with_cwd}")
-# 전체 파일 교차 확인 (연결 여부와 무관): 파일명 UUID == 첫 줄 payload.session_id
-cross_all = 0
+# 전체 파일: 정체성 필드는 payload.id (== 파일명 UUID). payload.session_id는 루트 세션 포인터라
+# 포크된 스레드(forked_from_id 있음)에서는 파일명과 다르다. history.jsonl은 루트만 적는다.
+id_ok = root = fork = 0
 for f in S:
     m = UUID.search(os.path.basename(f))
     if not m: continue
-    try:
-        first = json.loads(open(f, encoding="utf-8", errors="ignore").readline())
-        if first.get("payload", {}).get("session_id") == m.group(1): cross_all += 1
-    except (json.JSONDecodeError, OSError): pass
-print(f"  교차 확인(연결된 것): payload.session_id == 파일명 UUID  {cross} / {m1}")
-print(f"  교차 확인(파일 전부): payload.session_id == 파일명 UUID  {cross_all} / {len(S)}")
+    try: p = json.loads(open(f, encoding="utf-8", errors="ignore").readline()).get("payload", {})
+    except (json.JSONDecodeError, OSError): continue
+    if p.get("id") == m.group(1): id_ok += 1
+    if p.get("forked_from_id") or p.get("parent_thread_id"): fork += 1
+    elif p.get("session_id") == m.group(1): root += 1
+print(f"  교차 확인(연결된 26개): payload.session_id == 파일명 UUID  {cross} / {m1}")
+print(f"  교차 확인(파일 전부):   payload.id == 파일명 UUID  {id_ok} / {len(S)}")
+print(f"  구성: 루트 세션 {root} · 포크 스레드 {fork} (session_id는 부모를 가리킴, history에 없음)")
 print(f"  판정: {'통과' if mm == 0 else '실패'} (Mmulti = 0 필수)")
