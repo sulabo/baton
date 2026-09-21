@@ -120,7 +120,8 @@ rejected:  tool_result 포함 / mixed / 기타
   history rows 207 · parse 실패 0 · missing session_id 0 · text 0 · ts 0 · distinct H = 26
   session files S = 127 · 파일명 UUID 파싱 실패 0
   M1 = 26 · M0 = 0 · Mmulti = 0 · P = 26 · C = 26
-  교차 확인: 첫 줄 payload.session_id == 파일명 UUID  127 / 127
+  교차 확인: 연결된 26개의 첫 줄 payload.session_id == 파일명 UUID  26 / 26
+  (세션 파일 127개 전부에 대한 같은 확인은 이 문서 작성 중 1회 수동으로 127/127. 스크립트는 연결된 것만 본다)
   판정: 통과. 스크립트: `observer/measure/codex_join_census.py`
   기록: 중간에 "96개 불일치"가 나왔으나 정규식이 payload.id 앞의 다른 id를 잡은 측정 오류였다.
 ```
