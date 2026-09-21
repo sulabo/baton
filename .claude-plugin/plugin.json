@@ -1,7 +1,7 @@
 {
   "name": "driftguard",
   "version": "0.1.0",
-  "description": "에이전트가 모르는 것을 모른다고 말하게 만드는 플러그인. 결정·코드·문서의 어긋남을 개념 단위로 잡고, 세션을 넘길 때 영구 기록으로 올릴 것을 골라낸다.",
+  "description": "개념 단위로 지식의 어긋남을 추적해 다시 읽을 것만 고르고, 세션을 넘길 때 영구 기록으로 올릴 것을 골라내는 플러그인.",
   "author": { "name": "sulabo" },
   "repository": "https://github.com/sulabo/driftguard",
   "homepage": "https://github.com/sulabo/driftguard",
