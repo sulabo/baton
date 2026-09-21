@@ -41,5 +41,15 @@ print("  방법: glob sessions/**/*.jsonl (숨김 제외) · 파일명 끝 UUID 
 print(f"  history rows {rows} · parse 실패 {bad} · missing session_id {missing['session_id']} · text {missing['text']} · ts {missing['ts']} · distinct H = {len(Hd)}")
 print(f"  session files S = {len(S)} · 파일명 UUID 파싱 실패 {unparsed}")
 print(f"  M1 = {m1} · M0 = {m0} · Mmulti = {mm} · P = {parsed} · C = {with_cwd}")
-print(f"  교차 확인: payload.session_id == 파일명 UUID  {cross} / {m1}")
+# 전체 파일 교차 확인 (연결 여부와 무관): 파일명 UUID == 첫 줄 payload.session_id
+cross_all = 0
+for f in S:
+    m = UUID.search(os.path.basename(f))
+    if not m: continue
+    try:
+        first = json.loads(open(f, encoding="utf-8", errors="ignore").readline())
+        if first.get("payload", {}).get("session_id") == m.group(1): cross_all += 1
+    except (json.JSONDecodeError, OSError): pass
+print(f"  교차 확인(연결된 것): payload.session_id == 파일명 UUID  {cross} / {m1}")
+print(f"  교차 확인(파일 전부): payload.session_id == 파일명 UUID  {cross_all} / {len(S)}")
 print(f"  판정: {'통과' if mm == 0 else '실패'} (Mmulti = 0 필수)")

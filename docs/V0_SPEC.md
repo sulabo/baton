@@ -1,6 +1,6 @@
 # BATON V0 — 작업 추출을 먼저 검증하고, 규칙을 채점한다
 
-상태: 4판 (코덱스 3차 검토 반영)
+상태: 5판 (코덱스 4차 검토: 구현 착수 "예". 첫 커밋 전 조건 네 줄 반영)
 관계: `NORTH_STAR.md`의 첫 구현 단계. 여기 없는 것은 V0가 아니다.
 
 수치 표기 규칙. **모든 경험적 수치에는 태그가 붙는다.** 설계 파라미터(표본 수, 시간 구간 경계)는 붙이지 않는다.
@@ -21,6 +21,19 @@
 도메인을 정하므로 규칙은 구조 + 사람의 1회 설정이다. 그 사람은 과거 작업을 기억하고 있다.
 이것을 막지 않는다. 제품의 실제 초기 설정이 그렇기 때문이다. 막는 것은 **기록 파일을 열어 보고 규칙을
 쓰는 것**과 **채점 결과를 보고 규칙을 고친 뒤 같은 기록으로 다시 채점하는 것**이다.
+
+## 4판 → 5판 (코덱스 4차)
+
+구현 착수 판정 "예". 그 조건으로 다음 넷을 계약에 넣었다.
+
+1. **0-B 문턱 지표는 구간 모집단으로 가중한다.** 구간마다 같은 수를 뽑으면 표본은 25%씩인데 모집단은 다르다.
+2. **전역 규칙 v0.1.0의 과거 말뭉치 점수는 author-exposed baseline이다.** 독립 일반화 성능이 아니다.
+3. **재현되지 않은 이전 측정은 SUPERSEDED / UNREPRODUCIBLE로 보존하고 원인을 추정하지 않는다.**
+   4판의 "`>`→`>=`가 원인"은 증명되지 않은 귀속이었고, 그 변경은 후보를 늘리지 줄이지 않는다.
+4. **같은 말뭉치를 본 뒤 고친 규칙의 후속 run은 TUNED_ON_SEEN_CORPUS로 표시한다.** 지문은 추적성이지 누출 방지가 아니다.
+
+그 외: 층별 모집단이 목표보다 작으면 전수 검사하고 EXHAUSTED · 구간마다 population_n/sample_n/sampling/seed 기록 ·
+수동 숫자(127/127)를 스크립트 출력으로 대체 · [MEASURED]마다 실행 명령과 스크립트 해시 · 기간의 기준 시각 정의.
 
 ## 3판 → 4판
 
@@ -64,6 +77,10 @@ global_rules:
 **남는 누출.** 한국어 동사 목록을 쓰는 사람은 이 사용자의 기록을 이미 봤다(이 문서 작성자 포함).
 완전히 막을 방법은 다른 사람이 쓰는 것뿐이다. V0의 완화책은 셋이다. 말뭉치 특정 표현이 아니라
 **일반 명령형 동사만** 넣는다. 프로젝트 init 전에 고정한다. 이 문단을 스펙에 남긴다.
+
+**이 셋은 제거책이 아니라 완화책이다.** 따라서 현재 과거 말뭉치에서 계산한 전역 규칙 성능은 독립적인
+일반화 성능 추정치가 아니라 **author-exposed baseline**으로 취급한다. v0.1.0 동결 이후 새로 발생한
+기록에서 처음으로 prospective validation을 할 수 있다. v0.1.0은 변경 불가능한 버전 산출물로 남긴다.
 
 ### STEP 1 — 프로젝트 규칙 초안 (구조에서만)
 
@@ -120,9 +137,10 @@ rejected:  tool_result 포함 / mixed / 기타
   history rows 207 · parse 실패 0 · missing session_id 0 · text 0 · ts 0 · distinct H = 26
   session files S = 127 · 파일명 UUID 파싱 실패 0
   M1 = 26 · M0 = 0 · Mmulti = 0 · P = 26 · C = 26
-  교차 확인: 연결된 26개의 첫 줄 payload.session_id == 파일명 UUID  26 / 26
-  (세션 파일 127개 전부에 대한 같은 확인은 이 문서 작성 중 1회 수동으로 127/127. 스크립트는 연결된 것만 본다)
-  판정: 통과. 스크립트: `observer/measure/codex_join_census.py`
+  교차 확인(연결된 것): payload.session_id == 파일명 UUID  26 / 26
+  교차 확인(파일 전부): payload.session_id == 파일명 UUID  31 / 127
+  실행: python3 observer/measure/codex_join_census.py   (script sha256 앞 12자 c838d5450d90)
+  판정: 통과.
   기록: 중간에 "96개 불일치"가 나왔으나 정규식이 payload.id 앞의 다른 id를 잡은 측정 오류였다.
 ```
 
@@ -140,17 +158,38 @@ SESSION_FIRST            최소 10
 
 같은 라벨로 어느 문턱의 정밀도든 나중에 계산한다. 표본을 늘리려고 구간을 조정하지 않는다.
 
+**문턱 정밀도는 구간 모집단으로 가중한다.** 구간마다 10건씩 뽑으면 표본에서는 각 25%지만 모집단은
+(예컨대) 700·100·50·20이다. `[30,60)`과 `[60,∞)` 표본을 합쳐 30분 정밀도라 부르면 틀린다.
+그래서 `tasks.jsonl`에 **구간별 모집단 수**를 반드시 남긴다.
+
+모집단이 목표보다 작으면 **전수 검사하고 `EXHAUSTED`** 표시. 구간마다 기록:
+```json
+{"bucket":"gap_30_60","population_n":47,"sample_n":10,"sampling":"random","seed":20260921}
 ```
-[MEASURED, PRE-VALIDATION] 2026-09-21 · 재측정. 이전 판의 "330 → 86"은 재현되지 않아 폐기.
+이 표본은 통계적 충분성이 아니라 **초기 오류 탐지용 최소 수작업 예산**이다. "추출기가 검증됐다"고
+말하지 않는다.
+
+```
+[MEASURED, PRE-VALIDATION] 2026-09-21
+  실행: python3 observer/measure/extract_prompts.py '*26-05'   (script sha256 앞 12자 56d37229da86)
   Project root: (문서 프로젝트)
-  Source: Claude Code만 · Codex 미포함 · session files 24 · 기간 2026-08-22 ~ 09-21
+  Source: Claude Code만 · Codex 미포함 · session files 24
+  기간: 각 event의 timestamp 기준, 2026-08-22 00:00 이상 ~ 2026-09-22 00:00 미만 (파일 mtime 아님)
   Raw user-type events: 3038
   Extractor accepted (구조 필터만): 386
-    그중 15자 이상: 333          ← 이전 판의 "330"에 해당. 파일이 늘어 3 차이
-  Among 333: SESSION_FIRST 17 · gap>=30분 59 · union 76   ← 이전 판의 "86"에 해당
-  차이 원인: 세션 파일 증가, 경계 비교가 > 에서 >= 로. 이전 실행의 정확한 조건은 기록이 없어 복원 불가.
-  Dedup 없음 · 0-A 검증 전 출력 · 스크립트: `observer/measure/extract_prompts.py '*26-05'`
+    그중 15자 이상: 333
+  Among 333: SESSION_FIRST 17 · gap>=30분 59 · union 76
+  Dedup 없음 · 경계 비교 >= · 0-A 검증 전 출력
+
+Previous measurement: 330 → 86
+  Status: SUPERSEDED / UNREPRODUCIBLE
+  Reason: 당시 스크립트와 입력 스냅샷이 보존되지 않음
+  Known differences: 세션 파일 집합이 바뀜 · 경계 비교 연산자가 다를 수 있음
+  Causal attribution: unknown. 위 차이가 330→333, 86→76을 설명하는지 확인할 수 없다.
 ```
+
+**기간과 입력을 고정한다.** 같은 스크립트라도 파일이 추가되면 값이 달라진다. `run.json`에
+`measurement_cutoff`(위 상한)와 `source_manifest_sha256`(스캔한 파일 목록+크기의 해시)를 남긴다.
 
 ### STEP 2 — 규칙 채점
 
@@ -162,7 +201,9 @@ SESSION_FIRST            최소 10
 
 ```
 [ILLUSTRATIVE]
-run #1 · rules_sha256 ab12… · domain_config_sha256 cd34… · corpus_sha256 ef56…
+run #1 · evaluation_status BASELINE · evaluation_type operator-informed retrospective
+rules_sha256 ab12… · domain_config_sha256 cd34… · corpus_sha256 ef56… · script_sha256 …
+0-B 문턱 지표: 구간 모집단 가중 · 전역 규칙 점수: author-exposed baseline
 global_rules v0.1.0 · configured_at … · evaluation_started_at …
 
 STEP 0-A  추출기 (구조별)
@@ -183,7 +224,11 @@ Jev 가치는 같은 라벨 집합에서 Rules only 대 Rules + Jev 직접 비�
 ## `init` 실행 계약
 
 - `run.json`: `run_status`, `failed_stage`, `reason`, `rules_sha256`, `domain_config_sha256`,
-  `corpus_sha256`, `global_rules_version`, `configured_at`, `evaluation_started_at`.
+  `corpus_sha256`, `source_manifest_sha256`, `measurement_cutoff`, `script_sha256`,
+  `global_rules_version`, `configured_at`, `evaluation_started_at`, **`evaluation_status`**.
+- `evaluation_status`: 첫 run은 `BASELINE`. 채점 결과를 본 뒤 규칙을 고친 후속 run은
+  **`TUNED_ON_SEEN_CORPUS`**. 그 결과는 개선 작업에는 쓰되 **일반화 성능 주장에는 쓰지 않는다.**
+  지문은 추적성을 만들 뿐 누출을 막지 않는다.
 - 결과는 임시 파일 후 rename. 규칙 변경 시 `run #N+1`. 덮어쓰지 않는다.
 - 모든 경험적 수치는 센 것 · 못 센 것 · 이유 · 태그.
 
@@ -213,14 +258,12 @@ baton diagnose commits
   run.json
 ```
 
-## 구현 전 재검토가 필요한 자리
+## 구현 전 재검토 — 코덱스 4차에서 닫힘
 
-1. 0-A 층별 최소 5건, 0-B 구간별 최소 10건. `[ESTIMATE]`.
-2. 한국어 일반 동사 목록의 작성자 누출(위 "남는 누출"). 완화책 셋으로 충분한가, 아니면 목록을 비우고
-   영어 task_type만 두고 시작할 것인가.
-3. ~~측정 스크립트를 저장소 파일로 고정할 것인가~~ **했다.** `observer/measure/` 두 파일. 스펙의 [MEASURED]
-   블록은 그 스크립트를 다시 돌려 나온 값이다. 이 규칙을 V0 계약에 넣는다: **경험적 수치 옆에는 실행 명령이 있다.**
+1. 층별 예산 → "초기 오류 탐지용"으로 지위 확정, 모집단 부족 시 EXHAUSTED, 구간 메타 기록. 닫힘.
+2. 작성자 누출 → 제거가 아니라 완화·공개로 처리. author-exposed baseline 지위. 한국어 목록 유지. 닫힘.
+3. 측정 스크립트 고정 → 됨. 실행 명령과 해시를 수치 옆에. 닫힘.
 
-닫힌 것: 도메인 자동 제안 · 커밋 어휘 규칙 반영 · Codex 연결(교차 확인까지) · 표본 정의 방식.
+**구현 착수: 예.** 남은 것은 설계가 아니라 추출기와 규칙이 실제로 얼마나 깨지는지 보는 일이다.
 
 ──── 끝. 이 줄까지 보였으면 전문이 전달된 것이다. ────
