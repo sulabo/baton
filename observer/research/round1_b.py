@@ -6,11 +6,11 @@
 import json, random, sys
 from pathlib import Path
 
-OBS = "/Users/seongwoo/Documents/바이브 코딩/baton/observer"
+OBS = "<baton>/observer"
 sys.path.insert(0, OBS)
 import baton_rules  # noqa: E402
 
-BATON = Path("/Users/seongwoo/Documents/일자리/경력 기술서 26.05/.baton")
+BATON = Path("<project>/.baton")
 RULES = json.loads((BATON / "rules.json").read_text(encoding="utf-8"))
 
 rows = [json.loads(l) for l in open(BATON / "tasks.jsonl", encoding="utf-8") if l.strip()]
