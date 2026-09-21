@@ -23,6 +23,7 @@ def content_schema(c):
     if isinstance(c, list):
         kinds = {x.get("type") for x in c if isinstance(x, dict)}
         if kinds == {"text"}: return "text_block_only"
+        if kinds <= {"text", "image"} and "text" in kinds: return "text_with_image"
         if "tool_result" in kinds and kinds - {"tool_result"}: return "mixed"
         if "tool_result" in kinds: return "tool_result"
         return "other_list"
@@ -30,7 +31,8 @@ def content_schema(c):
 
 def human_text(c, schema):
     if schema == "plain_string": return c.strip()
-    if schema == "text_block_only": return " ".join(x.get("text", "") for x in c).strip()
+    if schema in ("text_block_only", "text_with_image"):
+        return " ".join(x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text").strip()
     return None
 
 def parse_ts(s):
@@ -62,7 +64,7 @@ def extract(root, source):
     cutoff = (now() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     manifest = "\n".join(f"{f} {os.path.getsize(f)}" for f in files)
     rows, counts = [], {"raw_user_events": 0, "accepted": 0, "accepted_ge15": 0,
-                        "session_first": 0, "gap_ge30": 0, "skipped_after_cutoff": 0}
+                        "session_first": 0, "gap_ge30": 0, "skipped_after_cutoff": 0, "negative_gap_clamped": 0}
     schema_pop, bucket_pop = {}, {n: 0 for n, _, _ in GAP_BUCKETS}; bucket_pop["SESSION_FIRST"] = 0
     for f in files:
         prev = None
@@ -92,6 +94,7 @@ def extract(root, source):
                 if len(text) >= SHORT: counts["session_first"] += 1
             elif ts and prev:
                 gap = (ts - prev).total_seconds() / 60
+                if gap < 0: counts["negative_gap_clamped"] += 1; gap = 0.0   # 밀리초 순서 뒤바뀜
                 b = bucket(gap)
                 row.update(boundary_type="GAP_CANDIDATE", gap_minutes=round(gap, 1), gap_bucket=b)
                 if b: bucket_pop[b] += 1

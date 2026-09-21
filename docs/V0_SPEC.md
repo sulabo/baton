@@ -107,8 +107,13 @@ domains:
 
 ### STEP 0-A — 사람 프롬프트 추출 검증
 
-`"type":"user"`에는 도구 결과가 섞여 있다. 추출기는 `content`가 문자열이거나 `text` 블록만 있는 것을
-사람 프롬프트로 본다. 길이로 거르지 않는다.
+`"type":"user"`에는 도구 결과가 섞여 있다. 추출기는 `content`가 문자열이거나, `text` 블록만 있거나,
+**`text`+`image` 블록만 있는 것**(tool_result 없음)을 사람 프롬프트로 본다. 길이로 거르지 않는다.
+
+`[MEASURED]` 2026-09-21, 0-A 첫 결함. 스펙이 "text 블록만"이라 적혀 있어 첫 구현이 이미지가 붙은
+사람 프롬프트 3건("일단은 1-1이야", "아니 없다니까?")을 버렸다. 고정 측정 스크립트는 받아들여
+383 대 386으로 갈렸고, 그 차이로 잡았다. **구현 둘을 대조하는 것이 0-A의 방법 하나다.** 수정 후 일치.
+음수 공백(밀리초 순서 뒤바뀜) 2건은 0으로 잡고 `negative_gap_clamped`에 센다.
 
 **표본은 내용 구조별 층화.** 받아들인 쪽과 버린 쪽 각각에서 발견되는 구조마다 뽑는다.
 
@@ -179,7 +184,7 @@ SESSION_FIRST            최소 10
   Source: Claude Code만 · Codex 미포함 · session files 24
   기간: 각 event의 timestamp 기준, 2026-08-22 00:00 이상 ~ 2026-09-22 00:00 미만 (파일 mtime 아님)
   Raw user-type events: 3038
-  Extractor accepted (구조 필터만): 386
+  Extractor accepted (구조 필터만): 386   (observer/baton_init.py extract 도 386. script sha256 앞 12자 e59003094d67)
     그중 15자 이상: 333
   Among 333: SESSION_FIRST 17 · gap>=30분 59 · union 76
   Dedup 없음 · 경계 비교 >= · 0-A 검증 전 출력
