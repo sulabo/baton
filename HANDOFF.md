@@ -1,13 +1,14 @@
-# Session Handoff (작성: 2026-10-01 · v0.2 후보 완성, 개인 자료 정리 뒤 새 이력으로 main 교체 — 소유자 실사용 대기)
+# Session Handoff (작성: 2026-10-01 · 정리판 공개, 다음은 이번 주 beta v1.0 — 범위부터 정한다)
 
 ## 목표와 완료 조건
 - 목표: 1차 목표 v0.2 공개(`DECISIONS.md` 10-01) — ① 작업 정리 ② 세션 끊기 알림 완성 ③ **소유자 설치 후 실사용 2주** ④ 실측을 README에 넣고 v0.2.0 릴리스.
 - 지금: ①② 완료. ③ 소유자 설치 대기. ④는 ③ 뒤.
-- 저장소는 **비공개**(10-01 전환). 다시 공개할지는 소유자 결정.
+- 저장소 `sulabo/baton`은 **새로 만든 공개 저장소**(10-01). 옛 이력은 비공개 `sulabo/baton-archive-20261001`(삭제는 소유자가 `gh auth refresh -s delete_repo` 뒤 판단).
+- **새 목표(소유자 10-01): 이번 주(10-04까지) beta v1.0.** 범위 미정 — 다음 세션 첫 일. v0.2의 "2주 실사용"과 일정이 부딪힌다.
 
 ## 확인된 사실과 결정
 - 결정 기록은 이제 `DECISIONS.md`(10-01 신설). 항목마다 결정 주체(소유자 / 세션 판정)를 적었다. **방향을 바꾸기 전에 먼저 읽는다.**
-- 10-01 개인 자료 점검: 옛 공개 main에 소유자의 다른 세션 프롬프트 원문, 커밋 이력에 다른 저장소 절대경로, 공개 예정 문서에 실명 파일명·경력 내용이 있었다 → 비공개 전환 → 파일 정리 → **이 커밋 하나로 main을 새 이력으로 교체**(force-push — 푸시 뒤 `gh api repos/sulabo/baton -q .pushed_at`로 확인).
+- 10-01 개인 자료 점검: 옛 공개 main에 소유자의 다른 세션 프롬프트 원문, 커밋 이력에 다른 저장소 절대경로, 공개 예정 문서에 실명 파일명·경력 내용이 있었다 → 비공개 전환 → 파일 정리 → 커밋 하나로 새 이력 → force-push로는 옛 커밋이 해시로 남아서 옛 저장소는 이름을 바꿔 보관하고 `sulabo/baton`을 새로 만들어 공개.
 - **옛 이력(45커밋)과 정리 전 원문은 소유자 로컬 저장소에만 있다** — `~/Documents/바이브 코딩/baton`(브랜치 `roadmap-step2`, 커밋 안 한 변경 포함). 그 저장소는 이제 origin과 이력이 갈라졌다. 백업으로 두고 새로 clone해서 작업한다.
 - 로컬 전용(gitignore): `docs/north-star/`(정본 원문 3종) · `observer/research/cases.json`(사례 20건) · `.data/`(실험 스냅샷). 새 clone에는 없다 — 필요하면 위 로컬 저장소에서 복사. 없으면 해당 테스트 3개는 건너뛴다.
 - 공개판의 다른 저장소 이름은 일반 표기로 바꿨다: 게임 저장소 = `game`(옛 이름 `game-old`), 앱 저장소 = `app`, 문서 저장소 = `docsrepo`. 사례 ID도 같은 규칙(로컬 `cases.json`은 원래 ID — 대조할 때 주의).
@@ -39,8 +40,9 @@
 - 별도 코드 리뷰(REQUEST CHANGES 16건 → 반영) · 별도 개인 자료 점검(공개됨·공개 예정 → 정리). 정리 뒤 재점검 결과는 커밋 직전 판정에 반영.
 
 ## 남은 리스크와 다음 행동
+- 다음 행동(세션, 맨 먼저): **beta v1.0 범위를 소유자와 정한다.** 후보 — 설치·실사용 첫 측정(며칠분), README 실측·사용 가이드, Codex 실제 세션 확인, 단계 3 인계서 검증기, 버전 1.0.0-beta 표기.
 - 다음 행동(소유자):
-  1. 설치 — Claude Code: `/plugin marketplace add sulabo/baton` → `/plugin install baton@baton`. 비공개 저장소라 GitHub 인증이 된 환경이어야 받는다. 받기 어려우면 clone 뒤 `tools/stage-plugin.sh` 사본으로 `/plugin marketplace add ~/.cache/baton/plugin`.
+  1. 설치 — Claude Code: `/plugin marketplace add sulabo/baton` → `/plugin install baton@baton`. 공개 저장소라 인증 없이 받는다. 로컬 사본으로 하려면 clone 뒤 `tools/stage-plugin.sh` 사본으로 `/plugin marketplace add ~/.cache/baton/plugin`.
   2. 2주 사용. 설치한 날짜가 전후 경계다.
 - 다음 행동(세션): 2주 뒤 `observer/research/usage_week.py`로 설치 전후 비교(상태 세션의 첫 5호출 인계서 재독률 — 기준 41/42, 여는 구간 토큰 — 기준 약 357K~401K, 세션 끊기 알림 수·넘긴 세션 비율). 결과를 README에 넣고 v0.2.0.
 - 리스크: 세션 끊기 절감은 재계산 추정(실측 아님). 측정은 한 사람의 사용 방식. 옛 공개 기간(09-20~10-01)에 누가 clone했다면 그 사본은 못 지운다.
