@@ -1,0 +1,8 @@
+코덱스-검토요청.md
+.data/
+__pycache__/
+.DS_Store
+.omc/
+# 로컬 전용(10-01 소유자 결정): 북극성 정본 원문, 다른 저장소의 커밋·프롬프트를 인용한 사례 모음
+docs/north-star/
+observer/research/cases.json
