@@ -8,7 +8,7 @@
       "name": "baton",
       "source": "./",
       "description": "결정·코드·문서의 어긋남을 개념 단위로 추적해 다시 읽을 것만 고르고, 세션 인계서에서 영구 기록으로 올릴 것을 골라낸다.",
-      "version": "0.1.0",
+      "version": "1.0.0-beta.1",
       "author": { "name": "sulabo" }
     }
   ]

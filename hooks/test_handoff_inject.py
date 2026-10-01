@@ -19,7 +19,7 @@ class HandoffInjectTest(unittest.TestCase):
         if extra_env:
             env.update(extra_env)
         stdin = raw_stdin if raw_stdin is not None else json.dumps({"prompt": prompt})
-        return subprocess.run(
+        r = subprocess.run(
             [sys.executable, HOOK],
             input=stdin,
             text=True,
@@ -27,6 +27,11 @@ class HandoffInjectTest(unittest.TestCase):
             env=env,
             check=False,
         )
+        if r.stdout.strip():  # 넣을 것이 있으면 JSON 하나 — 테스트는 그 안의 맥락 텍스트를 본다
+            out = json.loads(r.stdout)["hookSpecificOutput"]
+            self.assertEqual(out["hookEventName"], "UserPromptSubmit")
+            r.stdout = out["additionalContext"]
+        return r
 
     def write(self, root, rel, text):
         path = os.path.join(root, rel)

@@ -113,8 +113,11 @@ def main():
     repo = rules.repo_root()  # HEAD와 같이 프로세스 cwd 기준(Claude Code는 CLAUDE_PROJECT_DIR, Codex는 세션 cwd에서 훅을 돌린다)
     htext, handoff = inject_handoff(repo, prompt)
     ctext, concept = inject_concept(repo, prompt)
-    sys.stdout.write(htext + ctext)
-    sys.stdout.flush()
+    if htext or ctext:
+        # 일반 stdout은 Claude Code만 맥락에 넣는다. Codex는 additionalContext만 받는다(10-01 실제 Codex 세션 확인) — 둘 다 받는 JSON으로 낸다
+        out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": htext + ctext}}
+        sys.stdout.write(json.dumps(out, ensure_ascii=False))
+        sys.stdout.flush()
     observe(repo, prompt, data, handoff, concept)
 
 

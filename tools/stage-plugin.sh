@@ -3,7 +3,8 @@
 # 저장소 루트를 그대로 주면 gitignore된 .data/(실험 스냅샷 2.6G — 원본 저장소 사본 포함)·.git·.omc까지 캐시로 들어간다(2026-09-30 실측).
 # 그래서 git이 아는 파일(추적 + 무시 안 된 새 파일, 작업 트리에서 지운 것은 뺌)만 옮긴 사본을 설치 원본으로 쓴다.
 #   tools/stage-plugin.sh [대상 폴더]   기본: ~/.cache/baton/plugin
-# 갱신: 다시 돌린 뒤 Claude Code는 /plugin marketplace update baton, Codex는 codex plugin marketplace upgrade baton
+# 갱신: 다시 돌린 뒤 Claude Code는 /plugin marketplace update baton, Codex는 codex plugin remove baton@baton → codex plugin add baton@baton
+#   (Codex의 marketplace upgrade는 Git 마켓플레이스만 받는다 — 로컬 사본에는 "not configured as a Git marketplace", 10-01 확인)
 set -euo pipefail
 SRC=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)
 DST="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/baton/plugin}"

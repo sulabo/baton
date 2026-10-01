@@ -6,7 +6,12 @@
 #  2) 지도가 있는데 쓸 수 없는 상태면 그것을 알린다. 조용한 것과 구분한다.
 #
 # 매 세션 도는 훅이라 느리면 안 된다. 전수 계산 대신 메타 줄만 센다.
+# 출력은 JSON additionalContext — 일반 stdout은 Claude Code만 맥락에 넣고 Codex는 버린다(10-01 확인, handoff-inject.py와 같은 이유).
 set -uo pipefail
+
+emit() {
+  python3 -c 'import json, sys; print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": sys.argv[1]}}, ensure_ascii=False))' "$1"
+}
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 MAP=$(find "$ROOT" -maxdepth 2 -name CONCEPTS.md -not -path "*/node_modules/*" 2>/dev/null | head -1)
@@ -18,15 +23,17 @@ META=$(grep -c '^- \*\*메타\*\*:' "$MAP" 2>/dev/null | tr -cd '0-9'); META=${M
 
 # 메타 줄이 없으면 신선도를 못 센다. 이걸 침묵으로 두면 지도가 무용지물인 줄 모른다.
 if [ "$META" -eq 0 ]; then
-  echo "[baton] 개념 지도가 있는데 메타 줄이 없다 (개념 ${CONC}개)."
-  echo "  신선도를 계산할 수 없다 — 0건이 아니라 '모름'이다."
-  echo "  채우려면: /drift 또는 driftmap 스킬"
+  emit "[baton] 개념 지도가 있는데 메타 줄이 없다 (개념 ${CONC}개).
+  신선도를 계산할 수 없다 — 0건이 아니라 '모름'이다.
+  채우려면: /drift 또는 driftmap 스킬"
   exit 0
 fi
 
 # 여기서부터가 무거운 계산이다 (개념 수 × git log).
 # HEAD와 지도 내용이 그대로면 결과도 그대로이므로 캐시한다.
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/baton"
+# 전용 하위 폴더 — baton/ 바로 아래에는 관찰 로그·알림 상태·설치 사본(stage-plugin.sh 기본값)이 있다.
+# 10-01 이전에는 baton/ 전체에서 7일 넘은 파일을 지워 그것들까지 지웠다.
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/baton/drift"
 KEY=$(printf '%s|%s|%s' "$MAP" \
       "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" \
       "$(cksum < "$MAP" 2>/dev/null)" | cksum | tr -d ' ')
@@ -39,13 +46,15 @@ else
   mkdir -p "$CACHE_DIR" 2>/dev/null && {
     printf '%s' "$OUT" > "$CACHE" 2>/dev/null
     # 오래된 캐시를 치운다. 키가 바뀌면 파일이 쌓이기만 한다.
-    find "$CACHE_DIR" -type f -mtime +7 -delete 2>/dev/null
+    find "$CACHE_DIR" -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null
   }
 fi
 STALE=$(echo "$OUT" | grep -c '재확인 필요' | tr -cd '0-9'); STALE=${STALE:-0}
 FRESH=$(echo "$OUT" | grep -c '신선'      | tr -cd '0-9'); FRESH=${FRESH:-0}
 [ "$STALE" -eq 0 ] && exit 0
 
-echo "[baton] 개념 지도에 재확인 대상 ${STALE}건 (신선 ${FRESH}건). 자세히는 /drift"
-[ "$META" -lt "$CONC" ] && echo "  개념 ${CONC}개 중 메타 줄 ${META}개 — 나머지 $((CONC-META))개는 아예 못 센다."
+MSG="[baton] 개념 지도에 재확인 대상 ${STALE}건 (신선 ${FRESH}건). 자세히는 /drift"
+[ "$META" -lt "$CONC" ] && MSG="$MSG
+  개념 ${CONC}개 중 메타 줄 ${META}개 — 나머지 $((CONC-META))개는 아예 못 센다."
+emit "$MSG"
 exit 0
