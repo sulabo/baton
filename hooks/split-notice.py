@@ -10,10 +10,11 @@
 #
 # 알림은 사용자에게만 보인다(systemMessage). 모델의 행동은 바꾸지 않는다. 매번 울리는 알람은 무시당하므로 문턱마다 한 번.
 # 끄기: BATON_SPLIT_NOTICE=off · 문턱: BATON_SPLIT_RATIOS="2,3"
+#   환경변수 또는 설정 파일(lib/config.py, /baton-setup이 사용자 세션 분포로 문턱을 제안해 쓴다)에서 읽는다.
 import json, os, re, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
-import runlog
+import config, rules, runlog
 
 TOKEN_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 TAIL_BYTES = 512 * 1024
@@ -60,21 +61,23 @@ def first_and_last(path):
     return first, last
 
 
-def ratios():
+def ratios(repo):
     try:
-        return sorted(float(x) for x in os.environ.get("BATON_SPLIT_RATIOS", "2,3").split(",") if x.strip())
+        return sorted(float(x) for x in config.get("BATON_SPLIT_RATIOS", repo, "2,3").split(",") if x.strip())
     except ValueError:
         return [2.0, 3.0]
 
 
 def main():
-    if os.environ.get("BATON_SPLIT_NOTICE", "").strip().lower() in ("off", "0", "false", "no"):
-        return
     try:
         data = json.load(sys.stdin)
     except Exception:
         return
     if not isinstance(data, dict):
+        return
+    # 설정 파일이 없으면 저장소 루트를 찾으러 git을 부르지 않는다(Codex 훅에는 CLAUDE_PROJECT_DIR가 없다)
+    repo = rules.repo_root(data["cwd"] if isinstance(data.get("cwd"), str) else None) if config.load() is not None else None
+    if config.get("BATON_SPLIT_NOTICE", repo).strip().lower() in ("off", "0", "false", "no"):
         return
     path, sid = data.get("transcript_path"), data.get("session_id")
     if not isinstance(path, str) or not os.path.isfile(path) or not isinstance(sid, str) or not re.fullmatch(r"[\w-]{1,128}", sid):
@@ -86,7 +89,7 @@ def main():
     if not first or not last:
         return
     r = last / first
-    crossed = [x for x in ratios() if r >= x]
+    crossed = [x for x in ratios(repo) if r >= x]
     if not crossed:
         return
     band = crossed[-1]

@@ -55,11 +55,12 @@ def claude_files_for(root):
     out = []
     for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
         try:
-            for line in open(f, encoding="utf-8", errors="ignore"):
-                d = json.loads(line) if line.strip() else None
-                if d and d.get("cwd"):
-                    if norm(d["cwd"]) == root: out.append(f)
-                    break
+            with open(f, encoding="utf-8", errors="ignore") as fh:
+                for line in fh:
+                    d = json.loads(line) if line.strip() else None
+                    if d and d.get("cwd"):
+                        if norm(d["cwd"]) == root: out.append(f)
+                        break
         except (json.JSONDecodeError, OSError): continue
     return sorted(out)
 

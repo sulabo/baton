@@ -67,7 +67,7 @@ def handoff_read(block):
 
 def session_of(path):
     """세션 하나 요약. 메인 스레드 API 호출이 없거나 사람 프롬프트가 없으면 None."""
-    calls, first_prompt, start, cwd, entry, injected, reread = {}, None, None, None, None, False, None
+    calls, first_prompt, start, cwd, entry, injected, reread, prompts = {}, None, None, None, None, False, None, []
     with open(path, encoding="utf-8", errors="ignore") as fh:
         lines = fh.readlines()
     for ln in lines:
@@ -78,12 +78,14 @@ def session_of(path):
         if a.get("hookEvent") == "UserPromptSubmit" and MARK in json.dumps(a.get("content"), ensure_ascii=False):
             injected = True
         if d.get("isSidechain"): continue
-        if d.get("type") == "user" and first_prompt is None and not d.get("isMeta") and not d.get("isCompactSummary"):
+        if d.get("type") == "user" and not d.get("isMeta") and not d.get("isCompactSummary"):
             text = human_text(d.get("message", {}).get("content"))
             if text and not text.startswith("<") and not text.startswith(NOT_HUMAN):
-                first_prompt, entry = text, d.get("entrypoint")
-                try: start = datetime.fromisoformat(d.get("timestamp", "").replace("Z", "+00:00")).astimezone()
-                except ValueError: pass
+                prompts.append(text)  # 사람 프롬프트 전부(lib/setup_scan.py가 트리거 후보가 걸릴 프롬프트 수를 센다)
+                if first_prompt is None:
+                    first_prompt, entry = text, d.get("entrypoint")
+                    try: start = datetime.fromisoformat(d.get("timestamp", "").replace("Z", "+00:00")).astimezone()
+                    except ValueError: pass
         if d.get("type") == "assistant":
             m = d.get("message") or {}
             if m.get("model") == "<synthetic>": continue
@@ -99,17 +101,18 @@ def session_of(path):
         return None
     other = bool(OTHER_HANDOFF.search(first_prompt))
     return {
-        "file": path, "cwd": cwd, "entry": entry, "start": start, "calls": len(calls),
+        "file": path, "cwd": cwd, "entry": entry, "start": start, "calls": len(calls), "prompt": first_prompt, "prompts": prompts,
         "tokens": sum(calls.values()), "first": next(iter(calls.values())),
         "open": sum(list(calls.values())[:OPEN]), "reread": reread,
         "status": bool(TRIGGER.search(first_prompt)) and not other, "other_handoff": other, "injected": injected,
     }
 
 
-def collect(pat="*", since=None):
+def collect(pat="*", since=None, files=None):
+    """files를 주면 glob 대신 그 세션 파일들만 고른다(lib/setup_scan.py가 저장소별 파일 목록을 넘긴다)."""
     out, by_id = [], {}
     skipped = {"experimental": 0, "non_cli": 0, "empty": 0, "duplicate": 0, "before_since": 0}
-    for f in glob.glob(os.path.expanduser(f"~/.claude/projects/{pat}/*.jsonl")):
+    for f in files if files is not None else glob.glob(os.path.expanduser(f"~/.claude/projects/{pat}/*.jsonl")):
         by_id.setdefault(os.path.basename(f), []).append(f)
     for sid in sorted(by_id):
         copies = sorted(by_id[sid], key=os.path.getsize, reverse=True)  # 폴더 이름 변경으로 생긴 사본 — 가장 긴 것을 쓴다

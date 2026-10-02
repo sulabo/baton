@@ -5,10 +5,23 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(__file__)
 HOOK = os.path.join(HERE, "handoff-inject.py")
 REPO = os.path.dirname(HERE)
+
+
+_CFG = tempfile.TemporaryDirectory()  # 실제 설정 파일(~/.config/baton/config.json)을 읽지 않는다 — 훅 자식 프로세스도 이 환경을 물려받는다
+_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name})
+
+
+def setUpModule():
+    _CFG_ENV.start()
+
+
+def tearDownModule():
+    _CFG_ENV.stop(); _CFG.cleanup()
 
 
 class HandoffInjectTest(unittest.TestCase):
