@@ -5,10 +5,23 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import handoff_check
+
+
+_CFG = tempfile.TemporaryDirectory()  # 실제 설정 파일(~/.config/baton/config.json)을 읽지 않는다 — 훅 자식 프로세스도 이 환경을 물려받는다
+_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name})
+
+
+def setUpModule():
+    _CFG_ENV.start()
+
+
+def tearDownModule():
+    _CFG_ENV.stop(); _CFG.cleanup()
 
 GOOD = """# Session Handoff (작성: 2026-10-01)
 
@@ -136,6 +149,29 @@ class HandoffCheckTest(unittest.TestCase):
         self.assertIn("검증 증거", handoff_check.check(text)[0])
         text = GOOD.replace("## 목표와 완료 조건", "## 다음 목표 없음")
         self.assertIn("목표와 완료 조건", handoff_check.check(text)[0])
+
+    def test_private_terms_reported_without_value(self):
+        out = handoff_check.check(GOOD + "- 홍길동 님 요청\n- 메일 KIM@corp.io 확인\n- 홍길동 다시\n", private_terms=["홍길동", "kim@corp.io", " "])
+        joined = "\n".join(out)
+        self.assertIn("개인 자료 목록 단어 2개 발견", joined)
+        self.assertIn(f"{GOOD.count(chr(10)) + 1}, {GOOD.count(chr(10)) + 2}, {GOOD.count(chr(10)) + 3}줄", joined)
+        self.assertNotIn("홍길동", joined)
+        self.assertNotIn("corp.io", joined.lower())
+        self.assertEqual(handoff_check.check(GOOD + "- skim 했다\n", private_terms=["kim"]), [])  # 영숫자 사이에 낀 것은 아니다
+        self.assertEqual(handoff_check.check(GOOD + "- 홍길동\n"), [])  # 목록이 없으면 검사하지 않는다
+
+    def test_check_file_reads_private_terms_from_config(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "HANDOFF.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(GOOD + "- 홍길동\n")
+            self.assertEqual(handoff_check.check_file(p), [])
+            cfg = os.path.join(os.environ["XDG_CONFIG_HOME"], "baton", "config.json")
+            os.makedirs(os.path.dirname(cfg), exist_ok=True)
+            with open(cfg, "w", encoding="utf-8") as f:
+                f.write('{"global": {"private_terms": ["홍길동"]}}')
+            self.addCleanup(os.remove, cfg)
+            self.assertTrue(any("개인 자료 목록" in x for x in handoff_check.check_file(p)))
 
     def test_cli_exit_codes(self):
         with tempfile.TemporaryDirectory() as d:
