@@ -10,7 +10,7 @@
 # 훅 출력이 8,995자일 때는 컨텍스트에 들어갔고 20,826자일 때는 Claude Code가 파일로 빼 두고
 # 에이전트가 그 파일을 다시 cat했다 — 넣은 것이 아니라 가리킨 것이 됐다. 정확한 문턱은 확인 못 함.
 # 넘치면 잘랐다는 것을 한 줄로 말한다 — 조용히 자르면 뒤쪽에 있는 다음 행동을 "없음"으로 읽는다.
-# 끄기: BATON_HANDOFF_INJECT=off
+# 끄기: BATON_HANDOFF_INJECT=off. 이 스위치들과 추가 트리거 말은 환경변수 또는 설정 파일에서 읽는다(lib/config.py, /baton-setup).
 # 실험: BATON_CONCEPT_INJECT=on 이면 프롬프트가 개념 제목을 가리킬 때 CONCEPTS.md의 해당 절만 넣는다.
 #
 # 관찰(북극성 길 단계 1): 프롬프트마다 규칙 판단(lib/rules.py)과 실제로 넣은 것을 판단 로그에 한 줄 남긴다.
@@ -19,7 +19,7 @@
 import hashlib, json, os, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
-import rules, runlog
+import config, rules, runlog
 
 LIMIT = 200
 LIMIT_CHARS = 9000
@@ -39,12 +39,12 @@ def read_input():
     return data if isinstance(data, dict) else {}
 
 
-def on(name):
-    return os.environ.get(name, "").strip().lower() in ("on", "1", "true", "yes")
+def on(name, repo):
+    return config.get(name, repo).strip().lower() in ("on", "1", "true", "yes")
 
 
-def off(name):
-    return os.environ.get(name, "").strip().lower() in ("off", "0", "false", "no")
+def off(name, repo):
+    return config.get(name, repo).strip().lower() in ("off", "0", "false", "no")
 
 
 def concept_text(num, name, body):
@@ -53,7 +53,7 @@ def concept_text(num, name, body):
 
 def inject_concept(repo, prompt):
     """넣을 텍스트와 개념 번호. 안 넣으면 ("", None)."""
-    if not on("BATON_CONCEPT_INJECT"):
+    if not on("BATON_CONCEPT_INJECT", repo):
         return "", None
     _, rel = rules.concept_path(repo)
     sections = rules.concept_sections(repo)
@@ -72,9 +72,9 @@ def inject_concept(repo, prompt):
 
 def inject_handoff(repo, prompt):
     """넣을 텍스트와 (넣은 줄, 전체 줄). 안 넣으면 ("", None)."""
-    if off("BATON_HANDOFF_INJECT"):
+    if off("BATON_HANDOFF_INJECT", repo):
         return "", None
-    if not TRIGGER.search(prompt):
+    if not rules.trigger_words(repo, prompt):
         return "", None
     path = os.path.join(repo, "HANDOFF.md")
     if not os.path.isfile(path):

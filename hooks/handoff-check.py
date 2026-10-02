@@ -7,32 +7,38 @@
 #   쓰기는 사람이 정한다. 문턱 3은 로컬 세션 94개 실측(2026-10-01): 1~2개 고친 세션은 인계서를 16% 썼고 3개 이상은 67% 썼다.
 #
 # 끄기: BATON_HANDOFF_CHECK=off(검사) · BATON_HANDOFF_NUDGE=off(제안) · 문턱: BATON_HANDOFF_NUDGE_FILES=3
+#   환경변수 또는 설정 파일(lib/config.py, /baton-setup이 사용자 세션 분포로 문턱을 제안해 쓴다)에서 읽는다.
 # Codex의 편집 도구(apply_patch)는 file_path를 주지 않아 여기서 안 잡힌다 — 스킬이 쓴 뒤 검사기를 직접 부른다.
 import json, os, re, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
-import handoff_check, runlog
+import config, handoff_check, rules, runlog
 
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}  # 제안 문턱에 세는 편집. 검사 matcher에 NotebookEdit가 없는 것은 HANDOFF.md를 못 고쳐서다
 
 
-def off(name):
-    return os.environ.get(name, "").strip().lower() in ("off", "0", "false", "no")
+def off(name, repo):
+    return config.get(name, repo).strip().lower() in ("off", "0", "false", "no")
 
 
 def is_handoff(path):
     return isinstance(path, str) and os.path.basename(path) == "HANDOFF.md"
 
 
+def repo_of(start):
+    """설정 파일의 저장소 절을 고를 루트. 설정이 없으면 git을 부르지 않는다(Codex 훅에는 CLAUDE_PROJECT_DIR가 없다)."""
+    return rules.repo_root(start) if config.load() is not None else None
+
+
 def on_edit(data):
-    if off("BATON_HANDOFF_CHECK"):
-        return
     ti = data.get("tool_input")
     path = ti.get("file_path") if isinstance(ti, dict) else None
     if not is_handoff(path):
         return
     if not os.path.isabs(path) and isinstance(data.get("cwd"), str):
         path = os.path.join(data["cwd"], path)
+    if off("BATON_HANDOFF_CHECK", repo_of(os.path.dirname(path) or None)):
+        return
     try:
         problems = handoff_check.check_file(path, strict=False)
     except OSError:
@@ -45,9 +51,8 @@ def on_edit(data):
         print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
 
 
-def edited_since_handoff(path):
-    """이 세션이 마지막으로 HANDOFF.md를 쓴 뒤 고친 다른 파일들. 모양이 다른 줄은 건너뛴다."""
-    files = set()
+def edit_paths(path):
+    """이 세션의 메인 스레드가 편집한 파일 경로, 순서대로. 모양이 다른 줄은 건너뛴다. /baton-setup 스캐너도 쓴다."""
     with open(path, encoding="utf-8", errors="ignore") as f:
         for ln in f:
             if '"tool_use"' not in ln:
@@ -66,15 +71,24 @@ def edited_since_handoff(path):
                     continue
                 inp = b.get("input") if isinstance(b.get("input"), dict) else {}
                 fp = inp.get("file_path") or inp.get("notebook_path")
-                if is_handoff(fp):
-                    files.clear()
-                elif isinstance(fp, str):
-                    files.add(os.path.normpath(fp))
+                if isinstance(fp, str):
+                    yield fp
+
+
+def edited_since_handoff(path):
+    """이 세션이 마지막으로 HANDOFF.md를 쓴 뒤 고친 다른 파일들."""
+    files = set()
+    for fp in edit_paths(path):
+        if is_handoff(fp):
+            files.clear()
+        else:
+            files.add(os.path.normpath(fp))
     return files
 
 
 def on_stop(data):
-    if off("BATON_HANDOFF_NUDGE"):
+    repo = repo_of(data["cwd"] if isinstance(data.get("cwd"), str) else None)
+    if off("BATON_HANDOFF_NUDGE", repo):
         return
     path, sid = data.get("transcript_path"), data.get("session_id")
     if not isinstance(path, str) or not os.path.isfile(path) or not isinstance(sid, str) or not re.fullmatch(r"[\w-]{1,128}", sid):
@@ -83,7 +97,7 @@ def on_stop(data):
     if os.path.exists(state):
         return  # 세션에 한 번
     try:
-        need = max(1, int(os.environ.get("BATON_HANDOFF_NUDGE_FILES", "3")))
+        need = max(1, int(config.get("BATON_HANDOFF_NUDGE_FILES", repo, "3")))
     except ValueError:
         need = 3
     try:

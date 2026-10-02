@@ -38,6 +38,7 @@ class SplitNoticeTest(unittest.TestCase):
     def run_hook(self, sid="s1", extra_env=None, raw_stdin=None):
         env = os.environ.copy()
         env["XDG_CACHE_HOME"] = os.path.join(self.root, "cache")  # 실제 캐시에 쓰지 않는다
+        env["XDG_CONFIG_HOME"] = os.path.join(self.root, "config")  # 실제 설정 파일을 읽지 않는다
         env["BATON_LOG"] = os.path.join(self.root, "runs.jsonl")
         env.pop("BATON_SPLIT_NOTICE", None)
         env.pop("BATON_SPLIT_RATIOS", None)

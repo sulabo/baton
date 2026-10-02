@@ -11,11 +11,12 @@
 import json, os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import concepts
+import concepts, config
 
 VERSION = "rules-v1"
 
 # 인계·진행 상황을 가리키는 프롬프트. 훅이 인계서를 넣는 유일한 조건이다(루프 1·2).
+# 사용자가 /baton-setup에서 고른 말(설정 BATON_HANDOFF_TRIGGERS_EXTRA)이 이것에 더해진다 — trigger_words.
 TRIGGER = re.compile(r"핸드오프|인계|이어서|이어가|어디까지|진행 상황|다음에 뭘|다음 할 일|handoff", re.I)
 
 # 작업 종류 — BATON V0 전역 규칙 v0.1.0. 제품 내장·고정(프로젝트 데이터를 본 뒤 바꾸지 않는다, V0_SPEC).
@@ -35,6 +36,13 @@ GENERIC_WORDS = {
     "개념", "문서", "결정", "코드", "구현", "동작", "실제", "상태", "확인",
     "파일", "테스트", "검증", "작업", "다음", "현재", "기준", "방식", "정리",
 }
+
+
+def trigger_words(repo, prompt):
+    """프롬프트에서 맞은 인계 트리거 말(중복 없이 정렬). 기본 TRIGGER + 설정의 추가 말(대소문자 무시 부분 문자열)."""
+    p = prompt.casefold()
+    extra = {w for w in config.terms("BATON_HANDOFF_TRIGGERS_EXTRA", repo) if w.casefold() in p}
+    return sorted(set(TRIGGER.findall(prompt)) | extra)  # 반복은 한 번만 — 로그 한 줄이 커지지 않게
 
 
 def state_of(hits):
@@ -83,7 +91,7 @@ def concept_hits(sections, prompt):
 def decide(repo, prompt):
     """프롬프트 하나에 대한 규칙 판단. 파일을 쓰지 않는다."""
     handoff_file = os.path.isfile(os.path.join(repo, "HANDOFF.md"))
-    trig = sorted(set(TRIGGER.findall(prompt)))  # 반복은 한 번만 — 로그 한 줄이 커지지 않게
+    trig = trigger_words(repo, prompt)
     sections = concept_sections(repo)
     hits = concept_hits(sections, prompt) if sections is not None else []
     tstate, tvalue, thits = classify_task_type(prompt)
@@ -101,7 +109,7 @@ def explain(repo, prompt):
     d = decide(repo, prompt)
     h, c, t = d["handoff"], d["concepts"], d["task_type"]
     lines = [f"[baton] 규칙 판단 ({d['version']}) — 저장소 {repo}", ""]
-    if h["state"] == "MATCHED" and os.environ.get("BATON_HANDOFF_INJECT", "").strip().lower() in ("off", "0", "false", "no"):
+    if h["state"] == "MATCHED" and config.get("BATON_HANDOFF_INJECT", repo).strip().lower() in ("off", "0", "false", "no"):
         lines.append(f"인계서   MATCHED — 하지만 BATON_HANDOFF_INJECT=off라 넣지 않는다 (맞은 말: {', '.join(h['words'])})")
     elif h["state"] == "MATCHED" and h["file"]:
         lines.append(f"인계서   MATCHED — 넣는다 (맞은 말: {', '.join(h['words'])})")

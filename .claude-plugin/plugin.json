@@ -12,7 +12,8 @@
   ],
   "skills": [
     "./skills/driftmap/",
-    "./skills/baton/"
+    "./skills/baton/",
+    "./skills/baton-setup/"
   ],
   "hooks": "./hooks/hooks.json",
   "commands": "./commands/"

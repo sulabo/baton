@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -15,7 +16,12 @@ HOOK = os.path.join(os.path.dirname(HERE), "hooks", "handoff-inject.py")
 MAP = "## 1. 세이브 — 저장 규칙\n본문1\n\n## 2. 카메라 — 시점\n본문2\n"
 
 
-_TMP = []
+_TMP = [tempfile.TemporaryDirectory()]
+_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _TMP[0].name})  # 실제 설정 파일을 읽지 않는다(훅 자식 프로세스도)
+
+
+def setUpModule():
+    _CFG_ENV.start()
 
 
 def repo(files):
@@ -27,6 +33,7 @@ def repo(files):
 
 
 def tearDownModule():
+    _CFG_ENV.stop()
     for t in _TMP: t.cleanup()
 
 
@@ -59,6 +66,22 @@ class DecideTest(unittest.TestCase):
         out = rules.explain(repo({}), "이어서 세이브")
         self.assertIn("HANDOFF.md가 없어 못 넣는다", out)
         self.assertIn("후보를 못 셌다", out)
+
+    def test_trigger_extra_from_config_extends_default(self):
+        env = mock.patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
+        os.environ.pop("BATON_HANDOFF_TRIGGERS_EXTRA", None)  # 환경변수가 설정 파일을 덮지 않게
+        r = repo({"HANDOFF.md": "x"})
+        default = rules.decide(r, "지난번 거 계속 이어서")["handoff"]
+        self.assertEqual(default["words"], ["이어서"])  # 설정이 없으면 기존 TRIGGER 그대로
+        cfg = os.path.join(os.environ["XDG_CONFIG_HOME"], "baton", "config.json")
+        os.makedirs(os.path.dirname(cfg), exist_ok=True)
+        with open(cfg, "w", encoding="utf-8") as f:
+            json.dump({"repos": {rules.config.repo_key(r): {"BATON_HANDOFF_TRIGGERS_EXTRA": ["지난번", "LAST TIME"]}}}, f)
+        self.addCleanup(os.remove, cfg)
+        self.assertEqual(rules.decide(r, "지난번 거 계속 이어서")["handoff"]["words"], ["이어서", "지난번"])
+        self.assertEqual(rules.decide(r, "pick up from last time")["handoff"]["state"], "MATCHED")  # 대소문자 무시
+        self.assertEqual(rules.decide(r, "버그 고쳐줘")["handoff"]["state"], "NO_MATCH")
+        self.assertEqual(rules.decide(repo({}), "지난번 거")["handoff"]["state"], "NO_MATCH")  # 다른 저장소에는 안 퍼진다
 
     def test_trigger_words_deduplicated_and_domain_unconfigured(self):
         d = rules.decide(repo({}), "이어서 이어서 이어서 인계")

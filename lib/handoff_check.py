@@ -2,12 +2,16 @@
 """인계서 검사기 — 북극성 길 단계 3 "Handoff Validator". HANDOFF.md가 다음 세션이 받기 좋은 모양인지 규칙으로 본다.
 
 보는 것: 필수 8절(스킬 템플릿) · 200줄(소유자 결정 09-22) · 9,000자(넘치면 Claude Code가 훅 출력을 파일로 뺀다) ·
-긴 코드 블록 · 전체 diff · 비밀값 · 홈 절대경로(10-01 공개 사고에서 새어 나간 종류).
+긴 코드 블록 · 전체 diff · 비밀값 · 홈 절대경로(10-01 공개 사고에서 새어 나간 종류) ·
+개인 자료 목록(/baton-setup에서 사용자가 고른 이름·이메일 등, 설정 파일의 private_terms).
 찾은 값 자체는 출력하지 않는다 — 줄 번호와 종류만. 비밀값을 로그·맥락에 다시 옮기지 않으려고.
 
 쓰기: python3 lib/handoff_check.py [HANDOFF.md 경로] — 문제가 있으면 한 줄씩 출력하고 종료 코드 1.
 """
-import os, re, sys
+import os, re, sys, unicodedata
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import config, rules
 
 MAX_LINES = 200
 MAX_CHARS = 9000
@@ -42,12 +46,22 @@ SECRETS = [
 ]
 
 
-def check(text, strict=True):
+def term_pattern(terms):
+    """개인 자료 단어들을 한 정규식으로. 대소문자 무시, 영숫자 사이에 낀 것(kim → skim)은 안 잡는다. 없으면 None."""
+    terms = [unicodedata.normalize("NFC", t) for t in terms if t.strip()]
+    if not terms:
+        return None
+    return re.compile(r"(?<![A-Za-z0-9])(?:%s)(?![A-Za-z0-9])" % "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)), re.I)
+
+
+def check(text, strict=True, private_terms=()):
     """문제 목록(사람이 읽을 한 줄씩). 없으면 빈 목록.
     strict=False(훅): 필수 절 검사는 baton 형식으로 보이는 인계서(제목 "Session Handoff" 또는 필수 절 3개 이상)에만 한다 —
-    다른 형식의 HANDOFF.md를 이 템플릿으로 고쳐 쓰게 밀지 않으려고. 길이·비밀값·경로 검사는 늘 한다."""
+    다른 형식의 HANDOFF.md를 이 템플릿으로 고쳐 쓰게 밀지 않으려고. 길이·비밀값·경로·개인 자료 검사는 늘 한다."""
     lines = text.splitlines()
     out = []
+    terms = term_pattern(private_terms)
+    term_hits, term_lines = set(), []
 
     heads, fence = [], None  # fence: 열린 코드 블록의 (줄 번호, 표지 문자, 길이)
     diff_lines = []
@@ -67,8 +81,15 @@ def check(text, strict=True):
         for kind, pat in SECRETS:
             if pat.search(ln):
                 out.append(f"{i}줄: {kind} 의심 값 — 지우거나 일반 표기(~/, <키>)로 바꾼다")
+        if terms:
+            found = {m.group(0).casefold() for m in terms.finditer(unicodedata.normalize("NFC", ln))}
+            if found:
+                term_hits |= found
+                term_lines.append(i)
     if fence is not None:
         out.append(f"{fence[0]}줄의 코드 블록이 닫히지 않았다 — 뒤쪽 전체가 코드로 읽힌다")
+    if term_lines:  # 단어 자체는 출력하지 않는다 — 개인 자료를 맥락·로그에 다시 옮기지 않으려고
+        out.append(f"개인 자료 목록 단어 {len(term_hits)}개 발견({', '.join(map(str, term_lines))}줄) — 지우거나 일반 표기로 바꾼다")
     missing = [name for keys, name in SECTIONS if not any(h.startswith(keys) for h in heads)]
     ours = strict or "Session Handoff" in (lines[0] if lines else "") or len(SECTIONS) - len(missing) >= 3
     if missing and ours:
@@ -84,8 +105,13 @@ def check(text, strict=True):
 
 
 def check_file(path, strict=True):
+    """파일 검사. 개인 자료 목록은 그 파일이 든 저장소의 설정(전역 + 저장소 절)에서 읽는다."""
     with open(path, encoding="utf-8", errors="replace") as f:
-        return check(f.read(), strict)
+        text = f.read()
+    terms = []
+    if config.load() is not None:  # 설정이 없으면 저장소 루트를 찾으러 git을 부르지 않는다
+        terms = config.terms("private_terms", rules.repo_root(os.path.dirname(os.path.abspath(path))))
+    return check(text, strict, terms)
 
 
 if __name__ == "__main__":
