@@ -57,9 +57,10 @@
 
 - **정해진 것**: 북극성 길 단계 1(V0 Observe + Explain). `DECISIONS.md`에 따로 된 항목은 없고, 북극성 3절 단계 1 "상태(09-30)"가 구현 완료라고 적는다.
 - **실제 동작**:
-  - 판단은 MATCHED/AMBIGUOUS/NO_MATCH 셋(`lib/rules.py:58`), 판단 함수 `lib/rules.py:101`, 판정 버전 `rules-v1`(`lib/rules.py:16`). 인계 트리거 정규식의 정본도 여기다(`lib/rules.py:22`).
-  - 훅이 프롬프트마다 판단을 `~/.cache/baton/runs.jsonl`에 남긴다. 프롬프트는 원문 대신 해시·길이만(`hooks/handoff-inject.py:99`). 파일 600, 20MB 넘으면 한 번 돌림(`lib/runlog.py:12`, `lib/runlog.py:26`, `lib/runlog.py:28`).
-  - 테스트: `lib/test_rules.py` 12개 통과(2026-11-21, PR #10 머지 뒤 실행).
+  - 판단은 MATCHED/AMBIGUOUS/NO_MATCH 셋(`lib/rules.py:67`), 판단 함수 `lib/rules.py:110`, 판정 버전 `rules-v1`(`lib/rules.py:16`). 인계 트리거 정규식의 정본도 여기다(`lib/rules.py:22`).
+  - 훅이 프롬프트마다 판단을 `~/.cache/baton/runs.jsonl`에 남긴다. 프롬프트는 원문 대신 해시·길이만(`hooks/handoff-inject.py:180`). 파일 600, 20MB 넘으면 한 번 돌림(`lib/runlog.py:12`, `lib/runlog.py:26`, `lib/runlog.py:28`). 인계서를 넣을 조건인데 건너뛰면 `acted.handoff_skip`에 까닭을 남긴다 — `machine`·`already`, 아니면 null(`hooks/handoff-inject.py:183`).
+  - 사람이 친 프롬프트가 아닌 것(`<agent-message>`·`<cross-session-message>`·`<task-notification>`으로 시작)은 `MACHINE`(`lib/rules.py:35`)이 가린다. `explain`은 그때 넣지 않는 까닭을 보여 준다.
+  - 테스트: `lib/test_rules.py` 13개 통과(2026-11-21, 세션당 한 번 주입 이식 뒤 실행).
 - **설명된 곳**: `README.md:141`, `README.ko.md:175` — 코드와 일치. `docs/NORTH_STAR.md:70`·`docs/NORTH_STAR.md:71`(2절 표).
 - **어긋남**: 해소됨(2026-11-21, `6b51162` — 두 칸을 코드대로 고쳤다). 고치기 전 기록: 북극성 2절 표는 Decision Layer 칸에 "인터페이스·**3상태 판정**·Jev·Judge 없음", V0 Observe 칸에 "**없음**. 사후 집계기만"이라 적는다. 같은 문서 3절 단계 1과 코드는 둘 다 있다고 말한다. 2절 표가 10-01 구현을 반영하지 않은 것이다 — **낡은 문서**(코드가 앞서 있다). 같은 표의 다른 칸도 같은 원인으로 낡았다(Fallback 칸은 인계서 주입 절, 개념 지도 점검 칸은 '관련' 가리킴 절에 따로 적었다). 이 표 하나가 여러 개념에서 동시에 낡은 것은 개별 실수가 아니라 **갱신 경로의 구멍**이다 — 구현 커밋이 북극성 2절 표를 갱신 대상에 넣지 않았다.
 
@@ -119,10 +120,11 @@
 
 - **정해진 것**: `DECISIONS.md` 09-27 "인계서 주입은 on-demand, 200줄·9,000자"(세션 판정, 200줄은 09-22 소유자 결정).
 - **실제 동작**:
-  - `UserPromptSubmit`에서 프롬프트가 트리거 말(`lib/rules.py:22`, 설정의 추가 말 포함 — PR #10부터 "where were we" 같은 영어 구도 들어간다)에 맞을 때만 주입(`hooks/handoff-inject.py:73`, `hooks/handoff-inject.py:77`). 무관한 프롬프트에는 넣지 않는다.
+  - `UserPromptSubmit`에서 프롬프트가 트리거 말(`lib/rules.py:22`, 설정의 추가 말 포함 — PR #10부터 "where were we" 같은 영어 구도 들어간다)에 맞을 때만 주입(`hooks/handoff-inject.py:145`, `hooks/handoff-inject.py:150`). 무관한 프롬프트에는 넣지 않는다.
+  - 한 세션에 같은 인계서는 한 번만 넣는다. 세션 id별로 넣은 내용의 해시와 그때 세션 기록 크기를 캐시 `injected/`에 남기고(`hooks/handoff-inject.py:118` `remember_injected`, 파일 600, 7일 지난 것은 지움), 같은 내용이면 그 뒤 세션 기록에 압축 경계(Claude Code `"subtype":"compact_boundary"`, Codex `"type":"compacted"`)가 생겼거나 기록이 줄었거나 64MB 넘게 자랐을 때만 다시 넣는다(`hooks/handoff-inject.py:106` `already_injected`). 세션 기록을 못 읽으면 다시 넣지 않고, 세션 id가 없거나 기억 파일이 깨졌으면 예전처럼 넣는다. 사람이 친 프롬프트가 아닌 것(`lib/rules.py:35` `MACHINE`)에는 인계서도 개념도 넣지 않는다(`hooks/handoff-inject.py:196`). 근거: 11-18 실사용 로그 주입 263번 중 226번이 같은 세션 재주입, 최소 152번이 다른 세션 메시지 계기.
   - 출력은 Claude Code·Codex 둘 다 받는 JSON `additionalContext`.
-  - git이 없을 때: 저장소 루트 계산이 예외를 삼키고 폴더 기준으로 넘어간다(`lib/rules.py:145`, `lib/rules.py:151`). 2026-11-21에 git이 없는 `PATH`로 `handoff-inject.py`·`split-notice.py`·`handoff-check.py`를 돌렸을 때 셋 다 종료 코드 0, 출력 없음.
-  - 테스트 `hooks/test_handoff_inject.py` 8개 통과(2026-11-21 실행).
+  - git이 없을 때: 저장소 루트 계산이 예외를 삼키고 폴더 기준으로 넘어간다(`lib/rules.py:156`, `lib/rules.py:162`). 2026-11-21에 git이 없는 `PATH`로 `handoff-inject.py`·`split-notice.py`·`handoff-check.py`를 돌렸을 때 셋 다 종료 코드 0, 출력 없음.
+  - 테스트 `hooks/test_handoff_inject.py` 12개 중 11개 통과·1개 건너뜀(실험 스냅샷 없음, 2026-11-21 실행).
 - **설명된 곳**: `README.md:123`, `README.ko.md:143` — 코드와 일치. `docs/NORTH_STAR.md:83`.
 - **어긋남**: 북극성 2절 표 Fallback 칸(`docs/NORTH_STAR.md:83`)이 "다만 조용하지는 않다 — git을 못 찾으면 traceback을 낸다"고 적는다. 위 실행으로는 traceback이 나지 않는다. **낡은 문서**(낮음) → 해소됨(2026-11-21, `6b51162`). 규칙 판단 절에 적은 것과 같은 표, 같은 원인이다.
 
@@ -143,7 +145,7 @@
 - **메타**: 상태=일치 · 확인=2026-11-21(`7c71c9d`) · 파일=`hooks/handoff-inject.py`,`lib/handoff_check.py`,`skills/baton/SKILL.md` · 이웃=개념 4(정본), 개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 09-22 "인계서 상한 200줄"(소유자, 이유 칸 비어 있음) · 09-27 "인계서 주입은 on-demand, 200줄·9,000자"(9,000자는 실측: 20,826자는 Claude Code가 파일로 뺐다).
-- **실제 동작**: 주입 훅 `hooks/handoff-inject.py:24`·`hooks/handoff-inject.py:25`, 검사기 `lib/handoff_check.py:18`·`lib/handoff_check.py:19` — 네 상수 모두 200·9000. 주입은 넘치면 자르고 잘랐다고 한 줄 붙인다(`hooks/handoff-inject.py:85`).
+- **실제 동작**: 주입 훅 `hooks/handoff-inject.py:27`·`hooks/handoff-inject.py:28`, 검사기 `lib/handoff_check.py:18`·`lib/handoff_check.py:19` — 네 상수 모두 200·9000. 주입은 넘치면 자르고 잘랐다고 한 줄 붙인다(`hooks/handoff-inject.py:165`).
 - **설명된 곳**: `skills/baton/SKILL.md:94`, `README.md`, `docs/NORTH_STAR.md` 1절("Handoff ≤ 200줄").
 - **어긋남**: 없음. 값이 코드 두 곳에 따로 박혀 있어(하나를 바꾸면 다른 하나는 그대로) 나중에 갈라질 수 있는 자리다 — 지금은 같다.
 
@@ -161,7 +163,7 @@
 - **메타**: 상태=일치 · 확인=2026-11-21(`7c71c9d`) · 파일=`.gitignore`,`lib/handoff_check.py` · 이웃=개념 4(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 10-01 "북극성 정본 원문과 사례 모음은 공개 저장소에 올리지 않는다" · 10-01 "개인 자료가 섞인 공개 이력을 새 이력 하나로 바꾼다"(공개 전 검사는 실명·프롬프트 원문·다른 저장소 내용·절대경로·커밋 이력까지 본다). 둘 다 소유자.
-- **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:46`, `lib/handoff_check.py:58`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:99`).
+- **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:46`, `lib/handoff_check.py:58`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:180`).
 - **설명된 곳**: `docs/NORTH_STAR.md` 0절(정본 경로는 소유자 로컬 기준이라고 밝힘), `README.md:141`, `README.ko.md:164`·`README.ko.md:175`.
 - **어긋남**: 없음. `docs/NORTH_STAR.md`의 정본 경로 표는 공개판에 없는 파일을 가리키지만, 바로 아래에 "공개 저장소에는 없다"고 밝혀 두었다 — 끊어진 참조가 아니라 의도된 것.
 

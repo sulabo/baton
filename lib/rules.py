@@ -29,6 +29,15 @@ TRIGGER = re.compile(
     r"|\bfrom (?:the |our )?(?:last|previous) session\b",
     re.I)
 
+# 사람이 친 프롬프트가 아닌 것 — 다른 세션·서브에이전트가 보낸 메시지, 백그라운드 작업 알림. 본문에 "handoff"·"인계"·"이어서"가
+# 흔해 트리거에 걸리지만 사람이 인계서를 부른 것이 아니다. 11-18 runs.jsonl·세션 기록 대조: 주입 247번 중 최소 152번이 이것이었다.
+# 훅이 받는 프롬프트는 `<agent-message from=…>`로 시작한다(세션 기록의 queue-operation·lastPrompt와 prompt_sha1 대조).
+MACHINE = re.compile(r"\A\s*(?:Another Claude session sent a message:\s*)?<(?:agent-message|cross-session-message|task-notification)\b")
+
+
+def machine_prompt(prompt):
+    return bool(MACHINE.match(prompt))
+
 # 작업 종류 — BATON V0 전역 규칙 v0.1.0. 제품 내장·고정(프로젝트 데이터를 본 뒤 바꾸지 않는다, V0_SPEC).
 TASK_TYPES = {
     "debugging":      ["고쳐", "안 돼", "안돼", "에러", "오류", "버그", "실패", "깨졌", "왜 안"],
@@ -119,7 +128,9 @@ def explain(repo, prompt):
     d = decide(repo, prompt)
     h, c, t = d["handoff"], d["concepts"], d["task_type"]
     lines = [f"[baton] 규칙 판단 ({d['version']}) — 저장소 {repo}", ""]
-    if h["state"] == "MATCHED" and config.get("BATON_HANDOFF_INJECT", repo).strip().lower() in ("off", "0", "false", "no"):
+    if h["state"] == "MATCHED" and machine_prompt(prompt):
+        lines.append(f"인계서   MATCHED — 하지만 사람이 아니라 다른 세션·작업 알림이 보낸 메시지라 넣지 않는다 (맞은 말: {', '.join(h['words'])})")
+    elif h["state"] == "MATCHED" and config.get("BATON_HANDOFF_INJECT", repo).strip().lower() in ("off", "0", "false", "no"):
         lines.append(f"인계서   MATCHED — 하지만 BATON_HANDOFF_INJECT=off라 넣지 않는다 (맞은 말: {', '.join(h['words'])})")
     elif h["state"] == "MATCHED" and h["file"]:
         lines.append(f"인계서   MATCHED — 넣는다 (맞은 말: {', '.join(h['words'])})")
