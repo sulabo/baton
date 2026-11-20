@@ -12,10 +12,14 @@
 - 설정 파일 우선순위: 환경변수 > 저장소 절 > 전역 절 > 기본값. 지금 값은 `python3 lib/config.py`로 봅니다.
 - 인계서 검사가 `/baton-setup`에서 고른 개인 자료 단어도 막습니다. 찾은 단어는 다시 출력하지 않습니다.
 - `/baton-doctor`가 설정 파일이 읽히는지도 봅니다.
-- `CHANGELOG.md`, README 첫 화면(한 줄 소개·30초 설치·실제 출력 예시).
+- `CHANGELOG.md`. 영어 `README.md`(한 줄 정의·설치·실제 `/drift` 출력·Limitations)와 한국어 전문 `README.ko.md`.
+- `.github/workflows/traffic.yml` — GitHub 트래픽(조회·클론·유입 경로·많이 본 경로)을 매일 `traffic-data` 브랜치에 JSON으로 쌓습니다. 트래픽 API는 14일치만 남기 때문입니다. 소유자가 `TRAFFIC_TOKEN` 시크릿(fine-grained, Administration: Read-only)을 등록해야 돕니다. 플러그인 동작과는 무관합니다.
 
 ### 바뀐 것
 - 버전 표기 `1.0.0-beta.1` → `1.0.0-beta.2` (Claude Code·Codex 매니페스트 셋).
+- 소개의 중심을 개념 지도(driftmap)로 옮겼습니다. 매니페스트 설명은 영어 우선입니다.
+- 훅 명령의 경로 표기를 `"$CLAUDE_PLUGIN_ROOT"/hooks/…`에서 `"${CLAUDE_PLUGIN_ROOT}/hooks/…"`로 바꿨습니다(공식 플러그인 디렉터리 사전 점검 표기). 셸에서는 같은 값입니다.
+- `.claude-plugin/plugin.json`에서 `hooks` 필드를 뺐습니다. Claude Code는 `hooks/hooks.json`을 자동으로 읽고, 디렉터리 점검은 이 필드를 경고로 냅니다. Codex 매니페스트에는 그대로 둡니다.
 - 관찰 로그 경로 `BATON_LOG`의 `~`를 펼칩니다.
 
 ### 실사용 측정 (만든 사람 한 명, 처음 공개하는 수치)
@@ -35,6 +39,7 @@
 - 설치 뒤 표본은 11개 세션입니다. 방향을 보여 줄 뿐 효과의 크기를 말하기에는 적습니다.
 
 ### 알려진 한계
+- 훅 메시지·스킬·명령 출력은 한국어입니다. 인계서 주입의 기본 트리거도 한국어 말과 `handoff`뿐이라 영어 "continue"에는 반응하지 않습니다. `/baton-setup`(`BATON_HANDOFF_TRIGGERS_EXTRA`)으로 말을 더할 수 있습니다.
 - 인계서 검사기의 오탐: 32자 넘는 `sk-` 브랜치 이름, CI 러너의 홈 경로, 시각 문자열을 값으로 둔 secret 대입. 놓치는 것: `postgres://user:pw@host`, `npm_`·`hf_` 토큰, JWT가 아닌 Bearer 값.
 - 인계서를 `Edit`로 여러 번 나눠 쓰면 중간 저장마다 "필수 절 없음"이 돌아옵니다.
 - 인계서 주입은 훅이 실행된 폴더의 git 최상위에서 `HANDOFF.md`를 찾습니다. Claude Code는 프로젝트 폴더에서 훅을 돌리므로 평소에는 문제가 없습니다.

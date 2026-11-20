@@ -1,7 +1,7 @@
 {
   "name": "baton",
   "version": "1.0.0-beta.2",
-  "description": "개념 단위로 지식의 어긋남을 추적해 다시 읽을 것만 고르고, 세션을 넘길 때 영구 기록으로 올릴 것을 골라내는 플러그인.",
+  "description": "Finds where your project's decisions, code, and docs disagree, one concept at a time, and records the commit each concept was checked at so unchanged concepts are never re-read. Also lints and auto-injects session handoffs (HANDOFF.md). 결정·코드·문서의 어긋남을 개념 단위로 추적하는 플러그인.",
   "author": { "name": "sulabo" },
   "repository": "https://github.com/sulabo/baton",
   "homepage": "https://github.com/sulabo/baton",
@@ -15,6 +15,5 @@
     "./skills/baton/",
     "./skills/baton-setup/"
   ],
-  "hooks": "./hooks/hooks.json",
   "commands": "./commands/"
 }
