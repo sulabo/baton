@@ -12,7 +12,7 @@ Pick up the last session from a one-page handoff, and find the files you need th
 [![Release](https://img.shields.io/github/v/release/sulabo/baton?include_prereleases)](https://github.com/sulabo/baton/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-baton is a plugin for people who work on one project across many Claude Code or Codex sessions. It runs as local hooks (small scripts that run at set moments) and works on two plain files in your repo: `HANDOFF.md` and `CONCEPTS.md`. Using it is simple: install it, say "write a handoff" when a chunk of work is done, and ask "where were we?" in the next session ([Quick start](#quick-start)).
+baton is a plugin for people who work on one project across many Claude Code or Codex sessions. It runs as local hooks (small scripts that run at set moments) and works on two plain files in your repo: `HANDOFF.md` and `CONCEPTS.md`. Using it is simple: install it, say "write a handoff" when a chunk of work is done, and ask "where were we?" in the next session. To install, run `/plugin marketplace add sulabo/baton` and then `/plugin install baton@baton` inside Claude Code ([Quick start](#quick-start)). The concept map (`CONCEPTS.md`) lists the core concepts with their files and the commit each was last checked at; section 2 below explains it.
 
 > **Beta** (`1.0.0-beta.2`). Messages and skill instructions are in Korean for now, and all numbers below come from one person's use. See [Limitations](#limitations).
 

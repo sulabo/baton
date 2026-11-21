@@ -12,7 +12,7 @@
 [![Release](https://img.shields.io/github/v/release/sulabo/baton?include_prereleases)](https://github.com/sulabo/baton/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Claude Code나 Codex로 한 프로젝트를 여러 대화에 걸쳐 이어 가는 사람을 위한 플러그인입니다. 내 컴퓨터에서 도는 훅(정해진 순간에 자동으로 도는 작은 스크립트)과 저장소 안의 평범한 파일 두 개(`HANDOFF.md`·`CONCEPTS.md`)로 움직입니다. 쓰는 법은 간단합니다. 설치하고, 일이 끝나면 "핸드오프 작성해줘", 다음 대화에서 "어디까지 했지?"라고 묻습니다([빠른 시작](#빠른-시작)).
+Claude Code나 Codex로 한 프로젝트를 여러 대화에 걸쳐 이어 가는 사람을 위한 플러그인입니다. 내 컴퓨터에서 도는 훅(정해진 순간에 자동으로 도는 작은 스크립트)과 저장소 안의 평범한 파일 두 개(`HANDOFF.md`·`CONCEPTS.md`)로 움직입니다. 쓰는 법은 간단합니다. 설치하고, 일이 끝나면 "핸드오프 작성해줘", 다음 대화에서 "어디까지 했지?"라고 묻습니다. 설치는 Claude Code 안에서 `/plugin marketplace add sulabo/baton`, 이어서 `/plugin install baton@baton`입니다([빠른 시작](#빠른-시작)). 개념 지도(`CONCEPTS.md`)는 핵심 개념마다 관련 파일과 마지막으로 확인한 커밋을 적은 파일이고, 아래 2절에서 설명합니다.
 
 > **베타**(`1.0.0-beta.2`)입니다. 아래 수치는 모두 만든 사람 한 명의 기록입니다.
 
