@@ -135,6 +135,82 @@ class HandoffInjectTest(unittest.TestCase):
                 self.write(root, os.path.join(".cache/baton/injected", name), "{깨진")
             self.assertIn("다음 행동", self.run_hook(root, "이어서", session_id="s1").stdout)
 
+    def test_freshness_only_when_injected(self):
+        # 신선도는 git을 최대 3초 부른다 — machine·already로 건너뛸 때는 세지 않고, 로그도 null
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "HANDOFF.md", "# Session Handoff (작성: 2020-01-01)\n다음 행동\n")
+            first = self.run_hook(root, "이어서", session_id="s1")
+            self.assertIn("2020-01-01(", first.stdout.splitlines()[1])
+            acted = self.last_acted(root)
+            self.assertGreater(acted["handoff_days"], 2000)
+            self.assertIsNone(acted["handoff_commits_after"])  # git 저장소가 아니다 — 못 셈
+            for p in ("이어서", '<agent-message from="a">이어서'):
+                self.assertEqual(self.run_hook(root, p, session_id="s1").stdout, "")
+                acted = self.last_acted(root)
+                self.assertIn(acted["handoff_skip"], ("already", "machine"))
+                self.assertEqual((acted["handoff_days"], acted["handoff_commits_after"]), (None, None))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "HANDOFF.md", "다음 행동\n")
+            with mock.patch.object(hook.rules, "safe_freshness", side_effect=AssertionError("건너뛰는데 셌다")):
+                self.assertEqual(hook.inject_handoff(root, "이어서", {}, machine=True), ("", None, "machine"))
+                with mock.patch.object(hook, "already_injected", return_value=True):
+                    self.assertEqual(hook.inject_handoff(root, "이어서", {}), ("", None, "already"))
+
+    def slow_git_repo(self, root, sleep):
+        """HANDOFF.md를 커밋한 저장소와, 부를 때마다 sleep초 쉬고 진짜 git을 부르는 가짜 git 폴더."""
+        import shutil
+        real = shutil.which("git")
+        if not real or not shutil.which("bash"):
+            self.skipTest("git·bash 필요")
+        repo = os.path.join(root, "repo")
+        self.write(repo, "HANDOFF.md", "# Session Handoff (작성: 2020-01-01)\n다음 행동\n")
+        for args in (["init", "-q"], ["add", "HANDOFF.md"], ["commit", "-qm", "h"]):
+            subprocess.run([real, "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", *args], check=True)
+        self.write(root, "bin/git", f'#!/bin/bash\nsleep {sleep}\nexec "{real}" "$@"\n')
+        os.chmod(os.path.join(root, "bin", "git"), 0o755)
+        return repo, os.path.join(root, "bin")
+
+    def test_freshness_stops_at_hook_deadline(self):
+        # 훅 시한(시작 + HOOK_DEADLINE)이 거의 다 됐으면 신선도는 남은 만큼만 쓰고, 못 셌다고 적고 인계서는 넣는다
+        import importlib.util, time
+        spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as root:
+            repo, bin_dir = self.slow_git_repo(root, 5)
+            with mock.patch.dict(os.environ, {"PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}):
+                t = time.monotonic()
+                out, h, skip = hook.inject_handoff(repo, "이어서", {}, hook_deadline=time.monotonic() + 0.4)
+                took = time.monotonic() - t
+        self.assertLess(took, 1.5)  # 시한이 없으면 git 하나에 5초를 기다렸다
+        self.assertIsNone(skip)
+        self.assertIn("다음 행동", out)
+        self.assertIn("못 셌다", out.splitlines()[1])
+        self.assertIsNone(h["commits_after"])
+
+    def test_slow_git_hook_stays_under_timeout(self):
+        # Codex(CLAUDE_PROJECT_DIR 없음)·설정에 저장소 절 — repo_root·repo_key·신선도가 모두 git을 부르는 가장 긴 길
+        import time
+        with tempfile.TemporaryDirectory() as root:
+            repo, bin_dir = self.slow_git_repo(root, 1)
+            self.write(root, "cfg/baton/config.json", json.dumps({"repos": {"/elsewhere": {}}}))
+            env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+            env.update(PATH=bin_dir + os.pathsep + os.environ.get("PATH", ""), XDG_CONFIG_HOME=os.path.join(root, "cfg"),
+                       XDG_CACHE_HOME=os.path.join(root, "cache"), BATON_LOG=os.path.join(root, "runs.jsonl"))
+            t = time.monotonic()
+            r = subprocess.run([sys.executable, HOOK], input=json.dumps({"prompt": "이어서", "session_id": "s1"}),
+                               capture_output=True, text=True, cwd=repo, env=env)
+            took = time.monotonic() - t
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertLess(took, 9.5)
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("다음 행동", ctx)
+        self.assertIn("2020-01-01(", ctx.splitlines()[1])
+
     def test_compacted_since_edges(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)

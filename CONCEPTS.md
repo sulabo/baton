@@ -25,7 +25,7 @@
 
 ## 1. 플러그인 구성과 스킬 이름
 
-- **메타**: 상태=중복 정본 · 확인=2026-11-21(`a5f18ca`) · 파일=`.claude-plugin/plugin.json`,`.codex-plugin/plugin.json`,`.claude-plugin/marketplace.json`,`hooks/hooks.json`,`skills/driftmap/SKILL.md`,`skills/baton/SKILL.md`,`skills/baton-setup/SKILL.md`,`tools/check_versions.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`,`commands/drift.md`
+- **메타**: 상태=중복 정본 · 확인=2026-11-21(`86b0312`) · 파일=`.claude-plugin/plugin.json`,`.codex-plugin/plugin.json`,`.claude-plugin/marketplace.json`,`hooks/hooks.json`,`skills/driftmap/SKILL.md`,`skills/baton/SKILL.md`,`skills/baton-setup/SKILL.md`,`tools/check_versions.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`,`commands/drift.md`
 
 - **정해진 것**: 범위는 `DECISIONS.md` 10-01 "beta v1.0 범위" — ① 1.0.0-beta 버전 표기. 스킬 이름에 대한 결정 기록은 없다.
 - **실제 동작**:
@@ -41,7 +41,7 @@
 
 ## 2. 0건과 못 셈의 구분
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`a5f18ca`) · 파일=`hooks/zero-guard.sh`,`lib/fresh.sh`,`lib/check.sh`,`lib/promote.sh`,`hooks/test_zero_guard.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`86b0312`) · 파일=`hooks/zero-guard.sh`,`lib/fresh.sh`,`lib/check.sh`,`lib/promote.sh`,`hooks/test_zero_guard.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`
 
 - **정해진 것**: 결정 기록에 따로 없다. 제품의 기본 원칙으로 README와 북극성 "모든 단계에 공통"(못 센 것은 0이 아니라 "못 셌다")에 있다.
 - **실제 동작**:
@@ -53,20 +53,20 @@
 
 ## 3. 규칙 판단과 관찰 로그
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`a5f18ca`) · 파일=`lib/rules.py`,`lib/runlog.py`,`hooks/handoff-inject.py`,`commands/baton-explain.md` · 이웃=개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`86b0312`) · 파일=`lib/rules.py`,`lib/runlog.py`,`hooks/handoff-inject.py`,`commands/baton-explain.md` · 이웃=개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: 북극성 길 단계 1(V0 Observe + Explain). `DECISIONS.md`에 따로 된 항목은 없고, 북극성 3절 단계 1 "상태(09-30)"가 구현 완료라고 적는다.
 - **실제 동작**:
   - 판단은 MATCHED/AMBIGUOUS/NO_MATCH 셋(`lib/rules.py:67`), 판단 함수 `lib/rules.py:110`, 판정 버전 `rules-v1`(`lib/rules.py:16`). 인계 트리거 정규식의 정본도 여기다(`lib/rules.py:22`).
-  - 훅이 프롬프트마다 판단을 `~/.cache/baton/runs.jsonl`에 남긴다. 프롬프트는 원문 대신 해시·길이만(`hooks/handoff-inject.py:180`). 파일 600, 20MB 넘으면 한 번 돌림(`lib/runlog.py:12`, `lib/runlog.py:26`, `lib/runlog.py:28`). 인계서를 넣을 조건인데 건너뛰면 `acted.handoff_skip`에 까닭을 남긴다 — `machine`·`already`, 아니면 null(`hooks/handoff-inject.py:183`).
-  - 사람이 친 프롬프트가 아닌 것(`<agent-message>`·`<cross-session-message>`·`<task-notification>`으로 시작)은 `MACHINE`(`lib/rules.py:35`)이 가린다. 그런 프롬프트는 판단에서도 개념·작업 종류를 세지 않고 `MACHINE` 상태로 남긴다(0이 아니라 안 셈 — 긴 서브에이전트 보고가 후보를 수십 개씩 만들었다). `explain`은 훅과 같은 순서(끄기 → 트리거 → 파일 → 기계 프롬프트)로 넣지 않는 까닭을 보여 준다.
-  - 테스트: `lib/test_rules.py` 13개 통과(2026-11-21, 세션당 한 번 주입 이식 뒤 실행).
+  - 훅이 프롬프트마다 판단을 `~/.cache/baton/runs.jsonl`에 남긴다. 프롬프트는 원문 대신 해시·길이만(`hooks/handoff-inject.py:193`). 파일 600, 20MB 넘으면 한 번 돌림(`lib/runlog.py:12`, `lib/runlog.py:26`, `lib/runlog.py:28`). 인계서를 넣을 조건인데 건너뛰면 `acted.handoff_skip`에 까닭을 남긴다 — `machine`·`already`, 아니면 null(`hooks/handoff-inject.py:197`). 실제로 넣었을 때만 인계서 나이 `acted.handoff_days`·그 뒤 커밋 수 `acted.handoff_commits_after`를 남기고(`hooks/handoff-inject.py:196`), 건너뛰었거나 못 셌으면 null.
+  - 사람이 친 프롬프트가 아닌 것(`<agent-message>`·`<cross-session-message>`·`<task-notification>`으로 시작)은 `MACHINE`(`lib/rules.py:35`)이 가린다. 그런 프롬프트는 판단에서도 개념·작업 종류를 세지 않고 `MACHINE` 상태로 남긴다(0이 아니라 안 셈 — 긴 서브에이전트 보고가 후보를 수십 개씩 만들었다). `explain`은 훅과 같은 순서(끄기 → 트리거 → 파일 → 기계 프롬프트)로 넣지 않는 까닭을 보여 주고, 넣을 때만 훅과 같은 신선도 한 줄을 붙인다(개념 7). 기계 프롬프트의 작업 종류는 "없음"이 아니라 "세지 않았다"로 적는다.
+  - 테스트: `lib/test_rules.py` 29개 통과(2026-11-21, 인계서 신선도·훅 공통 시한 뒤 실행).
 - **설명된 곳**: `README.md:141`, `README.ko.md:175` — 코드와 일치. `docs/NORTH_STAR.md:70`·`docs/NORTH_STAR.md:71`(2절 표).
 - **어긋남**: 해소됨(2026-11-21, `6b51162` — 두 칸을 코드대로 고쳤다). 고치기 전 기록: 북극성 2절 표는 Decision Layer 칸에 "인터페이스·**3상태 판정**·Jev·Judge 없음", V0 Observe 칸에 "**없음**. 사후 집계기만"이라 적는다. 같은 문서 3절 단계 1과 코드는 둘 다 있다고 말한다. 2절 표가 10-01 구현을 반영하지 않은 것이다 — **낡은 문서**(코드가 앞서 있다). 같은 표의 다른 칸도 같은 원인으로 낡았다(Fallback 칸은 인계서 주입 절, 개념 지도 점검 칸은 '관련' 가리킴 절에 따로 적었다). 이 표 하나가 여러 개념에서 동시에 낡은 것은 개별 실수가 아니라 **갱신 경로의 구멍**이다 — 구현 커밋이 북극성 2절 표를 갱신 대상에 넣지 않았다.
 
 ## 4. 인계서 검사와 제안
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`a5f18ca`) · 파일=`lib/handoff_check.py`,`hooks/handoff-check.py`,`hooks/hooks.json` · 이웃=개념 9(정본), 개념 10(전제), 개념 11(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`86b0312`) · 파일=`lib/handoff_check.py`,`hooks/handoff-check.py`,`hooks/hooks.json` · 이웃=개념 9(정본), 개념 10(전제), 개념 11(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 10-01 "beta v1.0 범위" — 길 단계 3의 인계서 검사기와 결정론 트리거를 넣는다(소유자).
 - **실제 동작**:
@@ -79,7 +79,7 @@
 
 ## 5. 세션 끊기 알림
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`a5f18ca`) · 파일=`hooks/split-notice.py`,`hooks/hooks.json` · 이웃=개념 10(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`86b0312`) · 파일=`hooks/split-notice.py`,`hooks/hooks.json` · 이웃=개념 10(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 09-30 "토큰 효율은 세션 끊기를 먼저 한다"(소유자). 문턱 2배·3배와 "권고만"은 세션의 구현 기본값.
 - **실제 동작**: `Stop`에서 세션 기록의 첫 호출 맥락과 마지막 호출 맥락을 비교해(`hooks/split-notice.py:19`) 문턱(기본 `2,3`, `hooks/split-notice.py:64`)을 처음 넘을 때만 알린다(`hooks/split-notice.py:92`, `hooks/split-notice.py:103`). `hooks/hooks.json:54`에 등록. 테스트 `hooks/test_split_notice.py` 12개 통과(2026-11-21 실행).
@@ -88,7 +88,7 @@
 
 ## 6. 메타 줄과 낡음 계산
 
-- **메타**: 상태=낡은 문서 · 확인=2026-11-21(`a5f18ca`) · 파일=`lib/concepts.py`,`lib/fresh.sh`,`lib/check.sh`,`lib/lib.sh`,`hooks/drift-notice.sh`,`lib/test_fresh.py`,`hooks/test_drift_notice.py` · 이웃=개념 8(전제) · 문서=`README.md`,`README.ko.md`,`skills/driftmap/SKILL.md`
+- **메타**: 상태=낡은 문서 · 확인=2026-11-21(`86b0312`) · 파일=`lib/concepts.py`,`lib/fresh.sh`,`lib/check.sh`,`lib/lib.sh`,`hooks/drift-notice.sh`,`lib/test_fresh.py`,`hooks/test_drift_notice.py` · 이웃=개념 8(전제) · 문서=`README.md`,`README.ko.md`,`skills/driftmap/SKILL.md`
 
 - **정해진 것**: 결정 기록에 따로 없다. 스킬 문서(`skills/driftmap/SKILL.md`)가 규칙의 정본 역할을 한다.
 - **실제 동작**:
@@ -116,21 +116,22 @@
 
 ## 7. 인계서 on-demand 주입
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`a5f18ca`) · 파일=`hooks/handoff-inject.py`,`lib/rules.py`,`hooks/hooks.json` · 이웃=개념 3(정본), 개념 9(정본), 개념 10(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`86b0312`) · 파일=`hooks/handoff-inject.py`,`lib/rules.py`,`hooks/hooks.json` · 이웃=개념 3(정본), 개념 9(정본), 개념 10(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`,`skills/baton/SKILL.md`
 
 - **정해진 것**: `DECISIONS.md` 09-27 "인계서 주입은 on-demand, 200줄·9,000자"(세션 판정, 200줄은 09-22 소유자 결정).
 - **실제 동작**:
-  - `UserPromptSubmit`에서 프롬프트가 트리거 말(`lib/rules.py:22`, 설정의 추가 말 포함 — PR #10부터 "where were we" 같은 영어 구도 들어간다)에 맞을 때만 주입(`hooks/handoff-inject.py:145`, `hooks/handoff-inject.py:150`). 무관한 프롬프트에는 넣지 않는다.
-  - 한 세션에 같은 인계서는 한 번만 넣는다. 세션 id별로 넣은 내용의 해시와 그때 세션 기록 크기를 캐시 `injected/`에 남기고(`hooks/handoff-inject.py:118` `remember_injected`, 파일 600, 7일 지난 것은 지움), 같은 내용이면 그 뒤 세션 기록에 압축 경계(Claude Code `"subtype":"compact_boundary"`, Codex `"type":"compacted"`)가 생겼거나 기록이 줄었거나 64MB 넘게 자랐을 때만 다시 넣는다(`hooks/handoff-inject.py:106` `already_injected`). 세션 기록을 못 읽으면 다시 넣지 않고, 세션 id가 없거나 기억 파일이 깨졌으면 예전처럼 넣는다. 사람이 친 프롬프트가 아닌 것(`lib/rules.py:35` `MACHINE`)에는 인계서도 개념도 넣지 않는다(`hooks/handoff-inject.py:196`). 근거: 11-18 실사용 로그 주입 263번 중 226번이 같은 세션 재주입, 최소 152번이 다른 세션 메시지 계기.
+  - `UserPromptSubmit`에서 프롬프트가 트리거 말(`lib/rules.py:22`, 설정의 추가 말 포함 — PR #10부터 "where were we" 같은 영어 구도 들어간다)에 맞을 때만 주입(`hooks/handoff-inject.py:154`, `hooks/handoff-inject.py:159`). 무관한 프롬프트에는 넣지 않는다.
+  - 한 세션에 같은 인계서는 한 번만 넣는다. 세션 id별로 넣은 내용의 해시와 그때 세션 기록 크기를 캐시 `injected/`에 남기고(`hooks/handoff-inject.py:127` `remember_injected`, 파일 600, 7일 지난 것은 지움), 같은 내용이면 그 뒤 세션 기록에 압축 경계(Claude Code `"subtype":"compact_boundary"`, Codex `"type":"compacted"`)가 생겼거나 기록이 줄었거나 64MB 넘게 자랐을 때만 다시 넣는다(`hooks/handoff-inject.py:115` `already_injected`). 세션 기록을 못 읽으면 다시 넣지 않고, 세션 id가 없거나 기억 파일이 깨졌으면 예전처럼 넣는다. 사람이 친 프롬프트가 아닌 것(`lib/rules.py:35` `MACHINE`)에는 인계서도 개념도 넣지 않는다(`hooks/handoff-inject.py:211`). 근거: 11-18 실사용 로그 주입 263번 중 226번이 같은 세션 재주입, 최소 152번이 다른 세션 메시지 계기.
+  - 인계서를 "작성 시점의 가설"로 넣는다. 머리말은 "다시 열 필요 없다"를 그대로 두고 "그대로 이어서 진행한다"를 "다음 행동이 기대는 주장 한두 개를 확인한 뒤 진행"으로 바꿨다(`hooks/handoff-inject.py:46`). 바로 아래 신선도 한 줄 — 작성일·며칠 전·HANDOFF.md 마지막 커밋 뒤 이 폴더 커밋 수·못 센 까닭(`lib/rules.py:209` `handoff_freshness`, `lib/rules.py:266` `freshness_line`). 작성일은 첫 3줄(`lib/rules.py:187` `header_date`), 없으면 HANDOFF.md 마지막 커밋의 author 날짜. 커밋 안 한 수정 중이거나 얕은 복제면 커밋 수를 세지 않고 못 셌다고 적는다. git은 `--no-optional-locks`·`log.showSignature=false`로, 합계 3초(`lib/rules.py:184` `GIT_BUDGET`). 묵은 기준 `STALE_DAYS = 7`은 근거 없는 기본값. 실제로 넣을 때만 센다(`hooks/handoff-inject.py:173`) — `machine`·`already`로 건너뛸 때는 git을 부르지 않는다. 계산이 터져도 주입은 산다(`lib/rules.py:289` `safe_freshness`). 훅 시한은 10초(`hooks/hooks.json:44`). 신선도는 훅 시작 + 8.5초(`hooks/handoff-inject.py:40` `HOOK_DEADLINE`)를 넘겨 git을 부르지 않는다 — 시간이 없으면 "못 셌다(훅 시한)"라고 적고 넣는다. 다만 그 앞의 저장소 루트 계산(Codex만, `lib/rules.py:298`)과 설정 저장소 절 키(`lib/config.py:45` `repo_key`, 설정에 `repos`가 있을 때)는 git이 멈추면 각 5초라 그 둘만으로 10초에 닿을 수 있다 — 이 기능 전부터 있던 문제(리뷰 실측: PR #16 기준 Codex+설정 10.1초, 이 기능에 훅 공통 시한을 넣기 전 13.1초)이고 이 PR에서 고치지 않았다. 훅이 시한에 죽으면 인계서는 조용히 안 들어간다. 느린 git(호출당 1초) 실측은 테스트 `test_slow_git_hook_stays_under_timeout`. 계기: 2026-11-08 낡은 백업 폴더의 38일 된 인계서가 "그대로 이어서 진행한다"와 함께 주입됐다. 머리말 변경이 재독에 주는 영향은 안 쟀다.
   - 출력은 Claude Code·Codex 둘 다 받는 JSON `additionalContext`.
-  - git이 없을 때: 저장소 루트 계산이 예외를 삼키고 폴더 기준으로 넘어간다(`lib/rules.py:166`, `lib/rules.py:172`). 2026-11-21에 git이 없는 `PATH`로 `handoff-inject.py`·`split-notice.py`·`handoff-check.py`를 돌렸을 때 셋 다 종료 코드 0, 출력 없음.
-  - 테스트 `hooks/test_handoff_inject.py` 13개 중 12개 통과·1개 건너뜀(실험 스냅샷 없음, 2026-11-21 실행).
-- **설명된 곳**: `README.md:123`, `README.ko.md:143` — 코드와 일치. `docs/NORTH_STAR.md:83`.
+  - git이 없을 때: 저장소 루트 계산이 예외를 삼키고 폴더 기준으로 넘어간다(`lib/rules.py:298`, `lib/rules.py:304`). 2026-11-21에 git이 없는 `PATH`로 `handoff-inject.py`·`split-notice.py`·`handoff-check.py`를 돌렸을 때 셋 다 종료 코드 0, 출력 없음.
+  - 테스트 `hooks/test_handoff_inject.py` 16개 중 15개 통과·1개 건너뜀(실험 스냅샷 없음, 2026-11-21 실행). 신선도 자체는 `lib/test_rules.py` `FreshnessTest`.
+- **설명된 곳**: `README.md:123`, `README.ko.md:143` — 코드와 일치. `docs/NORTH_STAR.md:83`. 쓰는 쪽 규칙(첫 줄 작성일, "지금 상태(근거) → 할 일", 확인 방법)은 `skills/baton/SKILL.md` "인계서는 사실이 아니라 작성 시점의 가설이다".
 - **어긋남**: 북극성 2절 표 Fallback 칸(`docs/NORTH_STAR.md:83`)이 "다만 조용하지는 않다 — git을 못 찾으면 traceback을 낸다"고 적는다. 위 실행으로는 traceback이 나지 않는다. **낡은 문서**(낮음) → 해소됨(2026-11-21, `6b51162`). 규칙 판단 절에 적은 것과 같은 표, 같은 원인이다.
 
 ## 8. 새 결정의 '관련' 가리킴
 
-- **메타**: 상태=미결 · 확인=2026-11-21(`a5f18ca`) · 파일=`lib/fresh.sh`,`lib/concepts.py` · 이웃=개념 6(전제) · 문서=`skills/driftmap/SKILL.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=미결 · 확인=2026-11-21(`86b0312`) · 파일=`lib/fresh.sh`,`lib/concepts.py` · 이웃=개념 6(전제) · 문서=`skills/driftmap/SKILL.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: 결정 기록에 따로 없다. 스킬 문서 모드 ④ "결정이 움직였는가"가 미구현을 잡는 유일한 경로라고 적는다.
 - **실제 동작**: 메타 줄의 확인 해시 이후 `DECISIONS.md`에 새로 들어온 줄 중 `관련` 뒤의 "개념 N"·개념 이름을 찾아 그 개념을 재확인으로 올린다(`lib/fresh.sh:73`, `lib/concepts.py:33`, `lib/concepts.py:161`). 못 이은 것은 "0건이 아니라 못 셌다"로 따로 낸다. 새 결정 중 `- 관련:` 줄이 없는 것을 구멍으로 센다(`lib/fresh.sh:197`). 확인 커밋이 HEAD의 조상이 아니면 `DECISIONS.md` 비교를 하지 않는다 — 비교할 기준이 없어서다.
@@ -142,16 +143,16 @@
 
 ## 9. 인계서 상한 200줄·9,000자
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`a5f18ca`) · 파일=`hooks/handoff-inject.py`,`lib/handoff_check.py`,`skills/baton/SKILL.md` · 이웃=개념 4(정본), 개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=일치 · 확인=2026-11-21(`86b0312`) · 파일=`hooks/handoff-inject.py`,`lib/handoff_check.py`,`skills/baton/SKILL.md` · 이웃=개념 4(정본), 개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 09-22 "인계서 상한 200줄"(소유자, 이유 칸 비어 있음) · 09-27 "인계서 주입은 on-demand, 200줄·9,000자"(9,000자는 실측: 20,826자는 Claude Code가 파일로 뺐다).
-- **실제 동작**: 주입 훅 `hooks/handoff-inject.py:27`·`hooks/handoff-inject.py:28`, 검사기 `lib/handoff_check.py:18`·`lib/handoff_check.py:19` — 네 상수 모두 200·9000. 주입은 넘치면 자르고 잘랐다고 한 줄 붙인다(`hooks/handoff-inject.py:169`).
+- **실제 동작**: 주입 훅 `hooks/handoff-inject.py:34`·`hooks/handoff-inject.py:35`, 검사기 `lib/handoff_check.py:18`·`lib/handoff_check.py:19` — 네 상수 모두 200·9000. 주입은 넘치면 자르고 잘랐다고 한 줄 붙인다(`hooks/handoff-inject.py:181`).
 - **설명된 곳**: `skills/baton/SKILL.md:94`, `README.md`, `docs/NORTH_STAR.md` 1절("Handoff ≤ 200줄").
 - **어긋남**: 없음. 값이 코드 두 곳에 따로 박혀 있어(하나를 바꾸면 다른 하나는 그대로) 나중에 갈라질 수 있는 자리다 — 지금은 같다.
 
 ## 10. 설정 파일과 우선순위
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`a5f18ca`) · 파일=`lib/config.py`,`lib/setup_scan.py` · 이웃=개념 4·5·7(전제) · 문서=`README.ko.md`,`skills/baton-setup/SKILL.md`,`commands/baton-setup.md`
+- **메타**: 상태=일치 · 확인=2026-11-21(`86b0312`) · 파일=`lib/config.py`,`lib/setup_scan.py` · 이웃=개념 4·5·7(전제) · 문서=`README.ko.md`,`skills/baton-setup/SKILL.md`,`commands/baton-setup.md`
 
 - **정해진 것**: 결정 기록에 따로 없다(`/baton-setup`은 커밋 `24e3996`에서 들어왔다).
 - **실제 동작**: `lib/config.py:119` — 환경변수 > 저장소 절 > 전역 절 > 기본값. 관찰 로그 키 둘은 전역만(`lib/config.py:22`). 목록 키는 전역 + 저장소(`lib/config.py:132`). 테스트 `lib/test_config.py` 23개 통과(2026-11-21 실행). 세션 끊기 문턱·인계서 제안 문턱·추가 트리거 말·각 훅의 끄기 스위치가 모두 이 설정을 읽는다.
@@ -160,16 +161,16 @@
 
 ## 11. 공개 경계 — 개인 자료
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`a5f18ca`) · 파일=`.gitignore`,`lib/handoff_check.py` · 이웃=개념 4(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=일치 · 확인=2026-11-21(`86b0312`) · 파일=`.gitignore`,`lib/handoff_check.py` · 이웃=개념 4(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 10-01 "북극성 정본 원문과 사례 모음은 공개 저장소에 올리지 않는다" · 10-01 "개인 자료가 섞인 공개 이력을 새 이력 하나로 바꾼다"(공개 전 검사는 실명·프롬프트 원문·다른 저장소 내용·절대경로·커밋 이력까지 본다). 둘 다 소유자.
-- **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:46`, `lib/handoff_check.py:58`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:180`).
+- **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:46`, `lib/handoff_check.py:58`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:193`).
 - **설명된 곳**: `docs/NORTH_STAR.md` 0절(정본 경로는 소유자 로컬 기준이라고 밝힘), `README.md:141`, `README.ko.md:164`·`README.ko.md:175`.
 - **어긋남**: 없음. `docs/NORTH_STAR.md`의 정본 경로 표는 공개판에 없는 파일을 가리키지만, 바로 아래에 "공개 저장소에는 없다"고 밝혀 두었다 — 끊어진 참조가 아니라 의도된 것.
 
 ## 12. 결정 기록은 사람이 쓴다
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`a5f18ca`) · 파일=`lib/promote.sh`,`commands/promote.md`,`skills/baton/SKILL.md` · 이웃=없음 · 문서=`README.md`,`README.ko.md`
+- **메타**: 상태=일치 · 확인=2026-11-21(`86b0312`) · 파일=`lib/promote.sh`,`commands/promote.md`,`skills/baton/SKILL.md` · 이웃=없음 · 문서=`README.md`,`README.ko.md`
 
 - **정해진 것**: `DECISIONS.md` 머리말 — "이유 칸이 비어 있는 것은 기록이 없어서다, 추측으로 채우지 않았다". 항목마다 결정 주체(소유자/세션 판정)를 적는다.
 - **실제 동작**: `lib/promote.sh`는 과거 인계서를 날짜당 한 판씩 읽어(`lib/promote.sh:38`) 서로 다른 3일 이상 살아남은 항목을 후보로 출력만 한다(`lib/promote.sh:9`, `lib/promote.sh:50`). 파일을 쓰지 않는다. 명령 문서는 "버린 대안·이유는 빈칸으로"(`commands/promote.md:11`).
