@@ -63,6 +63,13 @@ def term_pattern(terms):
     return re.compile(r"(?<![A-Za-z0-9])(?:%s)(?![A-Za-z0-9])" % "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)), re.I)
 
 
+def leaks(text, private_terms=()):
+    """비밀값·홈 경로·개인 자료 목록 단어가 있으면 그 종류만(값은 돌려주지 않는다). 인계서가 아닌 짧은 글(별칭 등)용 — 절·코드 블록·diff 같은 구조 검사는 안 한다."""
+    text = unicodedata.normalize("NFC", text)
+    terms = term_pattern(private_terms)
+    return [kind for kind, pat in SECRETS if pat.search(text)] + (["개인 자료 목록 단어"] if terms and terms.search(text) else [])
+
+
 def check(text, strict=True, private_terms=()):
     """문제 목록(사람이 읽을 한 줄씩). 없으면 빈 목록.
     strict=False(훅): 필수 절 검사는 baton 형식으로 보이는 인계서(제목 "Session Handoff" 또는 필수 절 3개 이상)에만 한다 —
