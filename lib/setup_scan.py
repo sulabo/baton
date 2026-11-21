@@ -34,7 +34,6 @@ COST_SHARE = 0.85
 DEFAULT_NUDGE = 3
 NUDGE_MARGIN = 0.10
 HANDOFF_NAME = re.compile(r"(?i)^handoff.*\.md$")
-WORD = re.compile(r"[0-9A-Za-z가-힣]+")
 EMAIL = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
 PLACEHOLDER = re.compile(r"(?i)@(example\.(com|org|net)|test|localhost)$")
 # ponytail: Codex 세션(~/.codex/sessions)은 세지 않는다 — 저장소에는 파일 연결 검증(observer/measure/codex_join_census.py)만 있고
@@ -169,14 +168,7 @@ def nudge(sessions):
     return out
 
 
-def phrases(prompt):
-    """첫 프롬프트 앞 20단어의 한 단어·두 단어 묶음. 흔한 말·한 글자·숫자는 뺀다."""
-    # ponytail: 조사를 떼지 않는다('계속해'와 '계속'을 따로 센다). 앞 20단어만 본다(긴 프롬프트의 본문이 후보를 덮지 않게)
-    ws = [w.lower() for w in WORD.findall(prompt)[:20]]
-    ok = [w if len(w) >= 2 and not w.isdigit() and w not in rules.GENERIC_WORDS else None for w in ws]
-    out = {w for w in ok if w}
-    out |= {f"{a} {b}" for a, b in zip(ok, ok[1:]) if a and b}
-    return out
+phrases = rules.phrases  # 별칭·새 개념 후보(candidates.py)와 같은 정의
 
 
 def triggers(sessions, root):
