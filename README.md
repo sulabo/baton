@@ -119,7 +119,7 @@ A concept with no files (a rule) is tracked only through changes to the decision
 
 ### Handoffs
 
-- **Checked on save.** When the agent writes `HANDOFF.md`, a hook checks the eight required sections, the length limits, large code blocks, diffs, secrets, and home-directory paths, then hands the problems back to the agent. It never prints the secret it found.
+- **Checked on save.** When the agent writes `HANDOFF.md`, a hook checks the eight required sections, the length limits, large code blocks, diffs, secrets, and home-directory paths, then hands the problems back to the agent. It never prints the secret it found. It also warns, without blocking, when an item under "확인된 사실과 결정" (confirmed facts and decisions) is missing `[V]` (checked directly) or `[?]` (from memory or a guess).
 - **Loaded on request.** When a prompt asks about progress — by default Korean words such as "이어서" (continue), "어디까지" (how far), "인계" (handoff), or the English word "handoff" — the hook puts `HANDOFF.md` into context (up to 200 lines or 9,000 characters), so the agent doesn't have to find and re-read it. Prompts without those words get nothing. The match is a plain substring, so a work request that merely mentions "handoff" or "인계" gets the handoff too — and that costs: in a snapshot run, loading it into an unrelated task used 11% more input tokens.
 - **Nudges.** A notice when the context reaches 2×, and again at 3×, its size at the first call, and one suggestion to write a handoff once 3 or more files have changed and the handoff hasn't.
 - **`/promote`** lists constraints that survived several days of handoffs as candidates for `DECISIONS.md`. It doesn't write the decision for you: the reasons and the rejected alternatives exist only in the head of whoever decided.

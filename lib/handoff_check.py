@@ -37,6 +37,7 @@ FACTS = ("확인된 사실",)  # SECTIONS의 같은 절. 주장마다 확인 표
 ITEM = re.compile(r"^ ?(?:[-*+]|\d{1,3}[.)])(?:\s+(.*))?$")  # 들여쓰지 않은 목록 줄. 들여쓴 줄은 위 항목에 이어 붙는다
 MARK = re.compile(r"\[[V?]\]")
 NOTHING = re.compile(r"^(?:\*\*)?없음(?:\*\*)?[.。]?$")  # 템플릿의 "- 없음"은 주장이 아니다
+COMMENT = re.compile(r"^\s*<!--.*-->\s*$")  # 템플릿 안내 주석. 주장도, 못 센 줄도 아니다
 DIFF = re.compile(r"^(diff --git |index [0-9a-f]{7,}\.\.[0-9a-f]{7,}|@@ -\d+(,\d+)? \+\d+(,\d+)? @@)")
 # 값은 글자와 숫자가 함께 있어야 비밀값으로 본다 — os.environ·refresh_token.py 같은 코드 이름과 "token 수" 같은 산문을 거르려고
 VALUE = r"['\"]?(?=[A-Za-z0-9_\-/+=]*[A-Za-z])(?=[A-Za-z0-9_\-/+=]*\d)[A-Za-z0-9_\-/+=]{8,}(?![A-Za-z0-9_(\[]|\.[A-Za-z_(\[])"  # 뒤에 한글 조사·마침표가 와도 잡는다
@@ -136,7 +137,7 @@ def warnings(text, strict=True):
             in_facts = section is None and h.group(1).startswith(FACTS)
             if in_facts:
                 section = []
-        elif in_facts:
+        elif in_facts and not COMMENT.match(ln):
             section.append((i, ln))
     missing = [name for keys, name in SECTIONS if not any(x.startswith(keys) for x in heads)]
     if section is None or not is_ours(lines, missing, strict):

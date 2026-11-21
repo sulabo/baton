@@ -168,6 +168,16 @@ class HandoffCheckTest(unittest.TestCase):
         self.assertIn("목록이 아닌 줄 1개", out[0])
         self.assertIn("세지 못했다", out[0])
 
+    def test_untouched_skill_template_warns(self):
+        # 템플릿을 고치지 않고 남기면 통과하면 안 된다 — 안내는 주석이라 세지 않고, 빈 "-" 항목이 걸린다
+        with open(os.path.join(os.path.dirname(HERE), "skills", "baton", "SKILL.md"), encoding="utf-8") as f:
+            skill = f.read()
+        template = skill.split("```markdown\n", 1)[1].split("\n```", 1)[0]
+        out = handoff_check.warnings(template)
+        self.assertEqual(len(out), 1, out)
+        self.assertIn("1개 중 1개에 [V]·[?] 표시 없음", out[0])
+        self.assertEqual(handoff_check.warnings(self.facts("<!-- 안내 -->\n- [V] 확인함\n")), [])
+
     def test_marks_not_forced_on_other_formats(self):
         other = "# Handoff\n## 확인된 사실\n- 표시 없음\n"
         self.assertEqual(handoff_check.warnings(other, strict=False), [])
