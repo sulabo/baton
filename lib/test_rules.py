@@ -119,7 +119,7 @@ class DecideTest(unittest.TestCase):
         for p in ['<agent-message from="a3d1">\n[Subagent] HANDOFF 갱신했다', '  <task-notification>\n인계 완료',
                   'Another Claude session sent a message: <cross-session-message from="uds:/tmp/x">이어서']:
             self.assertTrue(rules.machine_prompt(p), p)
-        for p in ["핸드오프 읽고 이어서", "이 <agent-message> 태그가 왜 인계를 부르지?", "<agent-messages> 이어서", ""]:
+        for p in ["핸드오프 읽고 이어서", "이 <agent-message> 태그가 왜 인계를 부르지?", "<agent-messages> 이어서", "<agent-message-x> 이어서", ""]:
             self.assertFalse(rules.machine_prompt(p), p)
         out = rules.explain(repo({"HANDOFF.md": "a\n"}), '<agent-message from="x">이어서')
         self.assertIn("다른 세션·작업 알림이 보낸 메시지라 넣지 않는다", out)

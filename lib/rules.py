@@ -32,7 +32,7 @@ TRIGGER = re.compile(
 # 사람이 친 프롬프트가 아닌 것 — 다른 세션·서브에이전트가 보낸 메시지, 백그라운드 작업 알림. 본문에 "handoff"·"인계"·"이어서"가
 # 흔해 트리거에 걸리지만 사람이 인계서를 부른 것이 아니다. 11-18 runs.jsonl·세션 기록 대조: 주입 247번 중 최소 152번이 이것이었다.
 # 훅이 받는 프롬프트는 `<agent-message from=…>`로 시작한다(세션 기록의 queue-operation·lastPrompt와 prompt_sha1 대조).
-MACHINE = re.compile(r"\A\s*(?:Another Claude session sent a message:\s*)?<(?:agent-message|cross-session-message|task-notification)\b")
+MACHINE = re.compile(r"\A\s*(?:Another Claude session sent a message:\s*)?<(?:agent-message|cross-session-message|task-notification)(?=[\s>/])")
 
 
 def machine_prompt(prompt):

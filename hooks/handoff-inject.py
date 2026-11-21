@@ -93,7 +93,7 @@ def compacted_since(transcript, offset):
     세션 기록을 못 읽으면 False(같은 내용을 또 넣지 않는 쪽). 기록이 줄었거나 너무 많이 자랐으면 True(확인 못 함 — 넣는 쪽)."""
     try:
         size = os.path.getsize(transcript)
-        if size < offset or size - offset > SEEN_SCAN_MAX:
+        if offset < 0 or size < offset or size - offset > SEEN_SCAN_MAX:  # 음수 offset은 깨진 기억 — 넣는다
             return True
         with open(transcript, "rb") as f:
             f.seek(offset)

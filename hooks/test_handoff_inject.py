@@ -127,11 +127,29 @@ class HandoffInjectTest(unittest.TestCase):
             seen = os.path.join(root, ".cache", "baton", "injected")
             self.write(root, ".cache/baton/injected/old.json", "{}")
             os.utime(os.path.join(seen, "old.json"), (0, 0))
+            self.run_hook(root, "이어서", session_id="s0")
             self.run_hook(root, "이어서", session_id="s1")
             self.assertNotIn("old.json", os.listdir(seen))
+            self.assertEqual(self.run_hook(root, "이어서", session_id="s0").stdout, "")  # 다른 세션의 최근 기억은 남는다
             for name in os.listdir(seen):
                 self.write(root, os.path.join(".cache/baton/injected", name), "{깨진")
             self.assertIn("다음 행동", self.run_hook(root, "이어서", session_id="s1").stdout)
+
+    def test_compacted_since_edges(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "t.jsonl")
+            with open(path, "wb") as f:
+                f.write(b"x" * 100)
+            self.assertFalse(hook.compacted_since(path, 0))
+            self.assertTrue(hook.compacted_since(path, -5))  # 깨진 기억은 넣는 쪽
+            self.assertTrue(hook.compacted_since(path, 200))  # 기록이 줄었다
+            with mock.patch.object(hook, "SEEN_SCAN_MAX", 50):
+                self.assertTrue(hook.compacted_since(path, 0))  # 너무 많이 자랐으면 읽지 않고 넣는다
+            self.assertFalse(hook.compacted_since(None, 0))  # 기록 경로가 없으면 같은 내용을 또 넣지 않는다
 
     def test_concept_injection_is_opt_in(self):
         with tempfile.TemporaryDirectory() as root:
