@@ -1,207 +1,105 @@
 # baton
 
-**다음으로 계속 이어가기 위한 배턴.** 프로젝트 지식을 개념 단위로 추적하고, 세션을 넘길 때 필요한 것만 넘기는 Claude Code 플러그인.
+**English** · [한국어](README.ko.md)
 
-두 가지 일을 합니다. 프로젝트의 **결정·코드·문서가 어긋난 지점**을 개념 단위로 추적하고,
-**세션을 넘길 때** 영구 기록으로 올릴 것을 골라냅니다.
+**A Claude Code plugin that finds where your project's decisions, code, and docs disagree, one concept at a time.**
+Each concept records the commit it was last checked at, so concepts whose files haven't moved since are never re-read.
+It also lints your session handoff (`HANDOFF.md`) on save and injects it when a prompt asks to pick up where you left off.
 
-## 왜 만들었나
+> `1.0.0-beta.2` · Beta. The plugin's messages and skills are written in Korean (see [Limitations](#limitations)).
 
-어떤 프로젝트에서 공략 문서가 옛 규칙을 말한다고 판정한 적이 있습니다.
-코드를 열어 보니 **문서가 맞았습니다.** 어긋난 것은 문서가 아니라 결정과 구현 사이였고,
-바꾸기로 정해 놓고 아직 코드에 넣지 않은 상태였습니다.
-
-문서끼리만 비교하면 이걸 "낡은 문서"로 오판하고, 멀쩡한 문서를 고쳐서
-**없는 동작을 설명하게 됩니다.**
-
-## 두 가지를 노린다
-
-**토큰 효율화.** 개념마다 "언제 어느 커밋 기준으로 확인했다"를 적어 두면,
-그 이후 파일이 움직였는지만 보면 됩니다. 안 움직였으면 **그 개념은 아예 열지 않습니다.**
-
-**개념 그래프.** 프로젝트의 핵심 개념을 노드로, 개념 사이 관계를 간선으로 세웁니다.
-개념 하나를 고칠 때 무엇이 딸려 오는지 보이게 하는 것이 목적입니다.
-
-## 만들면서 지킨 규칙 하나
-
-도구를 만들다 버그 여섯 개를 잡았는데 전부 같은 모양이었습니다.
-
-| 무엇이 | 어떻게 실패했나 |
-|---|---|
-| `git log` | 없는 경로, 추적하지 않는 파일에 **오류 없이 빈 출력** |
-| `sed` 패턴 | 절 제목이 달라 0건, 오류 없음 |
-| 탭 구분 | 빈 필드가 IFS 공백 규칙으로 합쳐져 값이 밀림 |
-| 정규식 | 한글 경로를 통째로 누락 |
-
-전부 **조용히 0을 냈습니다.** 그 0이 "없음"으로 보고되면 가장 급히 봐야 할 것이
-가장 안전해 보입니다. 그래서 이 플러그인의 검사들은 못 센 것을 함께 냅니다.
+<!-- DEMO: 20-second GIF of `/drift` after a commit goes here (docs/demo.gif). Until then, the real output below stands in. -->
 
 ```
-[A] 반복 실패 — 서로 다른 3일 이상 살아남은 제약
-    형식 불일치로 못 센 판 5개 (분모는 2일)
-    → 1건
+#    개념                 상태       판정
+---- ---------------------- ------------ ------------------------------
+1    목숨                 구현됨    재확인 필요 — 커밋 1건
+2    점수                 구현됨    신선
+3    레벨                 미구현    재확인 필요 — 기준 없음
 ```
 
-## 설치
+<sub>Real `/drift` output from a demo repo, after one commit changed `src/lives.ts`. Concept 1 (lives) needs a re-check — 1 commit since it was verified. Concept 2 (score) is fresh, so it is skipped. Concept 3 (levels) was never verified — reported as "can't tell", not as zero.</sub>
 
-Claude Code:
+## Install
 
-```bash
+In Claude Code:
+
+```
 /plugin marketplace add sulabo/baton
 /plugin install baton@baton
 ```
 
-Codex (0.155 이상. Codex는 플러그인 훅을 사용자가 신뢰해야 실행합니다. 0.155.1 실제 세션에서 인계서 주입이 맥락에 들어가는 것을 확인했습니다):
+You need `git` and `python3`. In a new session, run `/baton-doctor` to check the repo is ready.
+Codex (0.155+): `codex plugin marketplace add sulabo/baton`, then `codex plugin add baton@baton`. Codex runs plugin hooks only after you trust them.
 
-```bash
-codex plugin marketplace add sulabo/baton
-codex plugin add baton@baton
+## What it does
+
+### Concept map: `driftmap` and `/drift`
+
+Ask "개념 지도 만들어줘" ("build a concept map"). The `driftmap` skill picks the 8–12 concepts that matter in your project and writes `CONCEPTS.md`.
+Each concept is checked from four sides: what was decided (decision log), what the code actually does, where it is documented, and where those three disagree.
+A disagreement is often not a stale doc — it can be a decision that was made but never implemented. Comparing docs to docs alone would "fix" a correct doc.
+
+Every concept ends with one metadata line:
+
+```
+- **메타**: 상태=구현됨 · 확인=2026-11-20(`9cd1928`) · 파일=`src/lives.ts`, `docs/guide.md` · 이웃=개념 2(전제)
 ```
 
-설치한 뒤 저장소에서 **`/baton-setup`을 한 번** 돌립니다(Codex에서는 "baton 설정해줘"로 스킬을 부릅니다). 내 과거 기록으로 문턱을 맞추는 단계이고, 고르기 전에는 아무것도 바꾸지 않습니다 — 아래 "설치 후 한 번: 내 기록으로 맞추기".
+That is: status, verified at commit `9cd1928`, the files it depends on, and its neighbors. Freshness is then a computation, not a judgment: if none of those files has a commit after `9cd1928`, the concept is fresh and nobody opens it.
+When something did move, the session-start hook prints one line, and `/drift` lists exactly which concepts to revisit. If nothing needs a re-check, the hook stays silent.
 
-Codex에는 슬래시 명령이 없어서 `/drift`·`/promote` 대신 스킬로 부릅니다. 세션 끊기 알림과 인계서 제안은 Claude Code 세션 기록 형식에서만, 인계서 자동 검사는 Claude Code의 `Write`/`Edit`에서만 동작합니다 — Codex에서는 스킬이 검사기를 직접 돌립니다.
+There are six verdicts, and four of them are kinds of "can't tell": no baseline, baseline lost to a rebase, path gone, file not tracked (nested repo). A count that silently comes out as zero is treated as a bug, not as "nothing found".
 
-## 설치 후 한 번: 내 기록으로 맞추기
+### Handoffs (secondary)
 
-baton의 문턱은 만든 사람의 기록으로 정했습니다. `/baton-setup`은 같은 방법을 **내 기록**에 다시 돌려 제안합니다.
+- **Check on save.** When the agent writes `HANDOFF.md`, a hook checks the eight required sections, length limits, large code blocks, diffs, secrets, and home-directory paths, and hands the problems back to the agent. It never echoes the secret it found.
+- **Inject on request.** When a prompt asks about progress — by default Korean words such as "이어서" (continue), "어디까지" (how far), "인계" (handoff), or the English word "handoff" — the hook puts `HANDOFF.md` into context (up to 200 lines / 9,000 characters) so the agent does not search for and re-read it. Prompts without those words get nothing. The match is a plain substring, so a work request that merely mentions "handoff" or "인계" is injected too — and that costs: in a snapshot run, injecting into an unrelated task used 11% more input tokens.
+- **Nudges.** One notice when the context grows past 2× and 3× of the first call, and one suggestion to write a handoff after 3 or more files changed.
+- **`/promote`** lists constraints that survived several days of handoffs as candidates for `DECISIONS.md`. It does not write the decision for you: the "why" and the rejected alternatives only exist in the head of whoever decided.
 
-- **읽는 것**: 이 저장소 최상위에서 연 Claude Code 세션 기록(`~/.claude/projects`), git 작성자, 추적 파일과 무시되지 않은 미추적 파일, 다른 프로젝트 세션 기록의 작업 폴더 이름(프로젝트 이름 후보용), `HANDOFF.md`·`DECISIONS.md`·`CONCEPTS.md`. Codex 세션은 아직 세지 않습니다.
-- **제안하는 것**: 세션 끊기 알림 문턱(맥락이 첫 호출의 몇 배일 때), 인계서 제안 문턱(파일 몇 개 고친 뒤), 인계서를 넣을 트리거 말 추가, 인계서 검사가 막을 **개인 자료 목록**(내 이름·이메일·다른 프로젝트 이름 후보 중 내가 고른 것). 세션이 10개 미만이면 문턱은 기본값을 그대로 권합니다.
-- **쓰는 것**: 내가 고른 값만 `~/.config/baton/config.json`(`XDG_CONFIG_HOME`이 있으면 그 아래)에 씁니다. 저장소별 절(git 최상위 폴더 기준 — 하위 폴더에서 열어도 같은 절, 워크트리는 따로)과 전역 절이 있고, 파일은 600입니다. 값은 키마다 검사해 훅이 조용히 무시할 값은 받지 않습니다. 스캔 자체는 아무것도 바꾸지 않습니다.
-- **개인 자료가 남는 곳**: 스킬로 돌리면 스캔 출력(개인 자료 후보)과 apply 명령줄이 에이전트 맥락과 Claude Code 세션 기록에 들어갑니다. 원하지 않으면 단어를 저장소 밖 파일에 적어 `--private-terms-file`로 넘기거나, 세션 밖 터미널에서 직접 돌립니다. 관찰 로그에는 남지 않습니다.
-- **우선순위**: 실제 환경변수 > 저장소 절 > 전역 절 > 기본값. 되돌리려면 그 키를 지우거나(`setup_scan.py apply --unset 키`, 목록 하나는 `--remove-terms-file`·`--remove-trigger`) 같은 이름의 환경변수로 덮습니다. 지금 적용된 값은 `python3 lib/config.py`로 봅니다.
+### Commands
 
-## 쓰는 법
-
-설치하면 평소처럼 일하면 됩니다. baton이 끼어드는 때는 넷입니다.
-
-1. **작업 덩어리가 끝나면** "핸드오프 작성해줘"라고 합니다. 에이전트가 `HANDOFF.md`를 쓰고, 훅이 곧바로 검사해
-   빠진 절·넘친 길이·비밀값을 돌려줍니다. 고친 뒤 커밋합니다 — 커밋해야 다음 판이 이 판을 봅니다.
-   파일을 여럿 고치고도 인계서를 안 썼으면 baton이 세션에 한 번 먼저 제안합니다.
-2. **세션이 불어나면** 알림이 한 번 뜹니다. 넘기기로 했다면 인계서를 쓰고 `/clear` 한 뒤 "이어서"라고만 칩니다.
-   훅이 인계서를 넣어 주므로 에이전트가 파일을 다시 찾지 않습니다.
-3. **같은 판단을 여러 날 되풀이하고 있으면** `/promote`가 `DECISIONS.md`로 올릴 후보를 보여 줍니다.
-   결정 기록은 사람이 씁니다 — 아래 "넘지 않는 선".
-4. **개념 지도(`CONCEPTS.md`)가 있는 저장소에서는** 세션 시작 때 재확인할 개념이 있으면 한 줄 알리고, `/drift`로 어느 개념인지 봅니다.
-
-무엇이 있는지 모르겠으면 `/baton-doctor`, 규칙이 어떤 프롬프트에 무엇을 판단하는지 보려면 `/baton-explain "프롬프트"`.
-알림이 거슬리면 아래 각 훅의 끄는 변수를 씁니다. 변수는 환경변수로 줘도 되고 설정 파일(`/baton-setup`)에 둬도 됩니다.
-
-## 무엇이 들어 있나
-
-### 스킬 셋
-
-**`driftmap`** — 개념 지도. 프로젝트의 핵심 개념 8~12개를 골라 네 면으로 봅니다.
-정해진 것(결정 기록), 실제 동작(코드), 설명된 곳(문서), 그리고 어긋남입니다.
-이 넷이 갈라지는 지점이 곧 문제입니다.
-
-**`baton`** — 세션 인계서. 여덟 항목을 남기고, 넘기면서 **여러 날 살아남은 것**을
-골라냅니다. 서로 다른 날에 살아남았다는 것은 세션 상태가 아니라 상시 규칙이라는 뜻입니다.
-
-**`baton-setup`** — 설치 후 한 번. 내 과거 기록으로 문턱과 개인 자료 목록을 제안하고, 고른 것만 설정 파일에 씁니다.
-
-### 명령 다섯
-
-| 명령 | 하는 일 |
+| Command | What it does |
 |---|---|
-| `/drift` | 어느 개념이 재확인 대상인지 계산. 0이면 거기서 끝 |
-| `/promote` | 인계서에서 영구 기록으로 올릴 것 찾기 |
-| `/baton-setup` | 내 기록으로 문턱·개인 자료 목록 맞추기. 고른 것만 쓴다 |
-| `/baton-doctor` | 이 저장소에서 돌 준비가 됐는지 점검(설정 파일이 읽히는지 포함) |
-| `/baton-explain` | 이 프롬프트에 규칙이 무엇을 판단하는지(인계서·개념 후보·작업 종류) 보여 준다. 바꾸는 것 없음 |
+| `/drift` | Which concepts need a re-check. Stops at zero |
+| `/promote` | Handoff items worth promoting to the decision log |
+| `/baton-setup` | Tune thresholds and a private-terms block list from your own session history. Writes only what you pick |
+| `/baton-doctor` | Is this repo ready (git, `CONCEPTS.md`, metadata lines, tracked handoff, config) |
+| `/baton-explain` | Shows what the rules decide for a prompt. Changes nothing |
 
-### 훅 다섯
+Every hook has an off switch (`BATON_HANDOFF_INJECT=off`, `BATON_SPLIT_NOTICE=off`, `BATON_HANDOFF_CHECK=off`, …), as an environment variable or in the config file written by `/baton-setup`.
 
-**세션이 불어나면 한 번 알립니다.** 턴이 끝날 때 호출당 맥락이 세션 첫 호출의 2배, 3배를 처음 넘으면
-"여기서 인계서를 쓰고 `/clear` 뒤 '이어서'로 넘기면 다시 처음 크기에서 시작한다"고 문턱마다 한 번만 알립니다.
-실사용 세션 60개에서 비용의 85%가 맥락이 첫 호출의 2배를 넘은 뒤에 나갔습니다
-([측정](docs/research/LOOP_PLAN.md)). 넘길지는 사람이 정합니다 — 알림은 모델의 행동을 바꾸지 않습니다.
-끄려면 `BATON_SPLIT_NOTICE=off`, 문턱은 `BATON_SPLIT_RATIOS="2,3"`.
+### Observation log
 
-**인계서는 물어볼 때만 넣습니다.** 프롬프트가 인계나 진행 상황을 가리키면("이어서", "어디까지" 등)
-`HANDOFF.md`를 200줄·9,000자까지 컨텍스트에 넣습니다. 에이전트가 파일을 다시 열지 않아도 됩니다.
-무관한 작업에는 넣지 않습니다 — 게임 저장소 실측에서 상태 질문은 입력 토큰 -45%, 무관한 작업은 +11%였습니다
-([루프 1](docs/research/LOOP_PLAN.md)). 끄려면 `BATON_HANDOFF_INJECT=off`.
+Hooks append one line per decision to `~/.cache/baton/runs.jsonl` (file mode 600). Prompt text is never stored — only a hash, the length, and the trigger words that matched. Turn it off with `BATON_OBSERVE=off`.
 
-**인계서를 쓰면 바로 검사합니다.** `HANDOFF.md`를 저장하면 필수 8절·200줄·9,000자·20줄 넘는 코드 블록·전체 diff·비밀값·홈 절대경로를 규칙으로 보고, 문제가 있으면 에이전트에게 돌려줘 고치게 합니다. `/baton-setup`에서 고른 개인 자료 목록(이름·이메일 등)이 들어 있어도 막습니다. 찾은 값 자체는 다시 출력하지 않습니다. 손으로 돌리려면 `python3 lib/handoff_check.py HANDOFF.md`. 그리고 세션에서 파일을 3개 이상 고쳤는데 그 뒤로 인계서가 안 바뀌었으면 세션에 한 번 "인계서를 남겨 두라"고 제안합니다 — 쓸지는 사람이 정합니다. 문턱 3은 세션 94개 실측에서 1~2개 고친 세션은 인계서를 16%, 3개 이상은 67% 썼던 경계입니다. 끄려면 `BATON_HANDOFF_CHECK=off`·`BATON_HANDOFF_NUDGE=off`, 문턱은 `BATON_HANDOFF_NUDGE_FILES=3`.
+## Measured so far
 
-세션이 시작될 때 재확인 대상이 **있을 때만** 한 줄 알립니다. 없으면 조용합니다.
-매번 울리는 알람은 곧 무시당합니다.
+From the author's own use (one person), counted on the evening of 2026-11-20 (KST). Each number has its own period; commands and sources are in the [CHANGELOG](CHANGELOG.md).
 
-검사 스크립트가 0건을 냈을 때 "없음인지 못 셌음인지 구분하라"고 상기시킵니다.
+- Sessions that started with a progress question and re-read `HANDOFF.md` within the first 5 calls: **41 of 42 before install** (2026-08-31 to 10-04), **3 of 11 after** (10-19 to 11-20; 2 of those 3 read only part).
+- From install (10-04) to 11-20: 270 handoff injections in 40 sessions. The save-time check returned problems on 20 of 38 saves.
+- **Tokens did not go down** in real use: the opening calls cost more after install, because the fixed context grew in the same period and the effect could not be separated. In controlled snapshot runs (same repo, same prompt), progress questions used 40–54% fewer input tokens.
 
-### 관찰 로그
+## Limitations
 
-훅은 판단 결과를 `~/.cache/baton/runs.jsonl`에 한 줄씩 남깁니다 — 저장소 경로, 규칙 판단, 실제로 넣은 것, 세션 끊기 알림, 인계서 검사 문제 수와 제안.
-**프롬프트 원문은 남기지 않습니다** — 해시·길이, 그리고 규칙 사전에 걸린 단어(예: "이어서", "버그")와 개념 제목만. 로그 파일은 600(폴더는 새로 만들 때 700), 20MB를 넘으면 한 번 돌립니다. 위치는 `BATON_LOG` 또는 `XDG_CACHE_HOME`으로 바꿀 수 있습니다.
-끄려면 `BATON_OBSERVE=off`. 이 로그로 "넣은 세션과 안 넣은 세션", "넘긴 세션과 안 넘긴 세션"을 비교합니다.
+- **Korean UI.** Hook messages, skill instructions, and command output are in Korean. Handoff injection triggers on Korean words and "handoff" only — English "continue" or "where were we" does not trigger it. Add your own words with `/baton-setup` (`BATON_HANDOFF_TRIGGERS_EXTRA`).
+- Freshness is per file. An unrelated edit in a listed file still marks the concept for a re-check.
+- Only committed history counts. Uncommitted changes are invisible.
+- Reversed decisions are not detected automatically. It was tried and removed.
+- The first concept map is expensive: every concept needs its metadata line filled in.
+- Default thresholds come from a few repositories of one person. `/baton-setup` re-fits them to your history only when this repo has 10 or more Claude Code sessions.
+- The handoff checker misses `postgres://user:pw@host` style URLs, `npm_` and `hf_` tokens, and non-JWT Bearer values. It falsely flags long `sk-` branch names, CI runner home paths, and secret assignments whose value is a timestamp string.
+- If the agent writes `HANDOFF.md` in several `Edit` steps, every intermediate save comes back with "required section missing".
+- Injection looks for `HANDOFF.md` at the git top level of the folder the hook runs in. Claude Code runs hooks in the project folder, so this is normally the repo you opened.
+- Codex: the context-growth notice, handoff nudge, and save-time check do not run (different session log format; `apply_patch` gives no path). The skill runs the checker itself.
+- Hooks are Python and shell scripts that run on your machine. Read `hooks/` before installing if that matters to you.
 
-### 실험 기능 (기본 꺼짐)
+## Background
 
-`BATON_CONCEPT_INJECT=on`이면 `CONCEPTS.md`의 개념 절 하나를 넣습니다. 개념 제목의 핵심 단어(두 글자 이상, 흔한 말 제외) 중 하나라도
-프롬프트에 들어 있는 개념이 **정확히 하나**일 때만, 그 절이 2,000자 이내일 때만 넣습니다(넘으면 자르지 않고 안 넣습니다).
-스냅샷 시험에서 정답은 같고 토큰 -43%였습니다. 한 저장소의 과거 세션 기록에 거꾸로 적용하면 사람 프롬프트 308개 중 60개(19.5%)가 걸렸습니다 — 실사용 측정 전 추정입니다.
+How the design got here, what was tried and dropped, and what still does not work: [docs/NORTH_STAR_배경.md](docs/NORTH_STAR_배경.md) and [docs/NORTH_STAR.md](docs/NORTH_STAR.md) (Korean). Decisions and their reasons: [DECISIONS.md](DECISIONS.md).
 
-## 낡음은 계산한다
-
-지도가 낡는 건 시간이 흘러서가 아니라 **걸린 파일이 움직여서**입니다.
-
-개념마다 "언제 어느 커밋 기준으로 확인했다"를 한 줄로 적어 둡니다.
-
-```
-- **메타**: 상태=미구현 · 확인=2026-09-07(`a1b2c3d`) · 파일=`src/levels.ts` · 이웃=개념 2(전제)
-```
-
-그러면 그 이후 커밋이 있었는지만 보면 됩니다. **없으면 그 개념은 아예 열지 않습니다.**
-개념 35개 중 11개가 신선하면 그만큼 안 읽습니다.
-
-판정은 여섯 가지이고, 그중 넷은 "모른다"의 종류입니다.
-
-| 판정 | 뜻 |
-|---|---|
-| 신선 | 확인 이후 커밋 없음. 열지 않는다 |
-| 재확인 필요 — 커밋 N건 | 파일이 움직였다 |
-| 재확인 필요 — 기준 없음 | 확인 시점이 안 적혀 있다 |
-| 재확인 필요 — 기준 소실 | 해시가 rebase로 사라졌다 |
-| 재확인 필요 — 경로 소실 | 파일이 없다 |
-| 재확인 필요 — 미추적 | 중첩 저장소다 |
-
-## `파일`에 지침 파일을 넣지 않는 이유
-
-`AGENTS.md`·`DECISIONS.md` 같은 파일은 거의 매일 바뀝니다. 이것들이 근거 목록에 있으면
-**실제 내용이 가만히 있어도 개념이 계속 재확인 대상**이 됩니다.
-
-실측에서 재확인 6건 중 4건이 `AGENTS.md` 하나 때문이었습니다. 빼고 나니 1건이 됐고,
-남은 1건은 진짜 신호였습니다.
-
-결정 쪽 변동은 전역으로 따로 봅니다. 그걸 빼면 **"코드는 그대로인데 결정만 움직인 상태"**,
-즉 미구현을 통째로 놓칩니다.
-
-## 넘지 않는 선
-
-**`DECISIONS.md`를 대신 쓰지 않습니다.**
-
-결정 기록의 값은 "무엇을 정했나"가 아니라 **"왜, 무엇을 버렸나"**에 있습니다.
-버린 대안과 이유는 결정한 사람 머릿속에만 있고 역산할 수 없습니다.
-추측으로 채우면 6개월 뒤에 읽을 때 가장 중요한 줄이 거짓이 됩니다.
-
-후보와 초안까지만 만들고 그 두 칸은 비워 둡니다.
-
-## 한계
-
-- 신선도는 **파일 단위**로만 계산합니다. 같은 파일의 무관한 줄이 바뀌어도 잡힙니다.
-- **커밋된 이력만** 봅니다. 미커밋 변경은 안 잡힙니다.
-- 번복(결정이 반대로 뒤집힘)은 **자동 탐지 못 합니다.** 시도했다가 뺐습니다.
-- 첫 실행은 개념마다 메타 줄을 채워야 해서 비용이 큽니다.
-- 기본 문턱값은 저장소 몇 곳의 분포로 정했습니다. `/baton-setup`이 같은 방법을 내 기록에 돌려 바꿀 수 있지만, 이 저장소 최상위에서 연 Claude Code 세션이 10개 이상일 때만 바꾸자고 하고 그 아래면 기본값을 권합니다. 하위 폴더에서 연 세션과 Codex 세션은 아직 세지 않습니다. 설정 절은 git 워크트리마다 따로입니다.
-- **효과 수치의 성격이 다릅니다.** 세션 끊기 절감(2배에서 35~45%)은 과거 세션 기록으로 다시 계산한 **추정**이고, 인계서 주입의 토큰 감소는 **스냅샷 실험**(조건당 3~5회)입니다. 실사용 측정은 beta 이후이며, 지금 있는 기록은 만든 사람 한 명의 사용 방식입니다.
-
-## 어떻게 여기까지 왔나
-
-무엇이 제안됐고 무엇이 바뀌었는지, 지금 무엇이 안 되는지는
-[docs/NORTH_STAR_배경.md](docs/NORTH_STAR_배경.md)에 시간 순으로 적어 뒀습니다. 목표 그림과 지금 위치·가는 길은 [docs/NORTH_STAR.md](docs/NORTH_STAR.md)에 있습니다.
-
-## 라이선스
+## License
 
 MIT

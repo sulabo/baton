@@ -116,6 +116,18 @@ class UsageWeekTest(unittest.TestCase):
         self.assertEqual(sorted((os.path.basename(s["file"]), s["calls"]) for s in out), [("s1.jsonl", 2), ("s3.jsonl", 1)])
         self.assertEqual((sk["duplicate"], sk["non_cli"]), (1, 1))
 
+    def test_collect_since_until_by_local_start_date(self):
+        with tempfile.TemporaryDirectory() as home, mock.patch.dict(os.environ, {"HOME": home, "TZ": "Asia/Seoul"}):
+            import time; time.tzset()
+            proj = os.path.join(home, ".claude", "projects", "a")
+            for name, ts in (("early", "2026-08-30T10:00:00Z"), ("in", "2026-11-20T10:00:00Z"),
+                             ("kst_next_day", "2026-11-20T15:30:00Z"), ("late", "2026-11-21T01:00:00Z")):
+                write_jsonl(os.path.join(proj, f"{name}.jsonl"), [user("이어서", ts=ts), asst("m1", 1)])
+            out, sk = usage_week.collect(since=usage_week.datetime(2026, 8, 31).date(), until=usage_week.datetime(2026, 11, 20).date())
+        time.tzset()
+        self.assertEqual([os.path.basename(s["file"]) for s in out], ["in.jsonl"])
+        self.assertEqual((sk["before_since"], sk["after_until"]), (1, 2))
+
     def test_start_is_local_time(self):
         with mock.patch.dict(os.environ, {"TZ": "Asia/Seoul"}):
             import time; time.tzset()

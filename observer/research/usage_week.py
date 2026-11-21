@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """로드맵 1단계: 실제 대화형 세션 기록에서 세션별 API 호출 수·입력 토큰 합·첫 호출 컨텍스트를 뽑아 주별로 묶는다.
-   usage_week.py [프로젝트 폴더 glob 조각] [--since YYYY-MM-DD] [--sessions]
+   usage_week.py [프로젝트 폴더 glob 조각] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--sessions]
 
    - 대상: ~/.claude/projects/<pat>/*.jsonl (메인 세션만 — 서브에이전트 기록은 <세션>/subagents/ 아래라 빠진다)
      같은 세션 파일이 폴더 이름 변경으로 두 폴더에 복사돼 있다(game·game-old 13개) — 세션 id(파일 이름)로 한 번만 센다
@@ -108,10 +108,11 @@ def session_of(path):
     }
 
 
-def collect(pat="*", since=None, files=None):
-    """files를 주면 glob 대신 그 세션 파일들만 고른다(lib/setup_scan.py가 저장소별 파일 목록을 넘긴다)."""
+def collect(pat="*", since=None, files=None, until=None):
+    """files를 주면 glob 대신 그 세션 파일들만 고른다(lib/setup_scan.py가 저장소별 파일 목록을 넘긴다).
+       until(포함)은 세션 시작 날짜로 자른다 — 문서에 적은 수치를 나중에 같은 기간으로 다시 재기 위해서다."""
     out, by_id = [], {}
-    skipped = {"experimental": 0, "non_cli": 0, "empty": 0, "duplicate": 0, "before_since": 0}
+    skipped = {"experimental": 0, "non_cli": 0, "empty": 0, "duplicate": 0, "before_since": 0, "after_until": 0}
     for f in files if files is not None else glob.glob(os.path.expanduser(f"~/.claude/projects/{pat}/*.jsonl")):
         by_id.setdefault(os.path.basename(f), []).append(f)
     for sid in sorted(by_id):
@@ -123,6 +124,7 @@ def collect(pat="*", since=None, files=None):
         if experimental(s["cwd"]): skipped["experimental"] += 1; continue
         if not s["entry"] or s["entry"].startswith("sdk"): skipped["non_cli"] += 1; continue  # claude -p·SDK. IDE 같은 대화형은 남긴다
         if since and s["start"] and s["start"].date() < since: skipped["before_since"] += 1; continue
+        if until and s["start"] and s["start"].date() > until: skipped["after_until"] += 1; continue
         out.append(s)
     return out, skipped
 
@@ -154,12 +156,14 @@ def main(argv):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("pattern", nargs="?", default="*")
     p.add_argument("--since", type=lambda v: datetime.fromisoformat(v).date(), help="로컬 날짜. 주 경계(월요일)로 주면 첫 주가 잘리지 않는다")
+    p.add_argument("--until", type=lambda v: datetime.fromisoformat(v).date(), help="로컬 날짜(포함). 세션 시작일 기준")
     p.add_argument("--sessions", action="store_true")
     a = p.parse_args(argv)
-    sessions, sk = collect(a.pattern, a.since)
+    sessions, sk = collect(a.pattern, a.since, until=a.until)
     print("[MEASURED] 대화형 세션 기록 · 메인 스레드만 · 서브에이전트 토큰 미포함 · 로컬 시간대")
     print(f"  pattern {a.pattern!r} · 세션 {len(sessions)} · 제외: 실험 폴더 {sk['experimental']} · cli 아님 {sk['non_cli']}"
-          f" · 중복 파일 {sk['duplicate']} · 호출/프롬프트 없음 {sk['empty']} · --since 이전 {sk['before_since']}")
+          f" · 중복 파일 {sk['duplicate']} · 호출/프롬프트 없음 {sk['empty']} · --since 이전 {sk['before_since']}"
+          f" · --until 이후 {sk['after_until']}")
     print(week_table(sessions))
     if a.sessions:
         for s in sorted((s for s in sessions if s["start"]), key=lambda s: s["start"]):

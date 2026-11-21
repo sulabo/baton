@@ -1,0 +1,81 @@
+# GitHub 트래픽 API는 최근 14일치만 돌려준다. 매일 한 번 받아 `traffic-data` 브랜치에 JSON으로 쌓는다.
+#
+# 소유자가 한 번 할 일: 저장소 Settings → Secrets and variables → Actions에 `TRAFFIC_TOKEN`을 등록한다.
+#   - fine-grained personal access token, 대상 저장소 sulabo/baton 하나, Repository permissions → Administration: Read-only
+#     (트래픽 네 엔드포인트가 요구하는 권한. Actions 기본 GITHUB_TOKEN에는 Administration을 줄 수 없다)
+#   - classic token이면 `repo` 범위가 필요하다(권한이 훨씬 넓다 — fine-grained를 권한다)
+#   - 커밋·푸시는 기본 GITHUB_TOKEN(아래 job의 contents: write)으로 한다. TRAFFIC_TOKEN은 읽기에만 쓴다.
+#   - 등록 전에는 경고(::warning::)만 남기고 성공으로 끝난다 — 실패 알림이 매일 가지 않는다.
+# 주의: 공개 저장소의 브랜치이므로 쌓인 수치(유입 경로·많이 본 경로 포함)는 누구나 볼 수 있다.
+#
+# 쌓이는 모양: traffic-data 브랜치의 data/YYYY-MM-DD/{views,clones,referrers,paths}.json (UTC 날짜)
+# views·clones는 일별 값이 14일 창으로 겹쳐 들어 있다 — 합칠 때 timestamp로 중복을 지운다.
+# referrers·paths는 14일 합계만 있고 일별 값이 없어서, 날마다 찍어 두는 것 말고는 되살릴 방법이 없다.
+name: traffic-snapshot
+
+on:
+  schedule:
+    - cron: "17 0 * * *"  # 매일 00:17 UTC (09:17 KST)
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: traffic-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    if: github.repository == 'sulabo/baton'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Fetch traffic (last 14 days)
+        id: fetch
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            # 시크릿 등록 전에는 매일 실패 알림이 가지 않게 경고만 남기고 성공으로 끝낸다
+            echo "::warning::TRAFFIC_TOKEN 시크릿이 없어 건너뛴다. 이 파일 맨 위 주석대로 등록한다."
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          out="${RUNNER_TEMP}/traffic"
+          mkdir -p "${out}"
+          gh api "repos/${REPO}/traffic/views" > "${out}/views.json"
+          gh api "repos/${REPO}/traffic/clones" > "${out}/clones.json"
+          gh api "repos/${REPO}/traffic/popular/referrers" > "${out}/referrers.json"
+          gh api "repos/${REPO}/traffic/popular/paths" > "${out}/paths.json"
+          for f in "${out}"/*.json; do jq -e . "${f}" > /dev/null; done
+          jq -c '{views: .count, uniques: .uniques}' "${out}/views.json"
+
+      - name: Commit to traffic-data branch
+        if: steps.fetch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          day="$(date -u +%F)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --depth 1 origin traffic-data 2>/dev/null; then
+            git switch -c traffic-data FETCH_HEAD
+          else
+            git switch --orphan traffic-data
+          fi
+          mkdir -p "data/${day}"
+          cp "${RUNNER_TEMP}"/traffic/*.json "data/${day}/"
+          git add data
+          if git diff --cached --quiet; then
+            echo "바뀐 것 없음"
+            exit 0
+          fi
+          git commit -q -m "traffic: ${day}"
+          git push origin traffic-data
