@@ -34,9 +34,11 @@ fi
 # 전용 하위 폴더 — baton/ 바로 아래에는 관찰 로그·알림 상태·설치 사본(stage-plugin.sh 기본값)이 있다.
 # 10-01 이전에는 baton/ 전체에서 7일 넘은 파일을 지워 그것들까지 지웠다.
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/baton/drift"
-KEY=$(printf '%s|%s|%s' "$MAP" \
+# fresh.sh도 키에 넣는다 — 플러그인을 갱신해 출력 형식이 바뀌면 옛 캐시를 읽지 않게
+KEY=$(printf '%s|%s|%s|%s' "$MAP" \
       "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" \
-      "$(cksum < "$MAP" 2>/dev/null)" | cksum | tr -d ' ')
+      "$(cksum < "$MAP" 2>/dev/null)" \
+      "$(cksum < "$CLAUDE_PLUGIN_ROOT/lib/fresh.sh" 2>/dev/null)" | cksum | tr -d ' ')
 CACHE="$CACHE_DIR/$KEY"
 
 if [ -r "$CACHE" ]; then
@@ -49,8 +51,14 @@ else
     find "$CACHE_DIR" -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null
   }
 fi
-STALE=$(echo "$OUT" | grep -c '재확인 필요' | tr -cd '0-9'); STALE=${STALE:-0}
-FRESH=$(echo "$OUT" | grep -c '신선'      | tr -cd '0-9'); FRESH=${FRESH:-0}
+# 표의 글자를 세지 않고 fresh.sh 끝의 요약 줄을 읽는다. 개념 이름에 '신선'·'재확인'이 들어 있으면 표를 세는 방식은 틀린다(2026-11-21)
+SUM=$(echo "$OUT" | grep '^요약: 재확인 [0-9]* · 신선 [0-9]*' | tail -1)
+if [ -z "$SUM" ]; then    # 요약이 없으면 못 센 것이다 — 조용히 두면 "재확인 0건"과 구분되지 않는다
+  emit "[baton] 개념 지도의 신선도 요약을 못 읽었다 — 0건이 아니라 못 셌다. /drift로 직접 본다."
+  exit 0
+fi
+STALE=$(echo "$SUM" | sed 's/^요약: 재확인 \([0-9]*\).*/\1/'); STALE=${STALE:-0}
+FRESH=$(echo "$SUM" | sed 's/.* 신선 \([0-9]*\).*/\1/'); FRESH=${FRESH:-0}
 [ "$STALE" -eq 0 ] && exit 0
 
 MSG="[baton] 개념 지도에 재확인 대상 ${STALE}건 (신선 ${FRESH}건). 자세히는 /drift"

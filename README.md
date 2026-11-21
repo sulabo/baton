@@ -109,10 +109,10 @@ Each concept in `CONCEPTS.md` is compared across three sources — the decision 
 Every concept ends with one metadata line:
 
 ```
-- **메타**: 상태=구현됨 · 확인=2026-11-20(`9cd1928`) · 파일=`src/lives.ts`, `docs/guide.md` · 이웃=개념 2(전제)
+- **메타**: 상태=일치 · 확인=2026-11-20(`9cd1928`) · 파일=`src/lives.ts` · 이웃=개념 2(전제) · 문서=`docs/guide.md`
 ```
 
-That is: the status (implemented), the commit it was verified at (`9cd1928`), the files it depends on, and its neighbors. Freshness is then a computation, not a judgment. If none of those files has a commit after `9cd1928`, the concept is fresh and nobody opens it.
+That is: the status (`일치` — decision, code, and docs agree; the status words are a closed list of eight), the commit it was verified at (`9cd1928`), the code files it depends on, its neighbors, and the docs that describe it. Freshness is then a computation, not a judgment. If none of those files — code or docs — has a commit after `9cd1928`, the concept is fresh and nobody opens it. A doc-only change is reported as its own kind of re-check.
 
 There are six verdicts. Two are plain answers: fresh, or needs a re-check because N commits touched the files. Four are kinds of "can't tell", printed as "needs a re-check" with the reason: no baseline, baseline lost to a rebase, path gone, and file not tracked (nested repo).
 A concept with no files (a rule) is tracked only through changes to the decision log, and a concept that a newer decision points to is marked for a re-check too.
