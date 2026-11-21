@@ -165,7 +165,7 @@
 
 근거는 각 개념 절의 실제 동작 면에 있다. 여기에는 따로 대조해 맞았던 것만 모은다.
 
-- 테스트 168개 통과(2026-11-21, `python3 -m unittest discover -s` 네 묶음: hooks 34·lib 83·tools 4·observer/research 47, 건너뜀 3).
+- 테스트 169개 통과(2026-11-21, `5c185bd` 위에서 `python3 -m unittest discover -s` 네 묶음: hooks 34·lib 83·tools 4·observer/research 48, 건너뜀 3).
 - 매니페스트 세 곳의 버전이 같다(`1.0.0-beta.2`).
 - README "명령 다섯"은 `commands/` 파일 다섯 개와, "훅 다섯"은 `hooks/hooks.json`에 등록된 스크립트 다섯 개와 맞는다.
 - 인계서 템플릿의 8절(`skills/baton/SKILL.md` 템플릿)과 검사기의 필수 절 목록이 같다.
