@@ -70,9 +70,10 @@
 - **정해진 것**: `DECISIONS.md` 10-01 "beta v1.0 범위" — 길 단계 3의 인계서 검사기와 결정론 트리거를 넣는다(소유자).
 - **실제 동작**:
   - 검사기: 필수 8절(`lib/handoff_check.py:23`)·200줄·9,000자·긴 코드 블록·전체 diff·비밀값·홈 절대경로(`lib/handoff_check.py:46`)·개인 자료 목록(`lib/handoff_check.py:58`). 훅 모드에서는 baton 형식으로 보이는 인계서에만 필수 절을 요구한다(`lib/handoff_check.py:115`). PR #6부터 "확인된 사실과 결정" 목록 줄에 [V]·[?] 표시가 없으면 막지 않고 경고만 한다(`lib/handoff_check.py:120`).
-  - `HANDOFF.md`를 `Write|Edit|MultiEdit`한 직후 검사(`hooks/handoff-check.py:34`, `hooks/hooks.json:28`), 문제가 있으면 모델에 돌려준다.
-  - 제안: `Stop`에서만, 마지막 인계서 저장 뒤 다른 파일을 3개 이상 고쳤으면 세션에 한 번(`hooks/handoff-check.py:99`, `hooks/handoff-check.py:110`, `hooks/handoff-check.py:117`). `SessionEnd`에는 등록돼 있지 않다.
-  - 테스트: `lib/test_handoff_check.py` 31개 + `hooks/test_handoff_check_hook.py` 13개 통과(2026-11-21, PR #6 머지 뒤 실행). 이 저장소의 루트 `HANDOFF.md`도 검사기를 통과한다("문제 없음").
+  - `HANDOFF.md`를 `Write|Edit|MultiEdit`한 직후 검사(`hooks/handoff-check.py:45`, `hooks/hooks.json:28`), 문제가 있으면 모델에 돌려준다.
+  - 제안: `Stop`에서만, 마지막 인계서 저장 뒤 다른 파일을 3개 이상 고쳤으면 세션에 한 번(`hooks/handoff-check.py:113`, `hooks/handoff-check.py:124`, `hooks/handoff-check.py:131`). `SessionEnd`에는 등록돼 있지 않다.
+  - 이름 붙은 인계서(`HANDOFF_*.md`·`handoff-*.md`)도 "인계서를 썼다"로 센다(`hooks/handoff-check.py:33`) — 제안 문턱과 `/baton-setup` 분포 둘 다. 검사·주입은 `HANDOFF.md`만 하고, 이름 붙은 인계서를 쓰면 `handoff_write` 이벤트만 남긴다(`hooks/handoff-check.py:49`). 11-21 로그에서 제안을 무시한 것으로 보인 13번 중 5번은 제안 뒤에 이름 붙은 인계서를 썼다.
+  - 테스트: `lib/test_handoff_check.py` 31개 + `hooks/test_handoff_check_hook.py` 15개 통과(2026-11-21, 이름 붙은 인계서 테스트 2개 포함). 이 저장소의 루트 `HANDOFF.md`도 검사기를 통과한다("문제 없음").
 - **설명된 곳**: `README.md:122`·`README.md:124`, `README.ko.md:142`·`README.ko.md:144` — 코드와 일치. `docs/NORTH_STAR.md:134`·`docs/NORTH_STAR.md:136`.
 - **어긋남**: 북극성 단계 3 본문(`docs/NORTH_STAR.md:136`)이 결정론 트리거를 "`Stop`·`SessionEnd` 훅에서"라고 적는다. 바로 위 상태 줄(`docs/NORTH_STAR.md:134`)은 "`SessionEnd` 대신 `Stop`만"이라 하고 코드도 `Stop`만이다 — 같은 절 안에서 서로 다르다. 상태 줄의 "테스트 18개"는 10-01 커밋 `8834a01` 기준 검사기 테스트만 센 값이고, 지금은 20 + 11개다. **낡은 문서** → 해소됨(2026-11-21, `6b51162`). 두 줄을 "`Stop`만"과 테스트 수로 고쳤다. 처음 고친 수(31개)는 작업하는 사이 PR #6이 머지되면서 바로 낡았다. 이 지도의 `fresh.sh`가 이 개념을 재확인으로 올려서 알았고, 44개(검사기 31·훅 13)로 다시 고쳤다. 날짜를 붙여 둔 이유다.
 

@@ -114,6 +114,13 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(n["names"], {"HANDOFF.md": 4, "HANDOFF-x.md": 4})
         self.assertEqual([b["wrote"] for b in n["buckets"]], [0, 0, 0, 0, 4])
 
+    def test_named_handoff_counts_as_written(self):
+        for _ in range(10):  # 트랙마다 HANDOFF_*.md만 쓰는 사람도 인계서를 쓴 세션으로 센다
+            self.add(session(self.repo, "작업", [100, 110], edits=["a.py", "b.py", "c.py", "HANDOFF_track.md"]))
+        n = self.scan()["nudge"]
+        self.assertNotIn("인계서를 쓴 세션이 0개", n.get("reason") or "")
+        self.assertEqual(sum(b["wrote"] for b in n["buckets"]), 10)
+
     def test_nudge_without_any_handoff_keeps_default(self):
         for _ in range(10):
             self.add(session(self.repo, "작업", [100, 110], edits=["a.py", "b.py"]))

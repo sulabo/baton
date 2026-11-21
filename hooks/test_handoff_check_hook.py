@@ -141,6 +141,26 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py"), edit("/r/HANDOFF.md", "Write"), edit("/r/d.py")])
         self.assertIsNone(self.stop())
 
+    def test_named_handoff_write_resets_count(self):
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py"), edit("/r/HANDOFF_track.md", "Write"), edit("/r/d.py")])
+        self.assertIsNone(self.stop())
+        self.write([edit("/r/HANDOFF_a.md"), edit("/r/handoff-b.md"), edit("/r/HANDOFF_c.md")])
+        self.assertIsNone(self.stop(sid="s2"))  # 이름 붙은 인계서는 '다른 파일'로 세지 않는다
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/HANDOFFS.md"), edit("/r/HANDOFF_.md")])
+        self.assertIsNotNone(self.stop(sid="s3"))  # 구분자 뒤 이름이 없거나 구분자가 없으면 인계서가 아니다
+
+    def test_named_handoff_logged_not_checked(self):
+        p = os.path.join(self.root, "HANDOFF_track.md")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("# 다른 형식\n" + "가" * 20000)
+        out = self.run_hook({"hook_event_name": "PostToolUse", "tool_name": "Write", "session_id": "s1",
+                             "tool_input": {"file_path": p}})
+        self.assertIsNone(out)  # 주입되지 않는 파일이라 길이 등으로 막지 않는다
+        with open(self.log, encoding="utf-8") as f:
+            ev = [json.loads(l) for l in f if l.strip()]
+        self.assertEqual([e["event"] for e in ev], ["handoff_write"])
+        self.assertTrue(ev[0]["named"])
+
     def test_threshold_and_switch(self):
         self.write([edit("/r/a.py")])
         self.assertIsNotNone(self.stop(extra_env={"BATON_HANDOFF_NUDGE_FILES": "1"}))
