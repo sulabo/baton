@@ -7,7 +7,7 @@
   concepts.py <파일> sections   →  번호 \t 이름
   concepts.py <파일> table      →  번호 \t 상태        (번호 열 없는 표면 빈 출력)
   concepts.py <파일> rows       →  요약표 데이터 행 수
-  concepts.py <파일> meta       →  번호 \t 상태 \t 날짜 \t 해시 \t 파일들 \t 이웃
+  concepts.py <파일> meta       →  번호 \t 이름 \t 상태 \t 날짜 \t 해시 \t 파일들 \t 이웃 \t 문서들
   concepts.py <파일> refs       →  가리키는쪽 \t 가리켜지는쪽
   concepts.py <파일> evidence   →  근거로 쓰인 경로 (중복 제거)
   concepts.py <파일> states     →  쓰인 상태 어휘 (중복 제거)
@@ -19,6 +19,8 @@ import re
 import sys
 
 SECTION = re.compile(r"^##\s*(\d{1,2})\.\s*(.*)$")
+# 숫자 없는 #·## 제목(일치 확인된 것·유지 규칙 등)은 개념 절을 닫는다. 안 닫으면 마지막 개념 본문에 붙는다(2026-11-21 baton CONCEPTS.md)
+OTHER_HEADING = re.compile(r"^#{1,2}\s")
 META = re.compile(r"^- \*\*메타\*\*:")
 # "개념 12", "개념 1·3" 만 잡는다. 문장 안의 일반 · 구분자는 먹지 않는다.
 REF = re.compile(r"개념\s*(\d{1,2}(?:\s*[·,]\s*\d{1,2})*)")
@@ -46,15 +48,15 @@ def read(path):
 
 
 def walk(lines):
-    """(개념번호, 이름, 그 절의 줄들)을 차례로 내놓는다."""
+    """(개념번호, 이름, 그 절의 줄들)을 차례로 내놓는다. 개념 절은 다음 개념 절이나 숫자 없는 #·## 제목에서 끝난다."""
     num = name = None
     body = []
     for line in lines:
         m = SECTION.match(line)
-        if m:
+        if m or OTHER_HEADING.match(line):
             if num:
                 yield num, name, body
-            num, name, body = m.group(1), m.group(2).strip(), []
+            num, name, body = (m.group(1), m.group(2).strip(), []) if m else (None, None, [])
         elif num:
             body.append(line)
     if num:
@@ -96,6 +98,7 @@ def cmd_meta(lines):
                     h.group(1) if h else "",
                     field(line, "파일"),
                     field(line, "이웃"),
+                    field(line, "문서"),
                 ]
                 print("\t".join(c if c else "-" for c in cells))
                 break

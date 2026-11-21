@@ -21,7 +21,28 @@ say() {                     # row와 같되, 가리킴(PT)이면 판정을 재�
       *)           v="$v · ${PTMSG#확인 이후 }";;
     esac
   fi
+  case "$v" in              # 맨 끝 요약 줄용. drift-notice.sh가 표의 글자를 세지 않고 이 줄을 읽는다(개념 이름에 '신선'이 들어가도 안 틀리게)
+    재확인*) N_STALE=$((N_STALE+1));;
+    신선*)   N_FRESH=$((N_FRESH+1));;
+    *)       N_RULE=$((N_RULE+1));;
+  esac
   row "$1" "$2" "$3" "$v"
+}
+N_STALE=0; N_FRESH=0; N_RULE=0
+# 메타 줄의 '문서' 항목(설명된 곳). 확인 해시 이후 그 파일들의 커밋 수를 DN에, 못 본 경로를 DX에 남긴다.
+# 2026-11-21 baton: README를 통째로 다시 쓴 뒤에도 이 항목을 안 읽어 12개 모두 '신선'이 나왔다
+docs_moved() {              # $1=해시  $2=문서 목록
+  DN=0; DX=""
+  local d ok="" dgone=0 duntr=0
+  for d in $(echo "$2" | tr -d '`' | tr ',' ' '); do
+    if tracked "$d"; then ok="$ok $d"
+    elif [ -e "$ROOT/$d" ]; then duntr=$((duntr+1))
+    else dgone=$((dgone+1)); fi
+  done
+  [ -n "$ok" ] && DN=$(git -C "$ROOT" log --oneline "$1"..HEAD -- $ok 2>/dev/null | count)
+  [ "$duntr" -gt 0 ] && DX=" (문서 미추적 ${duntr}개 제외)"
+  [ "$dgone" -gt 0 ] && DX="$DX (문서 경로 소실 ${dgone}개)"
+  return 0
 }
 pointed() {                 # $1=개념 번호  $2=해시
   tracked DECISIONS.md || return 1
@@ -55,15 +76,22 @@ fi
 row "#" "개념" "상태" "판정"
 printf -- "---- ---------------------- ------------ ------------------------------\n"
 
-while IFS=$'\t' read -r num name state _date hash files _neighbors; do
+while IFS=$'\t' read -r num name state _date hash files _neighbors docs; do
   [ -z "$num" ] && continue
 
   [ "$hash" = "-" ] && hash=""
   [ "$files" = "-" ] && files=""
+  [ "${docs:-}" = "-" ] && docs=""
 
-  PT=""
-  [ -n "$hash" ] && git -C "$ROOT" cat-file -e "$hash" 2>/dev/null && pointed "$num" "$hash" && PT=1
-  case "$files" in *없음*) say "$num" "$name" "$state" "규칙 개념 — 결정 변동으로만 추적"; continue;; esac
+  PT=""; DN=0; DX=""
+  if [ -n "$hash" ] && git -C "$ROOT" cat-file -e "$hash" 2>/dev/null; then
+    pointed "$num" "$hash" && PT=1
+    [ -n "$docs" ] && docs_moved "$hash" "$docs"
+  fi
+  case "$files" in *없음*)
+    if [ "$DN" -gt 0 ]; then say "$num" "$name" "$state" "재확인 필요 — 문서 커밋 ${DN}건 (규칙 개념)${DX}"
+    else say "$num" "$name" "$state" "규칙 개념 — 결정 변동으로만 추적${DX}"; fi
+    continue;; esac
   if [ -z "$hash" ]; then
     say "$num" "$name" "$state" "재확인 필요 — 기준 없음"; continue
   fi
@@ -88,11 +116,20 @@ while IFS=$'\t' read -r num name state _date hash files _neighbors; do
   extra=""
   [ "$untracked" -gt 0 ] && extra=" (미추적 ${untracked}개 제외)"
   [ "$gone" -gt 0 ]      && extra="$extra (경로 소실 ${gone}개)"
+  extra="$extra$DX"
 
   n=$(git -C "$ROOT" log --oneline "$hash"..HEAD -- $ok 2>/dev/null | count)
-  [ "$n" -gt 0 ] && say "$num" "$name" "$state" "재확인 필요 — 커밋 ${n}건${extra}" \
-                 || say "$num" "$name" "$state" "신선${extra}"
+  if [ "$n" -gt 0 ]; then
+    [ "$DN" -gt 0 ] && extra=" · 문서 커밋 ${DN}건$extra"
+    say "$num" "$name" "$state" "재확인 필요 — 커밋 ${n}건${extra}"
+  elif [ "$DN" -gt 0 ]; then
+    say "$num" "$name" "$state" "재확인 필요 — 문서 커밋 ${DN}건${extra}"
+  else
+    say "$num" "$name" "$state" "신선${extra}"
+  fi
 done <<< "$META"
+echo
+echo "요약: 재확인 ${N_STALE} · 신선 ${N_FRESH} · 규칙 개념 ${N_RULE}"
 
 UNK=$(cat "$POINT_CACHE"/* 2>/dev/null | grep '^?' | cut -f2 | sort -u)
 if [ -n "$UNK" ]; then

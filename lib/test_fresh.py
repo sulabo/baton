@@ -12,7 +12,8 @@ def git(root, *args):
     return subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
-class FreshPointedTest(unittest.TestCase):
+class RepoCase(unittest.TestCase):
+    """임시 git 저장소에서 fresh.sh를 돌리는 공통 바탕."""
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.root = self.tmp.name
         git(self.root, "init", "-q"); git(self.root, "config", "user.email", "t@t"); git(self.root, "config", "user.name", "t")
@@ -42,6 +43,9 @@ class FreshPointedTest(unittest.TestCase):
 
     def line(self, out, num):
         return next(l for l in out.splitlines() if l.startswith(num + " "))
+
+
+class FreshPointedTest(RepoCase):
 
     def test_no_new_decision_keeps_fresh(self):
         self.concepts(self.base); self.commit("map")
@@ -94,6 +98,67 @@ class FreshPointedTest(unittest.TestCase):
         self.concepts(self.base); self.commit("map")
         self.write("DECISIONS.md", "## 2026-09-30 개념 1을 다룬 결정\n- 관련: 없음\n", "a"); self.commit("dec")
         self.assertIn("신선", self.line(self.fresh(), "1"))
+
+
+class FreshDocsTest(RepoCase):
+    """메타 줄의 '문서' 항목. 2026-11-21 baton 저장소: README를 통째로 다시 쓴 PR #8 뒤에도 fresh.sh가 12개 모두 '신선'을 냈다."""
+
+    def map_with_docs(self, h, docs="`README.md`", files="`src/a.ts`"):
+        self.write("CONCEPTS.md",
+                   f"## 1. 세이브 — 저장 규칙\n- **메타**: 상태=일치 · 확인=2026-09-01(`{h}`) · 파일={files} · 이웃=없음 · 문서={docs}\n")
+
+    def setUp(self):
+        super().setUp()
+        self.write("README.md", "# readme\n"); self.base = self.commit("readme")
+
+    def test_readme_rewrite_marks_concept_for_recheck(self):
+        self.map_with_docs(self.base); self.commit("map")
+        self.write("README.md", "# rewritten\n"); self.commit("readme rewrite")
+        self.assertIn("재확인 필요 — 문서 커밋 1건", self.line(self.fresh(), "1"))
+
+    def test_untouched_docs_stay_fresh(self):
+        self.map_with_docs(self.base); self.commit("map")
+        self.assertIn("신선", self.line(self.fresh(), "1"))
+
+    def test_code_and_docs_both_moved(self):
+        self.map_with_docs(self.base); self.commit("map")
+        self.write("src/a.ts", "b\n"); self.write("README.md", "# b\n"); self.commit("both")
+        l = self.line(self.fresh(), "1")
+        self.assertIn("커밋 1건", l); self.assertIn("문서 커밋 1건", l)
+
+    def test_rule_concept_with_moved_doc(self):
+        self.map_with_docs(self.base, files="없음(규칙 개념)"); self.commit("map")
+        self.write("README.md", "# b\n"); self.commit("readme")
+        self.assertIn("재확인 필요 — 문서 커밋 1건 (규칙 개념)", self.line(self.fresh(), "1"))
+
+    def test_missing_doc_path_is_reported(self):
+        self.map_with_docs(self.base, docs="`README.md`,`docs/gone.md`"); self.commit("map")
+        self.assertIn("문서 경로 소실 1개", self.line(self.fresh(), "1"))
+
+    def test_summary_line(self):
+        self.map_with_docs(self.base); self.commit("map")
+        self.write("README.md", "# b\n"); self.commit("readme")
+        self.assertIn("요약: 재확인 1 · 신선 0", self.fresh())
+
+
+class ParserTrailingSectionTest(unittest.TestCase):
+    """숫자 없는 ## 절(일치 확인된 것·유지 규칙 등)은 앞 개념 절에 붙지 않는다. 2026-11-21 baton CONCEPTS.md에서 발견."""
+
+    def test_unnumbered_heading_closes_concept(self):
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import concepts
+        lines = ["## 1. 하나", "본문", "## 2. 둘", "본문 2", "## 유지 규칙", "개념 1을 번호로 부른다", "# 끝"]
+        secs = list(concepts.walk(lines))
+        self.assertEqual([n for n, _, _ in secs], ["1", "2"])
+        self.assertEqual(secs[-1][2], ["본문 2"])
+
+    def test_numbered_subsection_still_in_body(self):
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import concepts
+        secs = list(concepts.walk(["## 1. 하나", "### 소절", "본문"]))
+        self.assertEqual(secs[0][2], ["### 소절", "본문"])
 
 
 if __name__ == "__main__":

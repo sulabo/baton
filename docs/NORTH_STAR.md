@@ -67,20 +67,20 @@ Ownership / Session change? ── 아니오 → 계속(압축은 native compact
 
 | 정본 구성 요소 | 지금 | 판정 |
 |---|---|---|
-| **Decision Layer** (Rules→Jev→Agent Judge, `DecisionProvider`) | 규칙 하나: 프롬프트 정규식(`TRIGGER`)이 인계·상태 질문이면 인계서를 넣는다. 인터페이스·3상태 판정·Jev·Judge 없음 | **거의 없음** |
-| V0 Observe·Explain·`.baton/runs.jsonl` | 없음. 사후 집계기 `usage_week.py`가 세션 기록을 센다 | **없음**(사후 측정만) |
+| **Decision Layer** (Rules→Jev→Agent Judge, `DecisionProvider`) | 규칙 판단은 `lib/rules.py`가 MATCHED/AMBIGUOUS/NO_MATCH 3상태로 내고 기록한다(길 단계 1). 행동을 바꾸는 규칙은 하나 — 프롬프트 정규식(`TRIGGER`)이 인계·상태 질문이면 인계서를 넣는다. `DecisionProvider` 인터페이스·Jev·Judge 없음 | **거의 없음** |
+| V0 Observe·Explain·`.baton/runs.jsonl` | 판단 로그는 저장소별 `.baton/` 대신 `~/.cache/baton/runs.jsonl` 한 곳에(`lib/runlog.py`), 설명은 `/baton-explain`. 행동은 안 바꾸고 기록만 한다(3절 단계 1). 사후 집계기 `usage_week.py`가 세션 기록을 센다 | **있음**(기록만. 행동 라벨과 맞춰 재는 것은 로그가 쌓인 뒤) |
 | **Context Selection** (Graph 검색 → 규칙/Jev 필터) | 개념 제목 단어가 프롬프트에 맞으면 그 절 하나 주입(실험 기능, 기본 끔). 이 매처의 실사용 적중률은 안 쟀다. 참고: V0가 과거 프롬프트 276건에서 잰 도메인 어휘 적중은 3.3%(대부분 폴더명, 개념 제목은 1건 — 다른 매처). 후보를 돌려주는 그래프 검색 없음 | **거의 없음** |
 | Active / Durable 분리 | Durable은 파일로 있다(`CONCEPTS.md`·`DECISIONS.md`·git). Active State 모델 없음 — `HANDOFF.md` 하나가 둘을 겸하고 통째로 주입된다 | **절반** |
 | **Context Compiler · Budget** | 없음. 훅이 인계서 원문을 앞 200줄·9,000자까지 붙인다 | **없음** |
 | **Structured Handoff**(보내는 쪽) | 스킬 있음(8항목: 목표·사실과 결정·파일·변경·**실패한 접근법=Do Not Repeat**·검증·리스크와 다음 행동·승격 후보), 200줄 상한 | **가장 앞서 있음** |
 | 인계서 받는 쪽(스펙에 없는 baton 고유) | 상태 질문이면 훅이 인계서를 주입. 스냅샷 실험(조건당 n=3~5): 상태 질문 -43~54%(저장소 3곳, 인계서가 상한 안에 다 들어갈 때) · "이어서" +3% · 무관한 작업 +11% · 긴 인계서 잘라 넣기 +7% | 실험 근거 있음, 실사용 전 |
 | Handoff 트리거·검증 | 검사기 `lib/handoff_check.py`(필수 절·200줄·9,000자·긴 코드 블록·diff·비밀값·홈 절대경로)를 `HANDOFF.md` 저장 직후 훅이 돌린다. `Stop` 훅이 "파일 3개 이상 고친 뒤 인계서 안 바뀜"이면 세션에 한 번 제안(10-01). 반복 조사율은 없음 | **절반**(실사용 전) |
-| 개념 지도 점검 | driftmap: 네 면·어긋남 4종·git 신선도, 새 결정 → 재확인(09-30, 커밋 전). `promote.sh`: 인계서에서 서로 다른 날 살아남은 제약 → `DECISIONS.md` 후보 | 있음. 단 **스펙 21절의 온톨로지 자동 후보화(관찰→후보→검증→승격)는 없다** — 있는 것은 사람이 짠 지도의 점검 |
+| 개념 지도 점검 | driftmap: 네 면·어긋남 4종·git 신선도, 새 결정 → 재확인(09-30), 메타 줄 `문서` 항목의 변동 → 재확인(11-21). `promote.sh`: 인계서에서 서로 다른 날 살아남은 제약 → `DECISIONS.md` 후보 | 있음. 단 **스펙 21절의 온톨로지 자동 후보화(관찰→후보→검증→승격)는 없다** — 있는 것은 사람이 짠 지도의 점검 |
 | Graph 자동 간선(Event Log 기반, 스펙 22절) | 없음. 09-21 재측정: 공유 파일 동시출현으로 간선을 만들면 개념 9개에 간선 36개로 폭발한다(처음 보고된 14/91은 재현 실패). 이벤트 기반 간선은 안 쟀다 | 없음 |
 | Event Log | baton 자체 로그 없음. Claude Code 세션 기록(jsonl)에 읽기·수정·도구 호출·훅 출력이 남는다(09-30 확인) | 대체물 있음 |
 | Skill Selection | 없음. 스킬 목록 96개 × 약 56토큰이 매 세션 고정분. 실행 옵션(`--disable-slash-commands`·`--settings`)으로 끄면 첫 턴이 준다는 것은 쟀다(스킬 끔 -5,396, 셋 다 끔 -10,797) | **없음** |
 | Agent Routing · Adapter · CLI wrapper(`baton "task"`) | 없음. Claude·Codex 양쪽에 **설치만** 가능(09-30) | **없음** |
-| Fallback · Bypass | 훅이 실패해도 프롬프트는 그대로 통과(fail-open). 다만 조용하지는 않다 — git을 못 찾으면 traceback을 낸다. 끄기는 `BATON_HANDOFF_INJECT=off` | 일부 |
+| Fallback · Bypass | 훅이 실패해도 프롬프트는 그대로 통과(fail-open). git을 못 찾아도 폴더 기준으로 넘어가 조용히 돈다(11-21, git 없는 `PATH`로 훅 셋을 돌려 확인). 끄기는 `BATON_HANDOFF_INJECT=off` | 일부 |
 | Metrics · A/B | 스냅샷 러너(격리·비용 기록), 검증된 사례 20건, 설치 전 기준선(상태 세션 42개 중 41개가 첫 5호출 안에 인계서 재독) | 측정 장치는 있음. 정본 지표(반복 조사율·한도당 작업 수)는 없음 |
 
 **거꾸로 된 곳 넷 (이번 개정의 반전).**
@@ -98,7 +98,7 @@ Ownership / Session change? ── 아니오 → 계속(압축은 native compact
 
 ### 단계 S — 세션 끊기 (결정론, 비용 0 — 1순위)
 
-> **상태(10-01)**: `hooks/split-notice.py`를 `hooks.json`의 `Stop`에 등록, 테스트 7개(`hooks/test_split_notice.py`), 실제 세션 기록으로 첫·마지막 맥락 읽기 확인. 실사용 효과는 설치 뒤.
+> **상태(10-01)**: `hooks/split-notice.py`를 `hooks.json`의 `Stop`에 등록, 테스트 12개(`hooks/test_split_notice.py`, 11-21 기준), 실제 세션 기록으로 첫·마지막 맥락 읽기 확인. 실사용 효과는 설치 뒤.
 
 - `Stop` 훅이 턴이 끝날 때 세션 기록에서 호출당 맥락을 읽고, 첫 호출의 2배·3배를 처음 넘을 때 **한 번씩만** 사용자에게 알린다: "여기서 인계서를 쓰고 `/clear` → '이어서'로 넘기면 호출당 맥락이 다시 첫 크기에서 시작한다". 매번 울리지 않는다.
 - 넘긴 뒤는 이미 있는 것들이 잇는다: 인계서 스킬(≤200줄, Do Not Repeat) → `/clear` → 상태 프롬프트에 인계서 주입(훅).
@@ -131,9 +131,9 @@ Ownership / Session change? ── 아니오 → 계속(압축은 native compact
 
 ### 단계 3 — V3 Structured Handoff 완성 (결정론, 비용 0)
 
-> **상태(10-01, beta v1.0 범위)**: 검사기와 결정론 트리거 구현(`lib/handoff_check.py`·`hooks/handoff-check.py`, 테스트 18개), 실제 Claude Code 세션에서 둘 다 발동 확인. 트리거는 `SessionEnd` 대신 `Stop`만 쓴다 — `SessionEnd`는 사용자에게 보일 출력이 없다. 문턱 3개는 로컬 세션 94개 실측(1~2개 고친 세션 16%, 3개 이상 67%가 인계서를 씀). 반복 조사율은 실사용 로그가 쌓인 뒤.
+> **상태(10-01, beta v1.0 범위)**: 검사기와 결정론 트리거 구현(`lib/handoff_check.py`·`hooks/handoff-check.py`, 테스트 31개 — 검사기 20·훅 11, 11-21 기준), 실제 Claude Code 세션에서 둘 다 발동 확인. 트리거는 `SessionEnd` 대신 `Stop`만 쓴다 — `SessionEnd`는 사용자에게 보일 출력이 없다. 문턱 3개는 로컬 세션 94개 실측(1~2개 고친 세션 16%, 3개 이상 67%가 인계서를 씀). 반복 조사율은 실사용 로그가 쌓인 뒤.
 - **Handoff Validator**: 스펙 26절 항목을 코드로(필수 절·200줄·긴 코드 블록·전체 diff·민감정보 패턴). 스킬이 쓴 뒤 자동으로 돈다.
-- **결정론 트리거**: `Stop`·`SessionEnd` 훅에서 "작업 중 파일 변경이 있었고 인계서가 그 뒤로 안 바뀜"이면 인계서를 **제안**(쓰기는 사람 승인). Claude↔Codex 전환 트리거는 wrapper 단계에서.
+- **결정론 트리거**: `Stop` 훅에서(`SessionEnd`는 사용자에게 보일 출력이 없어 쓰지 않는다) "작업 중 파일 변경이 있었고 인계서가 그 뒤로 안 바뀜"이면 인계서를 **제안**(쓰기는 사람 승인). Claude↔Codex 전환 트리거는 wrapper 단계에서.
 - **반복 조사율**: 다음 세션이 Do Not Repeat 항목을 다시 했는지 — 의미 대조라 규칙만으로는 다 못 센다. 사람 라벨은 쓰지 않는다(09-22). 행동으로 셀 수 있는 몫(같은 명령·같은 파일을 같은 목적으로 다시 실행)만 세션 기록에서 규칙으로 세고, 나머지는 **"못 셌다"**로 낸다. Jev를 켠 저장소에서는 의미 대조를 Jev 질문으로 더한다 — Jev를 끈 저장소에서도 행동 몫은 그대로 잴 수 있어야 한다.
 
 ### 단계 4 — V4 Jev Hybrid (소유자: API 키·예산·보낼 범위 결정 뒤)

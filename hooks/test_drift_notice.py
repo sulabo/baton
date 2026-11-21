@@ -67,6 +67,16 @@ class DriftNoticeTest(unittest.TestCase):
             self.assertTrue(os.path.exists(p), p)
         self.assertFalse(os.path.exists(old))
 
+    def test_concept_name_with_fresh_word_is_not_counted_as_fresh(self):
+        # 2026-11-21: 표의 '신선' 글자를 세서, 이름에 '신선'이 든 재확인 개념이 신선으로도 세어졌다
+        self.commit({"a.txt": "a\n"})
+        base =subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=self.repo, capture_output=True,
+                              text=True, check=True).stdout.strip()
+        self.commit({"CONCEPTS.md": "## 1. 신선도 계산 — 판정\n\n- **메타**: 상태=일치 · 확인=2026-11-21(`%s`) · "
+                                    "파일=`a.txt` · 이웃=없음\n" % base, "a.txt": "b\n"})
+        msg = self.run_hook()
+        self.assertIn("재확인 대상 1건 (신선 0건)", msg)
+
 
 if __name__ == "__main__":
     unittest.main()
