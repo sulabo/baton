@@ -1,0 +1,39 @@
+name: Release
+
+# Push a v* tag -> GitHub Release whose body is docs/releases/<tag>.md.
+# A tag with a suffix (v1.2.0-beta.1) becomes a prerelease.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Tag matches manifests and CHANGELOG
+        run: python3 tools/check_versions.py --tag "$GITHUB_REF_NAME"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="docs/releases/${TAG}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::release notes not found: $notes"
+            exit 1
+          fi
+          prerelease=()
+          case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$notes" "${prerelease[@]}"
