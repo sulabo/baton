@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # 공통 헬퍼. check.sh · fresh.sh 가 source 한다.
 # 이 파일은 단독 실행하지 않는다.
 
