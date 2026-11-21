@@ -54,7 +54,7 @@ There are six verdicts, and four of them are kinds of "can't tell": no baseline,
 ### Handoffs (secondary)
 
 - **Check on save.** When the agent writes `HANDOFF.md`, a hook checks the eight required sections, length limits, large code blocks, diffs, secrets, and home-directory paths, and hands the problems back to the agent. It never echoes the secret it found.
-- **Inject on request.** When a prompt asks about progress — by default the Korean words "이어서" (continue), "어디까지" (how far), "인계" (handoff), or the English word "handoff" — the hook puts `HANDOFF.md` into context (up to 200 lines / 9,000 characters) so the agent does not search for and re-read it. Unrelated prompts get nothing.
+- **Inject on request.** When a prompt asks about progress — by default Korean words such as "이어서" (continue), "어디까지" (how far), "인계" (handoff), or the English word "handoff" — the hook puts `HANDOFF.md` into context (up to 200 lines / 9,000 characters) so the agent does not search for and re-read it. Prompts without those words get nothing. The match is a plain substring, so a work request that merely mentions "handoff" or "인계" is injected too — and that costs: in a snapshot run, injecting into an unrelated task used 11% more input tokens.
 - **Nudges.** One notice when the context grows past 2× and 3× of the first call, and one suggestion to write a handoff after 3 or more files changed.
 - **`/promote`** lists constraints that survived several days of handoffs as candidates for `DECISIONS.md`. It does not write the decision for you: the "why" and the rejected alternatives only exist in the head of whoever decided.
 
@@ -76,10 +76,10 @@ Hooks append one line per decision to `~/.cache/baton/runs.jsonl` (file mode 600
 
 ## Measured so far
 
-From the author's own use (one person, 2026-10-04 to 11-20). Commands and sources are in the [CHANGELOG](CHANGELOG.md).
+From the author's own use (one person), counted on the evening of 2026-11-20 (KST). Each number has its own period; commands and sources are in the [CHANGELOG](CHANGELOG.md).
 
-- Sessions that started with a progress question and re-read `HANDOFF.md` within the first 5 calls: **41 of 42 before install, 3 of 11 after** (2 of those 3 read only part).
-- 270 handoff injections in 40 sessions. The save-time check returned problems on 20 of 38 saves.
+- Sessions that started with a progress question and re-read `HANDOFF.md` within the first 5 calls: **41 of 42 before install** (2026-08-31 to 10-04), **3 of 11 after** (10-19 to 11-20; 2 of those 3 read only part).
+- From install (10-04) to 11-20: 270 handoff injections in 40 sessions. The save-time check returned problems on 20 of 38 saves.
 - **Tokens did not go down** in real use: the opening calls cost more after install, because the fixed context grew in the same period and the effect could not be separated. In controlled snapshot runs (same repo, same prompt), progress questions used 40–54% fewer input tokens.
 
 ## Limitations
@@ -90,7 +90,9 @@ From the author's own use (one person, 2026-10-04 to 11-20). Commands and source
 - Reversed decisions are not detected automatically. It was tried and removed.
 - The first concept map is expensive: every concept needs its metadata line filled in.
 - Default thresholds come from a few repositories of one person. `/baton-setup` re-fits them to your history only when this repo has 10 or more Claude Code sessions.
-- The handoff checker misses `postgres://user:pw@host` style URLs, `npm_` and `hf_` tokens, and non-JWT Bearer values. It falsely flags long `sk-` branch names and CI runner home paths.
+- The handoff checker misses `postgres://user:pw@host` style URLs, `npm_` and `hf_` tokens, and non-JWT Bearer values. It falsely flags long `sk-` branch names, CI runner home paths, and secret assignments whose value is a timestamp string.
+- If the agent writes `HANDOFF.md` in several `Edit` steps, every intermediate save comes back with "required section missing".
+- Injection looks for `HANDOFF.md` at the git top level of the folder the hook runs in. Claude Code runs hooks in the project folder, so this is normally the repo you opened.
 - Codex: the context-growth notice, handoff nudge, and save-time check do not run (different session log format; `apply_patch` gives no path). The skill runs the checker itself.
 - Hooks are Python and shell scripts that run on your machine. Read `hooks/` before installing if that matters to you.
 

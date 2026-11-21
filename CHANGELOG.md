@@ -24,15 +24,29 @@
 
 ### 실사용 측정 (만든 사람 한 명, 처음 공개하는 수치)
 
-설치 뒤 2026-10-04 ~ 11-20 동안 남은 기록입니다. 다른 사람의 사용 방식에서도 같은지는 아직 모릅니다.
+기간이 수치마다 다릅니다. 설치 전은 2026-08-31 ~ 10-04(W36~W40), 설치 뒤 세션 기록은 10-19 ~ 11-20(W43~W47), 관찰 로그는 설치일 10-04부터 **11-20 20:10(KST)까지**입니다. 세 값 모두 11-20 저녁에 잰 값이라 나중에 다시 돌리면 늘어납니다 — 아래 명령은 같은 기간으로 자릅니다. 다른 사람의 사용 방식에서도 같은지는 아직 모릅니다.
 
 | 무엇을 | 설치 전 | 설치 뒤 | 출처 |
 |---|---|---|---|
-| "이어서·어디까지"로 시작한 세션 중 첫 5호출 안에 에이전트가 `HANDOFF.md`를 다시 연 세션 | 42개 중 41개 (W36~W40) | 11개 중 3개, 그중 2개는 일부만 (W43~W47) | 설치 전: `docs/research/LOOP_PLAN.md` "정정" 절 · 설치 뒤: `python3 observer/research/usage_week.py --since 2026-08-31` |
+| "이어서·어디까지"로 시작한 세션 중 첫 5호출 안에 에이전트가 `HANDOFF.md`를 다시 연 세션 | 42개 중 41개 (W36~W40) | 11개 중 3개, 그중 2개는 일부만 (W43~W47) | 설치 전: `docs/research/LOOP_PLAN.md` "정정" 절 · 설치 뒤: `python3 observer/research/usage_week.py --since 2026-08-31 --until 2026-11-20` |
 | 같은 세션의 앞 5호출 입력 토큰(주별 중앙값) | 339K~404K | 446K~494K | 같은 명령 |
 | 첫 호출 컨텍스트(주별 중앙값) | 61K~71K | 77K~87K | 같은 명령 |
-| 인계서 주입 | — | 프롬프트 2,197개 중 270번(세션 40개, 저장소 5곳 · 자동 실행 세션도 섞여 있음) | `~/.cache/baton/runs.jsonl`의 `event=prompt`·`acted.handoff_lines>0` |
-| 인계서 저장 시 검사 | — | 38번 중 20번 문제를 돌려줌 | 같은 로그의 `event=handoff_check`·`problems>0` |
+| 인계서 주입 | — | 프롬프트 2,197개 중 270번(세션 40개, 저장소 5곳 · 자동 실행 세션도 섞여 있음) | `~/.cache/baton/runs.jsonl`의 `event=prompt`·`acted.handoff_lines>0` (아래 명령) |
+| 인계서 저장 시 검사 | — | 38번 중 20번 문제를 돌려줌 | 같은 로그의 `event=handoff_check`·`problems>0` (아래 명령) |
+
+관찰 로그 수치를 같은 시각으로 자르는 명령:
+
+```sh
+jq -s '[.[] | select(.ts <= "2026-11-20T20:10:10+0900")] as $r
+  | ($r | map(select(.event == "prompt"))) as $p
+  | ($p | map(select((.acted.handoff_lines // 0) > 0))) as $i
+  | {prompts: ($p | length), injected: ($i | length), sessions: ($i | map(.session_id) | unique | length),
+     checks: ($r | map(select(.event == "handoff_check")) | length),
+     problems: ($r | map(select(.event == "handoff_check" and .problems > 0)) | length)}' ~/.cache/baton/runs.jsonl
+# → {"prompts":2197,"injected":270,"sessions":40,"checks":38,"problems":20}
+```
+
+- **세션 기록 수치는 기록이 남아 있는 동안만 다시 나옵니다.** Claude Code는 세션 기록을 기본 30일 뒤 지웁니다(`cleanupPeriodDays`). 11-21에 같은 명령을 다시 돌리자 W43의 상태 세션 1개가 이미 빠져 있었습니다(나머지 주는 같은 값).
 
 - **다시 여는 일은 줄었지만 토큰은 줄지 않았습니다.** 같은 기간 첫 호출부터 고정 맥락이 커져(다른 플러그인·지침) 주입 효과와 분리하지 못했습니다. 스냅샷 실험(같은 저장소·같은 프롬프트)에서는 상태 질문 입력 토큰이 40~54% 줄었습니다(`docs/research/LOOP_PLAN.md` 루프 1·2).
 - 설치 전 세션 기록은 Claude Code가 지워서 지금은 다시 잴 수 없습니다. 설치 전 값은 09-30에 같은 집계기로 잰 기록입니다.
