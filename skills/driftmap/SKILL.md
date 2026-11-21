@@ -1,6 +1,6 @@
 ---
 name: ontology
-description: 프로젝트 지식을 개념 단위의 그래프로 세우고 신선하게 유지한다. 결정·코드·문서가 서로 다른 말을 하는 곳, 정본이 둘인 곳, 참조가 끊어진 곳을 점검하고 CONCEPTS.md를 만들거나 갱신한다. AI가 바로 인용할 수 있는 LLM 위키가 산출물이다. "개념 지도 만들어줘", "지식 정리해줘", "문서랑 코드 안 맞는 거 찾아줘", "온톨로지 점검", "개념 그래프", "신선도 점검"에도 발동.
+description: 프로젝트 지식을 개념 단위의 그래프로 세우고 신선하게 유지한다. 결정·코드·문서가 서로 다른 말을 하는 곳, 정본이 둘인 곳, 참조가 끊어진 곳을 점검하고 CONCEPTS.md를 만들거나 갱신한다. AI가 바로 인용할 수 있는 LLM 위키가 산출물이다. "개념 지도 만들어줘", "지식 정리해줘", "문서랑 코드 안 맞는 거 찾아줘", "온톨로지 점검", "개념 그래프", "신선도 점검"에도 발동. Also triggers on English requests such as "build a concept map", "map the concepts in this repo", "find where the docs and code disagree", "check this repo for drift", "concept graph", "is CONCEPTS.md still fresh".
 ---
 
 # Ontology — 개념 그래프와 검진

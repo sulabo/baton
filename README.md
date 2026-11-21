@@ -32,8 +32,8 @@ Re-reading everything each session is expensive. Re-reading nothing is how drift
    You need `git` and `python3`.
 
 2. In a new session, run `/baton-doctor` to check that the repo is ready.
-3. Ask Claude to build a concept map with the `driftmap` skill (in Korean: "개념 지도 만들어줘"). It picks the 8–12 concepts that matter and writes `CONCEPTS.md`. A decision log (`DECISIONS.md`) is optional — see the [FAQ](#faq).
-   <!-- The skill's trigger phrases are Korean. Whether an English request alone triggers it is not verified yet, so name the skill. -->
+3. Ask Claude to build a concept map — for example, "Build a concept map for this repo." The `driftmap` skill picks the 8–12 concepts that matter and writes `CONCEPTS.md`. A decision log (`DECISIONS.md`) is optional — see the [FAQ](#faq).
+   <!-- Checked 2026-11-21 with `claude -p --plugin-dir`: this request and "Check this repo for drift between docs and code." both invoked baton:driftmap. -->
 4. Commit as usual. When a file behind a concept changes, the next session starts with a one-line notice.
 5. Run `/drift` to see exactly which concepts to revisit.
 
@@ -120,7 +120,7 @@ A concept with no files (a rule) is tracked only through changes to the decision
 ### Handoffs
 
 - **Checked on save.** When the agent writes `HANDOFF.md`, a hook checks the eight required sections, the length limits, large code blocks, diffs, secrets, and home-directory paths, then hands the problems back to the agent. It never prints the secret it found. It also warns, without blocking, when an item under "확인된 사실과 결정" (confirmed facts and decisions) is missing `[V]` (checked directly) or `[?]` (from memory or a guess).
-- **Loaded on request.** When a prompt asks about progress — by default Korean words such as "이어서" (continue), "어디까지" (how far), "인계" (handoff), or the English word "handoff" — the hook puts `HANDOFF.md` into context (up to 200 lines or 9,000 characters), so the agent doesn't have to find and re-read it. Prompts without those words get nothing. The match is a plain substring, so a work request that merely mentions "handoff" or "인계" gets the handoff too — and that costs: in a snapshot run, loading it into an unrelated task used 11% more input tokens.
+- **Loaded on request.** When a prompt asks about progress — by default Korean words such as "이어서" (continue), "어디까지" (how far), "인계" (handoff), the word "handoff", or English phrases such as "where were we", "pick up where we left off", "catch me up", and "how far did we get" — the hook puts `HANDOFF.md` into context (up to 200 lines or 9,000 characters), so the agent doesn't have to find and re-read it. Prompts without those words get nothing. Single English words like "continue" or "status" are left out on purpose: in our own prompt log every extra match they would add came from pasted instructions, tool output, or SQL. The match is a plain substring, so a work request that merely mentions "handoff" or "인계" gets the handoff too — and that costs: in a snapshot run, loading it into an unrelated task used 11% more input tokens.
 - **Nudges.** A notice when the context reaches 2×, and again at 3×, its size at the first call, and one suggestion to write a handoff once 3 or more files have changed and the handoff hasn't.
 - **`/promote`** lists constraints that survived several days of handoffs as candidates for `DECISIONS.md`. It doesn't write the decision for you: the reasons and the rejected alternatives exist only in the head of whoever decided.
 
@@ -151,7 +151,7 @@ From the author's own use (one person), counted on the evening of 2026-11-20 (KS
 
 ## Limitations
 
-- **Korean UI.** Hook messages, skill instructions, and command output are in Korean. Handoff loading triggers only on Korean words and "handoff" — English "continue" or "where were we" doesn't trigger it. Add your own words with `/baton-setup` (`BATON_HANDOFF_TRIGGERS_EXTRA`).
+- **Korean UI.** Hook messages, skill instructions, and command output are in Korean. English requests do start the skills, and handoff loading answers a few English phrases ("where were we", "pick up where we left off", "catch me up", "how far did we get", "from the last session") — but not a bare "continue". Add your own words with `/baton-setup` (`BATON_HANDOFF_TRIGGERS_EXTRA`).
 - Freshness is tracked per file, so an unrelated edit in a listed file still marks the concept for a re-check.
 - Only committed history counts. Uncommitted changes are invisible.
 - Reversed decisions aren't detected automatically. We tried it and took it out.
@@ -168,7 +168,7 @@ From the author's own use (one person), counted on the evening of 2026-11-20 (KS
 No. The hooks read your git history and local files, and write only under `~/.cache/baton/`. See [Privacy](#privacy-and-what-runs-on-your-machine).
 
 **Can I use it in English?**
-The commands and skills work, but their output is in Korean for now. Handoff loading needs a trigger word you add with `/baton-setup`.
+Yes, with Korean output for now. English requests start the skills, and handoff loading answers phrases such as "where were we" or "pick up where we left off". Add more trigger words with `/baton-setup`.
 
 **Do I need `DECISIONS.md`?**
 No. File freshness works from git history alone. Without a tracked `DECISIONS.md`, `AGENTS.md`, or `CLAUDE.md`, the decision-side check is skipped, so baton can't catch "decided but not built yet", and concepts without files aren't tracked.
