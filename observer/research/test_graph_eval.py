@@ -14,6 +14,26 @@ def commits(*groups, t0=1000):
     return [(t0 + 10 * i, f"h{i}", list(fs)) for i, fs in enumerate(groups)]
 
 
+class OutDirTest(unittest.TestCase):
+    def test_out_dir_follows_compiler_cache_rule_and_is_private(self):
+        import importlib
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(d, "cache")}):
+                    importlib.reload(ge)
+                    self.assertEqual(ge.OUT, os.path.join(d, "cache", "baton", "eval"))
+                    ge.out_dir()
+                    self.assertEqual(os.stat(ge.OUT).st_mode & 0o777, 0o700)
+                with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": "rel", "HOME": "rel"}):
+                    importlib.reload(ge)
+                    self.assertIsNone(ge.OUT)               # 상대 경로뿐이면 작업 폴더에 만들지 않는다
+                    with self.assertRaises(SystemExit):
+                        ge.out_dir()
+            finally:
+                importlib.reload(ge)
+
+
 class GraphTest(unittest.TestCase):
     def test_pair_needs_three_distinct_commits(self):
         cs = commits(["a", "b"], ["a", "b"], ["a", "c"], ["a", "c"], ["a", "c"])

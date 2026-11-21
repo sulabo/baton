@@ -12,6 +12,7 @@ from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import compiler
+import concepts
 
 MAP = """# 개념
 
@@ -118,6 +119,25 @@ class GraphTest(Base):
 
     def test_no_map_is_none(self):
         self.assertIsNone(compiler.graph(self.repo))
+
+    def test_field_anchor_and_loose_spacing(self):
+        f = concepts.field
+        # 다른 키 속의 같은 이름은 안 걸린다
+        self.assertEqual(f("- **메타**: 근거파일=`x.py` · 파일=`a.py`", "파일"), "`a.py`")
+        self.assertEqual(f("- **메타**: 옛별칭=세이브 · 이웃=없음", "별칭"), "")
+        # 공백이 없거나 여러 칸인 손글씨 줄도 main 이전처럼 읽는다(fresh.sh·check.sh·세션 알림이 조용히 '?'로 바뀌지 않게)
+        self.assertEqual(f("- **메타**:상태=구현 · 파일=`a.py`", "상태"), "구현")
+        self.assertEqual(f("- **메타**:  상태=구현 · 파일=`a.py`", "상태"), "구현")
+        self.assertEqual(f("- **메타**: 상태=구현 ·  파일=`a.py`", "파일"), "`a.py`")
+        self.assertEqual(f("- **메타**: 상태=구현 ·파일=`a.py`", "파일"), "`a.py`")
+        self.assertEqual(f("- **메타**: 상태=일치 · 확인=2026-09-01(`abc1234`)", "확인"), "2026-09-01(`abc1234`)")
+        # 파서 명령 출력으로도 같다
+        path = os.path.join(self.tmp.name, "loose.md")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("## 1. 세이브\n- **메타**:상태=구현 · 확인=2026-09-01(`abc1234`) · 파일=`a.py` · 이웃=없음\n")
+        out = subprocess.run([sys.executable, os.path.join(HERE, "concepts.py"), path, "meta"],
+                             capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out, "1\t세이브\t구현\t2026-09-01\tabc1234\t`a.py`\t없음\t-\n")
 
     def test_uses_main_parser_fences_and_warnings(self):
         # 닫힌 펜스 안의 예시 절은 노드가 아니고, 숫자 없는 제목이 절을 닫는다(lib/concepts.py walk)

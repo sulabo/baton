@@ -11,7 +11,7 @@
   candidates.py promote-alias <번호> "<구절>" <저장소 루트>  사람이 고른 별칭을 그 개념 메타 줄의 별칭=에 덧붙인다(인자 셋 정확히)
   candidates.py dismiss <후보 id> [저장소 루트]       사람이 버린 후보 — 다음 scan부터 안 낸다
 """
-import collections, glob, hashlib, json, os, re, sys, tempfile
+import collections, getpass, glob, hashlib, json, os, re, sys, tempfile
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -25,6 +25,7 @@ MAX_ALIASES_PER_CONCEPT, MAX_CONCEPTS, MAX_FILES, MAX_NAMES = 5, 10, 5, 3
 EDIT_TOOLS = compiler.TOUCH_TOOLS - {"Read"}
 CHUNK = 1 << 23            # 세션 기록 원문 검색 단위(8MB)
 NOT_HUMAN = ("This session is being continued", "Another Claude session sent", "[Request interrupted")
+OFFSET = re.compile(r"([+-]\d{2})(\d{2})$")
 BAD_ALIAS = re.compile(r"[,，()`\r\n\t]| · |^없음$|^-$")  # 메타 줄 구분자·split_list가 버리는 값
 
 
@@ -34,9 +35,10 @@ def claude_projects():
 
 
 def when(ts):
-    """시각(타임존 없으면 UTC로 본다 — compile_eval.when과 같다). 못 읽으면 None."""
+    """시각(타임존 없으면 UTC로 본다). 못 읽으면 None."""
     try:
-        t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        # Python 3.9의 fromisoformat은 'Z'와 콜론 없는 오프셋('+0900')을 못 읽는다 — '+00:00'·'+09:00'으로 바꿔 넘긴다
+        t = datetime.fromisoformat(OFFSET.sub(r"\1:\2", ts.replace("Z", "+00:00")))
     except (AttributeError, ValueError):
         return None
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
@@ -378,7 +380,11 @@ def promote_alias(repo, num, phrase):
         raise ValueError("별칭은 두 글자 이상이고 쉼표·괄호·백틱·' · '·줄바꿈이 없어야 한다(메타 줄 구분자)")
     # 별칭은 프롬프트에서 나와 공개될 수 있는 CONCEPTS.md에 들어간다 — 인계서 검사와 같은 비밀값·홈 경로·개인 자료 목록으로 거른다.
     # 걸린 값 자체는 다시 출력하지 않는다(종류만)
-    hits = handoff_check.leaks(phrase, config.terms("private_terms", repo))
+    if concepts.REF.search(phrase):
+        raise ValueError("별칭에 '개념 N'이 있으면 지도 파서가 그것을 개념 사이 참조로 센다(가짜 간선) — 번호 없이 쓴다")
+    # 이 컴퓨터의 사용자 이름·홈 폴더 이름도 개인 자료다(홈 경로 패턴은 절대 경로 꼴만 잡는다)
+    me = [getpass.getuser(), os.path.basename((os.environ.get("HOME") or "").rstrip("/"))]
+    hits = handoff_check.leaks(phrase, config.terms("private_terms", repo) + [t for t in me if t])
     if hits:
         raise ValueError(f"별칭에 {'·'.join(hits)}로 보이는 것이 있어 쓰지 않았다(지도는 공개될 수 있다) — 지우거나 일반 표기로 바꾼다")
     path, rel = rules.concept_path(repo)
@@ -386,10 +392,17 @@ def promote_alias(repo, num, phrase):
         raise ValueError("CONCEPTS.md가 없다")
     with open(path, encoding="utf-8", newline="") as fh:
         lines = fh.read().split("\n")
-    # 절 나누기는 concepts.walk와 같다 — 코드 펜스 안의 '## N.'·메타 줄은 예시이고, 숫자 없는 #·## 제목이 절을 닫는다
-    cur, idx, heads = None, None, 0
+    lost = concepts.warnings(lines)
+    if lost:
+        raise ValueError(f"{rel}을 파서가 끝까지 못 읽는다({lost[0]}) — 그것부터 고친다")
+    # 고를 메타 줄은 읽는 쪽(compiler.graph·concepts.py meta)과 같은 규칙으로 찾는다: concepts.walk의 절 본문에서 첫 메타 줄.
+    # walk는 펜스 안 줄도 본문에 넣으므로 펜스 안 메타 줄도 후보로 센다 — 그 줄이 첫 줄이거나 메타 줄이 둘 이상이면
+    # 읽는 쪽과 쓰는 쪽이 다른 줄을 볼 수 있어 거절한다
+    cur, metas, heads = None, [], 0
     for i, (ln, (fenced, _)) in enumerate(zip(lines, concepts.fences(lines))):
         if fenced:
+            if cur == str(num) and concepts.META.match(ln):
+                metas.append((i, True))
             continue
         m = concepts.SECTION.match(ln)
         if m:
@@ -397,16 +410,19 @@ def promote_alias(repo, num, phrase):
             heads += cur == str(num)
         elif concepts.OTHER_HEADING.match(ln):
             cur = None
-        elif cur == str(num) and concepts.META.match(ln) and idx is None:
-            idx = i
+        elif cur == str(num) and concepts.META.match(ln):
+            metas.append((i, False))
     if heads > 1:
         raise ValueError(f"{rel}에 개념 {num} 절이 {heads}개다 — 조립기는 마지막 절을 읽으므로 번호를 먼저 바로잡는다")
-    if idx is None:
-        lost = concepts.warnings(lines)
-        raise ValueError(f"{rel}에 개념 {num}의 메타 줄이 없다" + (f" ({lost[0]})" if lost else ""))
+    if not metas:
+        raise ValueError(f"{rel}에 개념 {num}의 메타 줄이 없다")
+    if len(metas) > 1 or metas[0][1]:
+        raise ValueError(f"{rel}의 개념 {num} 절에 메타 줄이 {len(metas)}개이거나 첫 메타 줄이 코드 펜스 안이다 — "
+                         "읽는 쪽이 어느 줄을 쓸지 어긋나므로 사람이 먼저 하나로 정리한다")
+    idx = metas[0][0]
     line = lines[idx].rstrip("\r")
     cr = lines[idx][len(line):]
-    m = re.search(r"(?:(?<=: )|(?<= · ))별칭=(.*?)(?= · |$)", line)  # 키 앞 고정 — concepts.field와 같다
+    m = re.search(r"(?:^|[:·])\s*별칭=(.*?)(?= · |$)", line)  # concepts.field와 같은 키 앞 규칙
     if m:
         have = compiler.split_list(m.group(1))
         if phrase.casefold() in {a.casefold() for a in have}:
@@ -417,8 +433,19 @@ def promote_alias(repo, num, phrase):
     else:
         line = line.rstrip() + f" · 별칭={phrase}"
     lines[idx] = line + cr
-    with open(path, "w", encoding="utf-8", newline="") as fh:
-        fh.write("\n".join(lines))
+    # 통째로 바꿔 쓴다 — 쓰다 멈춰도 지도가 반쯤 잘린 채 남지 않게. 권한은 원래 파일 것을 이어받는다
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".CONCEPTS.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write("\n".join(lines))
+        os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return line
 
 

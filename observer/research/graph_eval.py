@@ -20,10 +20,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "lib"))
 sys.path.insert(0, HERE)
-import concepts, rules, runlog, setup_scan, usage_week
+import compiler, concepts, rules, setup_scan, usage_week
 
 
-OUT = os.path.join(runlog.cache_dir() or os.path.expanduser("~/.cache/baton"), "eval")
+_CACHE = compiler.cache_dir()  # 조립기와 같은 위치 규칙(상대 XDG_CACHE_HOME 무시) — 정할 수 없으면 None
+OUT = os.path.join(os.path.dirname(_CACHE), "eval") if _CACHE else None
+
+
+def out_dir():
+    """산출물 폴더(실제 저장소 경로가 들어가므로 700). 정할 수 없으면 멈춘다 — 작업 폴더 안에 만들지 않는다."""
+    if not OUT:
+        sys.exit("캐시 폴더를 정할 수 없다(절대 경로인 XDG_CACHE_HOME·HOME이 없음)")
+    os.makedirs(OUT, mode=0o700, exist_ok=True)
+    return OUT
 
 # ── 평가 전에 고정한 값 (설계안 2·3절) ─────────────────────────────────
 HUB_NAMES = {"HANDOFF.md", "DECISIONS.md", "CONCEPTS.md", "README.md", "AGENTS.md", "CLAUDE.md", ".gitignore",
@@ -316,7 +325,7 @@ def prepare(lab):
         e1_n = sum(1 for s in group if seed_truth(truth_seq(s, lab, commits)))
         row = {"repo": label(root), "root": root, "sessions": len(group), "e1_candidates": e1_n, "valid_commits_before_cutoff": n_valid}
         (table if n_valid >= MIN_REPO_COMMITS else excluded).append(row)
-    os.makedirs(OUT, exist_ok=True)
+    out_dir()
     fixed = {"made": datetime.now().astimezone().isoformat(timespec="seconds"), "label": lab, "cutoff": COMMIT_CUTOFF,
              "min_repo_commits": MIN_REPO_COMMITS, "included": table, "excluded": excluded,
              "sessions": [{"repo": label(s["root"]), "file": s["file"], "day": s["day"]} for s in ss if s["root"] in {r["root"] for r in table}]}
@@ -329,7 +338,7 @@ def prepare(lab):
 
 
 def load_fixed():
-    path = os.path.join(OUT, "mapping.json")
+    path = os.path.join(out_dir(), "mapping.json")
     if not os.path.isfile(path):
         sys.exit("먼저 prepare를 돌려 대응표를 고정한다.")
     with open(path, encoding="utf-8") as f:
@@ -418,7 +427,7 @@ def run_e2(lab):
 
 
 def save(name, res, rows):
-    os.makedirs(OUT, exist_ok=True)
+    out_dir()
     with open(os.path.join(OUT, f"{name}.json"), "w", encoding="utf-8") as f:
         json.dump({"result": res, "rows": rows}, f, ensure_ascii=False, indent=1)
     print(json.dumps(res, ensure_ascii=False, indent=1))

@@ -367,7 +367,7 @@ def render(pack, max_chars=MAX_CHARS):
     """넣을 글. 고른 것이 없으면 "". max_chars를 넘는 줄부터는 버린다(줄 중간에서 자르지 않는다)."""
     if not (pack["concepts"] or pack["files"] or pack["decisions"]):
         return ""
-    L = ["[baton] 맥락 조립(BATON_COMPILER=on) — 프롬프트와 작업 파일로 고른 탐색 앵커다. "
+    L = ["[baton] 맥락 조립 — 프롬프트와 작업 파일로 고른 탐색 앵커다. "
          "전부 읽지 말고 필요한 것만 연다. 실제 동작은 코드로 확인한다."]
     if pack["concepts"]:
         L += ["", f"관련 개념 ({pack['map']})"] + [f"- {c['num']}. {c['title']} — {c['why']}" for c in pack["concepts"]]

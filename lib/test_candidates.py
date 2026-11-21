@@ -86,6 +86,18 @@ class Base(unittest.TestCase):
         return os.path.join(self.repo, rel)
 
 
+class When(unittest.TestCase):
+    def test_offsets_without_colon_and_z_parse_on_every_python(self):
+        # Python 3.9의 fromisoformat은 '+0900'·'Z'를 못 읽는다(CI 3.9 잡) — 같은 순간으로 읽어야 한다
+        a = candidates.when("2026-09-01T09:00:00+0900")
+        self.assertEqual(a, candidates.when("2026-09-01T00:00:00Z"))
+        self.assertEqual(a, candidates.when("2026-09-01T09:00:00+09:00"))
+        self.assertEqual(candidates.when("2026-09-01T00:00:00.123-0130"), candidates.when("2026-09-01T01:30:00.123Z"))
+        self.assertIsNotNone(candidates.when("2026-09-01T00:00:00"))   # 타임존 없음 → UTC
+        self.assertIsNone(candidates.when("어제"))
+        self.assertIsNone(candidates.when(None))
+
+
 class PhrasesMoved(unittest.TestCase):
     def test_setup_scan_uses_same_definition(self):
         self.assertIs(setup_scan.phrases, rules.phrases)
@@ -317,6 +329,69 @@ class Promote(Base):
         with self.assertRaises(ValueError) as e:
             candidates.promote_alias(self.repo, "2", "웨이브")
         self.assertIn("열린 채", str(e.exception))
+        # 고칠 절이 펜스 앞에 있어도 거절한다 — 파서가 못 읽는 지도에는 쓰지 않는다
+        with open(os.path.join(self.repo, "CONCEPTS.md"), "w", encoding="utf-8") as fh:
+            fh.write(MAP + "\n```\n## 3. 예시\n")
+        with self.assertRaises(ValueError) as e:
+            candidates.promote_alias(self.repo, "1", "체크포인트")
+        self.assertIn("열린 채", str(e.exception))
+        self.assertNotIn("체크포인트", self.read_map())
+
+    def test_meta_line_must_be_the_one_readers_use(self):
+        # 읽는 쪽(compiler.graph·concepts.py meta)은 절 본문의 첫 메타 줄을 쓴다 — 펜스 안 줄도 센다.
+        # 그 줄이 펜스 안이거나 메타 줄이 둘이면 쓰는 쪽과 읽는 쪽이 다른 줄을 볼 수 있어 거절한다
+        fenced = MAP.replace("## 2. 레벨 — 맵 구성\n\n", "## 2. 레벨 — 맵 구성\n\n```\n- **메타**: 상태=구현 · 파일=없음\n```\n")
+        twice = MAP + "- **메타**: 상태=미결 · 파일=없음 · 이웃=없음\n"
+        for text in (fenced, twice):
+            with open(os.path.join(self.repo, "CONCEPTS.md"), "w", encoding="utf-8") as fh:
+                fh.write(text)
+            with self.assertRaises(ValueError) as e:
+                candidates.promote_alias(self.repo, "2", "웨이브")
+            self.assertIn("메타 줄이", str(e.exception))
+            self.assertEqual(self.read_map(), text)
+        # 펜스 안 메타 줄이 다른 개념 절에 있으면 상관없다
+        with open(os.path.join(self.repo, "CONCEPTS.md"), "w", encoding="utf-8") as fh:
+            fh.write(fenced)
+        candidates.promote_alias(self.repo, "1", "체크포인트")
+        self.assertEqual(compiler.graph(self.repo)["nodes"]["1"]["aliases"], ["체크포인트"])
+
+    def test_loose_meta_line_spacing(self):
+        # 손으로 쓴 메타 줄('**메타**:상태=…', '·별칭=')도 읽는 쪽과 같이 읽고 같은 자리에 쓴다
+        loose = MAP.replace("- **메타**: 상태=구현 · 확인=2026-09-01(`0000000`) · 파일=`src/level/map.ts` · 이웃=개념 1(전제) · 별칭=스테이지",
+                            "- **메타**:상태=구현 · 파일=`src/level/map.ts` · 이웃=개념 1(전제) ·  별칭=스테이지")
+        with open(os.path.join(self.repo, "CONCEPTS.md"), "w", encoding="utf-8") as fh:
+            fh.write(loose)
+        self.assertEqual(compiler.graph(self.repo)["nodes"]["2"]["aliases"], ["스테이지"])
+        candidates.promote_alias(self.repo, "2", "웨이브")
+        self.assertIn("·  별칭=스테이지, 웨이브\n", self.read_map())
+        self.assertEqual(compiler.graph(self.repo)["nodes"]["2"]["aliases"], ["스테이지", "웨이브"])
+
+    def test_concept_ref_user_name_and_home_name_are_refused(self):
+        for bad in ("개념 3 저장", "개념3"):
+            with self.assertRaises(ValueError) as e:
+                candidates.promote_alias(self.repo, "1", bad)
+            self.assertIn("가짜 간선", str(e.exception))
+        with mock.patch.object(candidates.getpass, "getuser", return_value="hongkildong"), \
+                mock.patch.dict(os.environ, {"HOME": os.path.join(self.tmp.name, "kimcheolsu")}):
+            for bad in ("hongkildong 세이브", "kimcheolsu 세이브"):
+                with self.assertRaises(ValueError) as e:
+                    candidates.promote_alias(self.repo, "1", bad)
+                self.assertNotIn(bad.split()[0], str(e.exception))
+        self.assertEqual(self.read_map(), MAP)
+
+    def test_write_is_atomic_and_keeps_mode(self):
+        path = os.path.join(self.repo, "CONCEPTS.md")
+        os.chmod(path, 0o640)
+        candidates.promote_alias(self.repo, "1", "체크포인트")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o640)
+        self.assertEqual([f for f in os.listdir(self.repo) if f.endswith(".tmp")], [])
+        real = candidates.os.replace
+        with mock.patch.object(candidates.os, "replace", side_effect=OSError("디스크")):
+            with self.assertRaises(OSError):
+                candidates.promote_alias(self.repo, "2", "웨이브")
+        self.assertEqual(real, candidates.os.replace)
+        self.assertNotIn("웨이브", self.read_map())                       # 실패하면 원래 지도 그대로
+        self.assertEqual([f for f in os.listdir(self.repo) if f.endswith(".tmp")], [])  # 임시 파일도 안 남는다
 
     def test_duplicate_section_number_is_refused(self):
         with open(os.path.join(self.repo, "CONCEPTS.md"), "a", encoding="utf-8") as fh:
