@@ -98,6 +98,9 @@ MSG
   exit 2
 fi
 [ "$NMETA" -lt "$NCONC" ] && { echo "주의: 개념 ${NCONC}개 중 메타 줄 ${NMETA}개. 나머지는 표에 안 나온다."; echo; }
+# 파서가 조용히 못 읽은 부분(열린 채 끝난 코드 펜스 등). 이게 있으면 표에 없는 개념이 있을 수 있다 — 0건이 아니라 못 셌다
+WARN=$(parse warnings)
+[ -n "$WARN" ] && { echo "$WARN" | sed 's/^/주의: /'; echo; }
 
 row "#" "개념" "상태" "판정"
 printf -- "---- ---------------------- ------------ ------------------------------\n"
@@ -121,6 +124,9 @@ while IFS=$'\t' read -r num name state _date hash files _neighbors docs; do
   case "$files" in *없음*)
     if [ "$DN" -gt 0 ]; then say "$num" "$name" "$state" "재확인 필요 — 문서 커밋 ${DN}건 (규칙 개념)${DX}"
     elif [ "$DG" -gt 0 ]; then say "$num" "$name" "$state" "재확인 필요 — 문서 경로 소실 ${DG}개 (규칙 개념)"
+    elif [ "$BASE" = "기준 소실" ] || [ "$BASE" = "기준이 현재 이력 밖" ]; then
+      # 적어 둔 해시를 쓸 수 없으면 결정 변동('관련' 가리킴)도 셀 수 없다 — 규칙 개념이라도 재확인으로 올려 알림이 울리게 한다
+      say "$num" "$name" "$state" "재확인 필요 — ${BASE} (규칙 개념${docs:+ — 문서 못 봄})"
     elif [ -n "$BASE" ] && [ -n "$docs" ]; then say "$num" "$name" "$state" "규칙 개념 — 결정 변동으로만 추적 (${BASE} — 문서 못 봄)"
     else say "$num" "$name" "$state" "규칙 개념 — 결정 변동으로만 추적${DX}"; fi
     continue;; esac
