@@ -34,8 +34,10 @@ SECTIONS = [
 HEADING = re.compile(r"^#{2,4}\s+(?:\*\*)?(?:[A-Za-z0-9]{1,3}[.)]\s*)?(.*)")
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 FACTS = ("확인된 사실",)  # SECTIONS의 같은 절. 주장마다 확인 표시를 보는 절
-ITEM = re.compile(r"^ ?(?:[-*+]|\d{1,3}[.)])(?:\s+(.*))?$")  # 들여쓰지 않은 목록 줄. 들여쓴 줄은 위 항목에 이어 붙는다
+ITEM = re.compile(r"^\s*(?:[-*+]|\d{1,3}[.)])(?:\s+(.*))?$")  # 목록 줄. 들여쓴 자식도 따로 센다 — 부모에 묶으면 누락을 양쪽으로 놓친다
+DEPTH = re.compile(r"^(#{1,6})\s")  # 제목 단계. 사실 절보다 깊은 제목(### 하위 절)은 절 안으로 본다
 MARK = re.compile(r"\[[V?]\]")
+UNMARKABLE = re.compile(r"`[^`]*`|<!--.*?-->")  # 인라인 코드·주석 안의 [V]는 표시가 아니다
 NOTHING = re.compile(r"^(?:\*\*)?없음(?:\*\*)?[.。]?$")  # 템플릿의 "- 없음"은 주장이 아니다
 COMMENT = re.compile(r"^\s*<!--.*-->\s*$")  # 템플릿 안내 주석. 주장도, 못 센 줄도 아니다
 DIFF = re.compile(r"^(diff --git |index [0-9a-f]{7,}\.\.[0-9a-f]{7,}|@@ -\d+(,\d+)? \+\d+(,\d+)? @@)")
@@ -120,24 +122,39 @@ def warnings(text, strict=True):
     절이 없으면 조용하다(필수 절 검사가 이미 알린다). 절은 있는데 목록 줄이 없거나 목록 밖 줄이 섞이면
     "셀 수 없다"고 따로 알린다 — 못 센 것을 0개로 보고하지 않으려고."""
     lines = text.splitlines()
-    heads, fence, section = [], None, None  # section: 확인된 사실 절의 (줄 번호, 줄) 목록. None이면 아직 못 만남
-    in_facts = False
+    heads, fence, comment, section = [], None, False, None  # section: 확인된 사실 절의 (줄 번호, 줄) 목록. None이면 아직 못 만남
+    facts_depth = 0  # 사실 절 안이면 그 제목 단계, 밖이면 0
     for i, ln in enumerate(lines, 1):
         f = FENCE.match(ln)
-        if fence is None and f:
-            fence = (f.group(1)[0], len(f.group(1)))
-            continue
         if fence is not None:
             if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
                 fence = None
             continue  # 코드 블록 안은 주장으로 세지 않는다
-        h = HEADING.match(ln)
+        if comment:
+            comment = "-->" not in ln
+            continue  # 여러 줄 주석은 통째로 건너뛴다
+        if f:
+            fence = (f.group(1)[0], len(f.group(1)))
+            if facts_depth:
+                section.append((i, ln))  # 코드 블록은 표시를 셀 수 없는 덩어리 — 여는 줄을 목록 밖 줄로 센다
+            continue
+        if COMMENT.match(ln):
+            continue
+        if "<!--" in ln and "-->" not in ln.split("<!--", 1)[1]:
+            comment, ln = True, ln.split("<!--", 1)[0]  # 주석 앞부분만 남긴다
+            if not ln.strip():
+                continue
+        d, h = DEPTH.match(ln), HEADING.match(ln)
         if h:
             heads.append(h.group(1))
-            in_facts = section is None and h.group(1).startswith(FACTS)
-            if in_facts:
-                section = []
-        elif in_facts and not COMMENT.match(ln):
+        if d:
+            depth = len(d.group(1))
+            if facts_depth and depth > facts_depth:
+                continue  # 하위 절 제목. 그 아래 목록은 계속 사실 절로 센다
+            facts_depth = 0
+            if h and section is None and h.group(1).startswith(FACTS):
+                facts_depth, section = depth, []
+        elif facts_depth:
             section.append((i, ln))
     missing = [name for keys, name in SECTIONS if not any(x.startswith(keys) for x in heads)]
     if section is None or not is_ours(lines, missing, strict):
@@ -146,17 +163,17 @@ def warnings(text, strict=True):
     items, loose, cur = [], [], None  # items: [첫 줄 번호, 항목 글]. loose: 목록에 안 속한 줄 번호
     for i, ln in section:
         m = ITEM.match(ln)
-        if m:
+        if m and not FENCE.match(ln):
             cur = [i, (m.group(1) or "").strip()]
             items.append(cur)
         elif not ln.strip():
             cur = None
-        elif cur is not None and ln[:1].isspace():
+        elif cur is not None and ln[:1].isspace() and not FENCE.match(ln):
             cur[1] += " " + ln.strip()
         else:
             loose.append(i)
     claims = [it for it in items if not NOTHING.match(it[1])]
-    unmarked = [i for i, body in claims if not MARK.search(body)]
+    unmarked = [i for i, body in claims if not MARK.search(UNMARKABLE.sub("", body))]
     out = []
     if not items:
         out.append("경고: 확인된 사실과 결정 절에 목록 줄이 없어 [V]·[?] 표시를 셀 수 없다 — 주장마다 '- [V] …' 목록 한 줄로 쓴다")
@@ -169,10 +186,16 @@ def warnings(text, strict=True):
     return out
 
 
-def check_file(path, strict=True):
-    """파일 검사. 개인 자료 목록은 그 파일이 든 저장소의 설정(전역 + 저장소 절)에서 읽는다."""
+def read(path):
     with open(path, encoding="utf-8", errors="replace") as f:
-        text = f.read()
+        return f.read()
+
+
+def check_file(path, strict=True, text=None):
+    """파일 검사. 개인 자료 목록은 그 파일이 든 저장소의 설정(전역 + 저장소 절)에서 읽는다.
+    text를 주면 파일을 다시 읽지 않는다(경고 검사와 같은 내용을 보려고)."""
+    if text is None:
+        text = read(path)
     terms = []
     if config.load() is not None:  # 설정이 없으면 저장소 루트를 찾으러 git을 부르지 않는다
         terms = config.terms("private_terms", rules.repo_root(os.path.dirname(os.path.abspath(path))))
@@ -184,9 +207,9 @@ if __name__ == "__main__":
     if not os.path.isfile(p):
         print(f"{p}: 파일 없음")
         sys.exit(2)
-    problems = check_file(p)
-    with open(p, encoding="utf-8", errors="replace") as f:
-        warned = warnings(f.read())
+    text = read(p)
+    problems = check_file(p, text=text)
+    warned = warnings(text)
     for x in problems + warned:
         print(x)
     if not problems:

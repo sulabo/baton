@@ -41,11 +41,14 @@ def on_edit(data):
     if off("BATON_HANDOFF_CHECK", repo_of(os.path.dirname(path) or None)):
         return
     try:
-        problems = handoff_check.check_file(path, strict=False)
-        with open(path, encoding="utf-8", errors="replace") as f:
-            warned = handoff_check.warnings(f.read(), strict=False)
+        text = handoff_check.read(path)
+        problems = handoff_check.check_file(path, strict=False, text=text)
     except OSError:
         return
+    try:
+        warned = handoff_check.warnings(text, strict=False)
+    except Exception:
+        warned = []  # 경고 규칙이 깨져도 막아야 할 문제는 그대로 돌려준다
     runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_check",
                    "session_id": data.get("session_id"), "problems": len(problems), "warnings": len(warned)})
     if problems:

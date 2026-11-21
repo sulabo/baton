@@ -85,6 +85,24 @@ class HandoffCheckHookTest(unittest.TestCase):
             rec = json.loads(f.readline())
         self.assertEqual((rec["problems"], rec["warnings"]), (0, 1))
 
+    def test_warning_crash_keeps_blocking_problems(self):
+        # 리뷰(11-21): warnings()에서 예외가 나면 막아야 할 문제까지 함께 사라졌다. 훅을 프로세스 안에서 돌려 예외를 넣는다
+        import contextlib, importlib.util, io
+        spec = importlib.util.spec_from_file_location("handoff_check_hook", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        path = self.handoff("# Session Handoff\n")
+        buf = io.StringIO()
+        env = {"XDG_CACHE_HOME": os.path.join(self.root, "cache"), "BATON_LOG": self.log}
+        with mock.patch.dict(os.environ, env), mock.patch.object(hook.handoff_check, "warnings", side_effect=ValueError), \
+                mock.patch.object(hook.handoff_check, "read", wraps=hook.handoff_check.read) as rd, \
+                contextlib.redirect_stdout(buf):
+            hook.on_edit({"tool_input": {"file_path": path}, "session_id": "s1"})
+        out = json.loads(buf.getvalue())
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("필수 절 없음", out["reason"])
+        self.assertEqual(rd.call_count, 1)  # 파일은 한 번만 읽는다
+
     def test_relative_path_resolved_against_cwd(self):
         self.handoff("# Session Handoff\n")
         self.assertEqual(self.post("HANDOFF.md", tool="Edit")["decision"], "block")

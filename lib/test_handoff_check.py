@@ -178,6 +178,41 @@ class HandoffCheckTest(unittest.TestCase):
         self.assertIn("1개 중 1개에 [V]·[?] 표시 없음", out[0])
         self.assertEqual(handoff_check.warnings(self.facts("<!-- 안내 -->\n- [V] 확인함\n")), [])
 
+    def unmarked_lines(self, body):
+        """경고에 나온 표시 없는 줄 번호들을, 사실 절 안의 상대 줄(1부터)로."""
+        text = self.facts(body)
+        start = text.splitlines().index("## 확인된 사실과 결정") + 1
+        for x in handoff_check.warnings(text):
+            if "표시 없음" in x:
+                nums = x.split("(", 1)[1].split("줄)", 1)[0]
+                return [int(n) - start for n in nums.split(", ")]
+        return []
+
+    def test_nested_children_counted_separately(self):
+        # 리뷰(11-21): 자식이 부모에 흡수되면 누락을 양쪽 방향으로 놓쳤다
+        self.assertEqual(self.unmarked_lines("- [V] 부모\n  - 자식 표시 없음\n"), [2])
+        self.assertEqual(self.unmarked_lines("- 부모 표시 없음\n  - [V] 자식\n"), [1])
+        self.assertEqual(self.unmarked_lines("- [V] a\n    1. 깊은 자식\n\t- 탭 자식\n  이어 쓴 줄 [?]\n"), [2])
+
+    def test_subsections_stay_inside_facts(self):
+        # 리뷰(11-21): ### 하위 절이 있으면 "셀 수 없다"고 잘못 말하고 하위 절의 누락도 놓쳤다
+        body = "### 사실\n- [V] a\n### 결정\n- b 표시 없음\n##### 메모\n- [?] c\n"
+        out = handoff_check.warnings(self.facts(body))
+        self.assertFalse(any("셀 수 없다" in x or "목록이 아닌" in x for x in out), out)
+        self.assertEqual(self.unmarked_lines(body), [4])
+        # 같은 단계 이상의 제목은 절을 끝낸다
+        self.assertEqual(self.unmarked_lines("- [V] a\n# 부록\n- 절 밖\n"), [])
+
+    def test_marks_in_code_or_comment_not_counted(self):
+        self.assertEqual(self.unmarked_lines("- `arr[V]` 코드 안 표시\n- 주장 <!-- [V] -->\n- [V] 진짜 `x`\n"), [1, 2])
+
+    def test_fences_and_multiline_comments(self):
+        out = handoff_check.warnings(self.facts("- [V] a\n```\n- 코드 속 주장\n```\n"))
+        self.assertEqual(len(out), 1, out)
+        self.assertIn("목록이 아닌 줄 1개", out[0])  # 여는 fence 줄
+        for body in ["<!--\n안내\n-->\n- [V] a\n", "- [V] a\n<!--\n- 옛 주장\n-->\n", "- [V] a <!-- 메모\n- 옛 주장\n-->\n"]:
+            self.assertEqual(handoff_check.warnings(self.facts(body)), [], body)
+
     def test_marks_not_forced_on_other_formats(self):
         other = "# Handoff\n## 확인된 사실\n- 표시 없음\n"
         self.assertEqual(handoff_check.warnings(other, strict=False), [])
