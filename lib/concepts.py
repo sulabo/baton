@@ -13,6 +13,7 @@
   concepts.py <파일> states     →  쓰인 상태 어휘 (중복 제거)
   concepts.py <파일> related    →  stdin의 DECISIONS.md diff에서 새로 들어온 '관련' 줄이 가리킨 개념 번호 (중복 제거)
                                    번호 없이 이름으로 가리켰는데 절 이름과 안 맞으면  ? \t 이름
+  concepts.py <파일> warnings   →  파서가 못 읽은 부분 경고 한 줄씩(열린 채 끝난 코드 펜스, 제목 줄 수와 읽은 절 수의 차이)
 """
 import io
 import re
@@ -49,24 +50,35 @@ def read(path):
         return f.read().splitlines()
 
 
+def fences(lines):
+    """줄마다 (그 줄이 펜스 안·펜스 경계인가, 그 줄에서 열린 펜스의 시작 줄 번호 또는 None)."""
+    fence = None  # 열린 펜스의 (표지 문자, 길이, 시작 줄 번호)
+    for i, line in enumerate(lines, 1):
+        f = FENCE.match(line)
+        if fence is not None:
+            if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
+                fence = None
+            yield True, None
+        elif f:
+            fence = (f.group(1)[0], len(f.group(1)), i)
+            yield True, i
+        else:
+            yield False, None
+    yield None, fence[2] if fence else None  # 마지막: 파일 끝에서 열려 있는 펜스의 시작 줄
+
+
 def walk(lines):
     """(개념번호, 이름, 그 절의 줄들)을 차례로 내놓는다. 개념 절은 다음 개념 절이나 숫자 없는 #·## 제목에서 끝난다.
     코드 펜스 안의 줄은 제목으로 보지 않는다."""
     num = name = None
     body = []
-    fence = None  # 열린 펜스의 (표지 문자, 길이)
-    for line in lines:
-        f = FENCE.match(line)
-        if fence is not None:
-            if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
-                fence = None
+    for line, (fenced, _) in zip(lines, fences(lines)):
+        if fenced:
             if num:
                 body.append(line)
             continue
-        if f:
-            fence = (f.group(1)[0], len(f.group(1)))
-        m = None if f else SECTION.match(line)
-        if m or (not f and OTHER_HEADING.match(line)):
+        m = SECTION.match(line)
+        if m or OTHER_HEADING.match(line):
             if num:
                 yield num, name, body
             num, name, body = (m.group(1), m.group(2).strip(), []) if m else (None, None, [])
@@ -180,10 +192,22 @@ def cmd_related(lines):
         print("?\t%s" % ref)
 
 
+def cmd_warnings(lines):
+    """파서가 조용히 못 읽은 부분. 못 센 것을 0으로 두지 않으려고 따로 낸다(2026-11-21 재검증: 열린 채 끝난 펜스 뒤 개념이 사라졌다)."""
+    *_, (_, open_at) = fences(lines)
+    parsed = sum(1 for _ in walk(lines))
+    raw = sum(1 for l in lines if SECTION.match(l))
+    if open_at:
+        lost = sum(1 for l in lines[open_at:] if SECTION.match(l))
+        print("코드 펜스가 %d줄에서 열린 채 파일이 끝난다 — 그 뒤 개념 %d개를 못 읽었다" % (open_at, lost))
+    elif raw != parsed:
+        print("제목 줄로는 개념 %d개인데 읽은 절은 %d개 — 코드 펜스 안의 '## N.'은 개념으로 세지 않는다. 의도한 것인지 본다" % (raw, parsed))
+
+
 COMMANDS = {
     "sections": cmd_sections, "table": cmd_table, "rows": cmd_rows,
     "meta": cmd_meta, "refs": cmd_refs, "evidence": cmd_evidence,
-    "states": cmd_states, "related": cmd_related,
+    "states": cmd_states, "related": cmd_related, "warnings": cmd_warnings,
 }
 
 if __name__ == "__main__":

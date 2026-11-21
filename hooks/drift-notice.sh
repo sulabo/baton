@@ -59,10 +59,14 @@ if [ -z "$SUM" ]; then    # 요약이 없으면 못 센 것이다 — 조용히 
 fi
 STALE=$(echo "$SUM" | sed 's/^요약: 재확인 \([0-9]*\).*/\1/'); STALE=${STALE:-0}
 FRESH=$(echo "$SUM" | sed 's/.* 신선 \([0-9]*\).*/\1/'); FRESH=${FRESH:-0}
-[ "$STALE" -eq 0 ] && exit 0
+# 파서 경고(fresh.sh의 '주의: 코드 펜스…'·'주의: 제목 줄로는…')가 있으면 재확인 0건이어도 알린다 — 표에 없는 개념이 있을 수 있다
+PWARN=$(echo "$OUT" | grep -E '^주의: (코드 펜스|제목 줄로는)' | sed 's/^주의: //')
+[ "$STALE" -eq 0 ] && [ -z "$PWARN" ] && exit 0
 
 MSG="[baton] 개념 지도에 재확인 대상 ${STALE}건 (신선 ${FRESH}건). 자세히는 /drift"
 [ "$META" -lt "$CONC" ] && MSG="$MSG
   개념 ${CONC}개 중 메타 줄 ${META}개 — 나머지 $((CONC-META))개는 아예 못 센다."
+[ -n "$PWARN" ] && MSG="$MSG
+  ${PWARN}"
 emit "$MSG"
 exit 0

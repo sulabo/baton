@@ -28,7 +28,7 @@ SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 # 감싸개마다 값을 받는 옵션. 이 옵션 뒤의 낱말은 실행 파일이 아니다
 ARG_OPTS = {"sudo": {"-u", "-g", "-h", "-p", "-U", "-C", "-D", "-r", "-t", "-T"}, "timeout": {"-s", "-k", "--signal", "--kill-after"},
             "nice": {"-n"}, "ionice": {"-c", "-n"}, "env": {"-u", "-C", "-S"}, "xargs": {"-I", "-n", "-P", "-d", "-L", "-s", "-a"}}
-PLAIN = {"time", "exec", "command", "nohup", "nice", "ionice", "sudo", "env", "timeout", "xargs", "rtk", "proxy", "stdbuf"}
+PLAIN = {".", "source", "time", "exec", "command", "nohup", "nice", "ionice", "sudo", "env", "timeout", "xargs", "rtk", "proxy", "stdbuf"}
 ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 OPS = re.compile(r"^[;&|()<>\n]+$")
 def runs_cmd(cmd, depth=0):

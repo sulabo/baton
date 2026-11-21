@@ -114,8 +114,8 @@ Every concept ends with one metadata line:
 
 That is: the status (`일치` — decision, code, and docs agree; the status words are a closed list of eight), the commit it was verified at (`9cd1928`), the code files it depends on, its neighbors, and the docs that describe it. Freshness is then a computation, not a judgment. If none of those files — code or docs — has a commit after `9cd1928`, the concept is fresh and nobody opens it. A doc-only change is reported as its own kind of re-check.
 
-There are six verdicts. Two are plain answers: fresh, or needs a re-check because N commits touched the files. Four are kinds of "can't tell", printed as "needs a re-check" with the reason: no baseline, baseline lost to a rebase, path gone, and file not tracked (nested repo).
-A concept with no files (a rule) is tracked only through changes to the decision log, and a concept that a newer decision points to is marked for a re-check too.
+There are nine verdicts. Two are plain answers: fresh, or needs a re-check because N commits touched the files. Five are kinds of "can't tell", printed as "needs a re-check" with the reason: no baseline; baseline lost (the commit is not in this clone, for example a squashed branch seen from a fresh clone); baseline outside the current history (the commit exists but is not an ancestor of HEAD: the old commit of a squashed or rebased branch, another branch, a cherry-pick source); path gone (even one of several); and file not tracked (nested repo).
+One verdict is for the docs: when only the files listed in `문서=` moved or disappeared, it says so on its own (doc commits, doc path gone). The last is for a concept with no files (a rule), which is tracked only through changes to the decision log. If a rule's recorded commit is lost or outside the history, it becomes a re-check too, because decision changes can't be counted without it. A concept that a newer decision points to is marked for a re-check as well.
 
 ### Handoffs
 

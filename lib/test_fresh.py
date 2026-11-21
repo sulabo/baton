@@ -232,5 +232,74 @@ class ParserFenceTest(unittest.TestCase):
         self.assertTrue(any(l.startswith("- **메타**") for l in secs[0][2]))
 
 
+class FollowupTest(RepoCase):
+    """PR #11 재검증(2026-11-21)에서 남은 것. 각 테스트는 고치기 전 코드에서 실패했다."""
+
+    def check(self):
+        r = subprocess.run(["bash", os.path.join(os.path.dirname(FRESH), "check.sh"), os.path.join(self.root, "CONCEPTS.md")],
+                           capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+    def unclosed_map(self):
+        self.write("CONCEPTS.md", f"## 1. 앞\n- **메타**: 상태=일치 · 확인=2026-11-21(`{self.base}`) · 파일=`src/a.ts` · 이웃=없음\n"
+                                  "```\n열고 안 닫음\n\n"
+                                  f"## 2. 뒤\n- **메타**: 상태=일치 · 확인=2026-11-21(`{self.base}`) · 파일=`src/a.ts` · 이웃=없음\n")
+        self.commit("map")
+
+    def test_unclosed_fence_is_warned_by_fresh(self):  # 재현 저장소 t4
+        self.unclosed_map()
+        out = self.fresh()
+        self.assertIn("주의: 코드 펜스가 3줄에서 열린 채 파일이 끝난다", out)
+        self.assertIn("개념 1개를 못 읽었다", out)
+
+    def test_unclosed_fence_is_a_finding_in_check(self):
+        self.unclosed_map()
+        rc, out = self.check()
+        self.assertEqual(rc, 1, out); self.assertIn("코드 펜스가 3줄에서 열린 채", out)
+
+    def test_heading_count_mismatch_is_warned(self):  # 닫힌 펜스 안의 '## 9.'도 알린다(못 센 것이 아닌지 사람이 본다)
+        self.write("CONCEPTS.md", f"## 1. 앞\n- **메타**: 상태=일치 · 확인=2026-11-21(`{self.base}`) · 파일=`src/a.ts` · 이웃=없음\n"
+                                  "```\n## 9. 예시\n```\n")
+        self.commit("map")
+        self.assertIn("주의: 제목 줄로는 개념 2개인데 읽은 절은 1개", self.fresh())
+
+    def test_rule_concept_with_lost_baseline_is_recheck(self):  # 세션 알림이 울려야 한다
+        self.write("CONCEPTS.md", "## 1. 규칙\n- **메타**: 상태=일치 · 확인=2026-11-21(`deadbee`) · 파일=없음(규칙 개념) · 이웃=없음\n")
+        self.commit("map")
+        out = self.fresh()
+        self.assertIn("재확인 필요 — 기준 소실 (규칙 개념)", self.line(out, "1"))
+        self.assertIn("요약: 재확인 1", out)
+
+
+class VerdictDocsTest(unittest.TestCase):
+    """fresh.sh가 내는 판정 이름이 README.ko.md·SKILL.md 판정 표에 모두 있고, README.md의 개수가 SKILL.md와 같다."""
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def read(self, rel):
+        with open(os.path.join(self.ROOT, rel), encoding="utf-8") as f:
+            return f.read()
+
+    def labels(self):
+        import re
+        src = self.read("lib/fresh.sh")
+        out = set(re.findall(r'"(재확인 필요 — (?:기준 없음|기준 소실|기준이 현재 이력 밖|경로 소실|미추적|커밋|문서 커밋|문서 경로 소실))', src))
+        out |= {"재확인 필요 — " + b for b in re.findall(r'BASE="([^"]+)"', src)}  # 기준 없음·소실·이력 밖은 변수로 나온다
+        out |= {"신선", "규칙 개념 — 결정 변동으로만 추적"}
+        return out
+
+    def test_korean_readme_and_skill_list_every_verdict(self):
+        for rel in ("README.ko.md", "skills/driftmap/SKILL.md"):
+            text = self.read(rel)
+            for label in sorted(self.labels()):
+                with self.subTest(doc=rel, label=label):
+                    self.assertIn(label, text)
+
+    def test_english_readme_count_matches_skill(self):
+        self.assertIn("아홉 가지", self.read("skills/driftmap/SKILL.md"))
+        self.assertIn("nine verdicts", self.read("README.md"))
+        self.assertIn("판정은 아홉 가지", self.read("README.ko.md"))
+        self.assertIn("outside the current history", self.read("README.md"))
+
+
 if __name__ == "__main__":
     unittest.main()

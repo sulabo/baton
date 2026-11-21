@@ -78,5 +78,17 @@ class DriftNoticeTest(unittest.TestCase):
         self.assertIn("재확인 대상 1건 (신선 0건)", msg)
 
 
+    def test_parser_warning_is_announced_even_with_zero_stale(self):
+        # 열린 채 끝난 코드 펜스 뒤의 개념은 표에 없다 — 재확인 0건이어도 조용하면 '다 신선'으로 읽힌다
+        self.commit({"a.txt": "a\n"})
+        base = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=self.repo, capture_output=True,
+                              text=True, check=True).stdout.strip()
+        meta = "- **메타**: 상태=일치 · 확인=2026-11-21(`%s`) · 파일=`a.txt` · 이웃=없음\n" % base
+        self.commit({"CONCEPTS.md": "## 1. 앞\n" + meta + "```\n안 닫힘\n\n## 2. 뒤\n" + meta})
+        msg = self.run_hook()
+        self.assertIsNotNone(msg)
+        self.assertIn("코드 펜스", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -64,6 +64,16 @@ class ZeroGuardTest(unittest.TestCase):
     def test_summary_line_with_zero_rechecks_fires(self):  # fresh.sh 요약 줄
         self.assertIsNotNone(run("bash lib/fresh.sh CONCEPTS.md .", stdout="요약: 재확인 0 · 신선 3 · 규칙 개념 0"))
 
+    def test_sourced_scripts_fire(self):  # PR #11 재검증: '. lib/fresh.sh'·'source lib/fresh.sh'
+        for cmd in (". lib/fresh.sh CONCEPTS.md .", "source lib/fresh.sh CONCEPTS.md .",
+                    "find . -name CONCEPTS.md | xargs lib/check.sh", "printf '%s' CONCEPTS.md | xargs -0 -n1 bash lib/check.sh",
+                    "ls | xargs -I{} sh -c 'lib/fresh.sh {} .'"):
+            with self.subTest(cmd=cmd):
+                self.assertIsNotNone(run(cmd, stdout="지적 총 0건"))
+
+    def test_sourcing_other_files_is_silent(self):
+        self.assertIsNone(run(". ./env.sh && cat lib/fresh.sh", stdout="없음"))
+
     def test_bad_input_is_silent(self):
         r = subprocess.run(["bash", HOOK], input="not json", capture_output=True, text=True)
         self.assertEqual((r.returncode, r.stdout), (0, ""))
