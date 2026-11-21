@@ -74,6 +74,17 @@ class HandoffCheckHookTest(unittest.TestCase):
         with open(self.log, encoding="utf-8") as f:
             self.assertEqual(json.loads(f.readline())["event"], "handoff_check")
 
+    def test_missing_marks_warn_without_blocking(self):
+        text = GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "## 확인된 사실과 결정\n- 표시 없는 주장\n")
+        out = self.post(self.handoff(text))
+        self.assertNotIn("decision", out)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "PostToolUse")
+        self.assertIn("[V]·[?] 표시 없음", ctx)
+        with open(self.log, encoding="utf-8") as f:
+            rec = json.loads(f.readline())
+        self.assertEqual((rec["problems"], rec["warnings"]), (0, 1))
+
     def test_relative_path_resolved_against_cwd(self):
         self.handoff("# Session Handoff\n")
         self.assertEqual(self.post("HANDOFF.md", tool="Edit")["decision"], "block")

@@ -3,6 +3,7 @@
 #
 # PostToolUse(Write|Edit|MultiEdit): 고친 파일이 HANDOFF.md면 lib/handoff_check.py로 검사하고,
 #   문제가 있으면 모델에게 돌려준다(decision: block — 쓰기는 이미 됐고, 이유를 보고 고치게 한다).
+#   경고만 있으면(확인 표시 [V]·[?] 빠짐) 막지 않고 additionalContext로 알리기만 한다.
 # Stop: 이 세션이 마지막으로 HANDOFF.md를 쓴 뒤 다른 파일을 N개(기본 3) 이상 고쳤으면, 세션에 한 번 사용자에게 인계서를 제안한다.
 #   쓰기는 사람이 정한다. 문턱 3은 로컬 세션 94개 실측(2026-10-01): 1~2개 고친 세션은 인계서를 16% 썼고 3개 이상은 67% 썼다.
 #
@@ -41,14 +42,20 @@ def on_edit(data):
         return
     try:
         problems = handoff_check.check_file(path, strict=False)
+        with open(path, encoding="utf-8", errors="replace") as f:
+            warned = handoff_check.warnings(f.read(), strict=False)
     except OSError:
         return
     runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_check",
-                   "session_id": data.get("session_id"), "problems": len(problems)})
+                   "session_id": data.get("session_id"), "problems": len(problems), "warnings": len(warned)})
     if problems:
         reason = ("[baton] 방금 쓴 HANDOFF.md에 인계서 검사 문제가 있다. 고친 뒤 다시 저장한다:\n- "
-                  + "\n- ".join(problems))
+                  + "\n- ".join(problems + warned))
         print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+    elif warned:  # 경고만이면 막지 않는다 — 맥락에 알리기만 한다(Codex도 이 JSON 모양만 받는다)
+        ctx = "[baton] 방금 쓴 HANDOFF.md 검사 경고(막지 않음):\n- " + "\n- ".join(warned)
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ctx}},
+                         ensure_ascii=False))
 
 
 def edit_paths(path):

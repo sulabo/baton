@@ -5,8 +5,10 @@
 긴 코드 블록 · 전체 diff · 비밀값 · 홈 절대경로(10-01 공개 사고에서 새어 나간 종류) ·
 개인 자료 목록(/baton-setup에서 사용자가 고른 이름·이메일 등, 설정 파일의 private_terms).
 찾은 값 자체는 출력하지 않는다 — 줄 번호와 종류만. 비밀값을 로그·맥락에 다시 옮기지 않으려고.
+경고(막지 않음): "확인된 사실과 결정" 절의 목록 줄마다 [V](직접 확인함)·[?](기억·추정) 표시가 있는지.
 
 쓰기: python3 lib/handoff_check.py [HANDOFF.md 경로] — 문제가 있으면 한 줄씩 출력하고 종료 코드 1.
+경고만 있으면 "경고:"로 시작하는 줄을 출력하고 종료 코드 0.
 """
 import os, re, sys, unicodedata
 
@@ -31,6 +33,10 @@ SECTIONS = [
 
 HEADING = re.compile(r"^#{2,4}\s+(?:\*\*)?(?:[A-Za-z0-9]{1,3}[.)]\s*)?(.*)")
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+FACTS = ("확인된 사실",)  # SECTIONS의 같은 절. 주장마다 확인 표시를 보는 절
+ITEM = re.compile(r"^ ?(?:[-*+]|\d{1,3}[.)])(?:\s+(.*))?$")  # 들여쓰지 않은 목록 줄. 들여쓴 줄은 위 항목에 이어 붙는다
+MARK = re.compile(r"\[[V?]\]")
+NOTHING = re.compile(r"^(?:\*\*)?없음(?:\*\*)?[.。]?$")  # 템플릿의 "- 없음"은 주장이 아니다
 DIFF = re.compile(r"^(diff --git |index [0-9a-f]{7,}\.\.[0-9a-f]{7,}|@@ -\d+(,\d+)? \+\d+(,\d+)? @@)")
 # 값은 글자와 숫자가 함께 있어야 비밀값으로 본다 — os.environ·refresh_token.py 같은 코드 이름과 "token 수" 같은 산문을 거르려고
 VALUE = r"['\"]?(?=[A-Za-z0-9_\-/+=]*[A-Za-z])(?=[A-Za-z0-9_\-/+=]*\d)[A-Za-z0-9_\-/+=]{8,}(?![A-Za-z0-9_(\[]|\.[A-Za-z_(\[])"  # 뒤에 한글 조사·마침표가 와도 잡는다
@@ -91,8 +97,7 @@ def check(text, strict=True, private_terms=()):
     if term_lines:  # 단어 자체는 출력하지 않는다 — 개인 자료를 맥락·로그에 다시 옮기지 않으려고
         out.append(f"개인 자료 목록 단어 {len(term_hits)}개 발견({', '.join(map(str, term_lines))}줄) — 지우거나 일반 표기로 바꾼다")
     missing = [name for keys, name in SECTIONS if not any(h.startswith(keys) for h in heads)]
-    ours = strict or "Session Handoff" in (lines[0] if lines else "") or len(SECTIONS) - len(missing) >= 3
-    if missing and ours:
+    if missing and is_ours(lines, missing, strict):
         out.insert(0, "필수 절 없음: " + ", ".join(missing))
 
     if len(lines) > MAX_LINES:
@@ -101,6 +106,65 @@ def check(text, strict=True, private_terms=()):
         out.append(f"{len(text):,}자 — 상한 {MAX_CHARS:,}자를 넘는다(넘치면 주입이 파일로 빠진다)")
     if diff_lines:
         out.append(f"전체 diff로 보이는 줄 {len(diff_lines)}개(첫 줄 {diff_lines[0]}) — 바뀐 파일과 동작 변화만 적는다")
+    return out
+
+
+def is_ours(lines, missing, strict):
+    """baton 형식 인계서로 볼지. 다른 형식의 HANDOFF.md에는 템플릿 규칙(필수 절·확인 표시)을 들이밀지 않는다."""
+    return strict or "Session Handoff" in (lines[0] if lines else "") or len(SECTIONS) - len(missing) >= 3
+
+
+def warnings(text, strict=True):
+    """막지 않는 경고 목록. "확인된 사실과 결정" 절의 목록 항목마다 [V]·[?]가 있는지 본다.
+    절이 없으면 조용하다(필수 절 검사가 이미 알린다). 절은 있는데 목록 줄이 없거나 목록 밖 줄이 섞이면
+    "셀 수 없다"고 따로 알린다 — 못 센 것을 0개로 보고하지 않으려고."""
+    lines = text.splitlines()
+    heads, fence, section = [], None, None  # section: 확인된 사실 절의 (줄 번호, 줄) 목록. None이면 아직 못 만남
+    in_facts = False
+    for i, ln in enumerate(lines, 1):
+        f = FENCE.match(ln)
+        if fence is None and f:
+            fence = (f.group(1)[0], len(f.group(1)))
+            continue
+        if fence is not None:
+            if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
+                fence = None
+            continue  # 코드 블록 안은 주장으로 세지 않는다
+        h = HEADING.match(ln)
+        if h:
+            heads.append(h.group(1))
+            in_facts = section is None and h.group(1).startswith(FACTS)
+            if in_facts:
+                section = []
+        elif in_facts:
+            section.append((i, ln))
+    missing = [name for keys, name in SECTIONS if not any(x.startswith(keys) for x in heads)]
+    if section is None or not is_ours(lines, missing, strict):
+        return []
+
+    items, loose, cur = [], [], None  # items: [첫 줄 번호, 항목 글]. loose: 목록에 안 속한 줄 번호
+    for i, ln in section:
+        m = ITEM.match(ln)
+        if m:
+            cur = [i, (m.group(1) or "").strip()]
+            items.append(cur)
+        elif not ln.strip():
+            cur = None
+        elif cur is not None and ln[:1].isspace():
+            cur[1] += " " + ln.strip()
+        else:
+            loose.append(i)
+    claims = [it for it in items if not NOTHING.match(it[1])]
+    unmarked = [i for i, body in claims if not MARK.search(body)]
+    out = []
+    if not items:
+        out.append("경고: 확인된 사실과 결정 절에 목록 줄이 없어 [V]·[?] 표시를 셀 수 없다 — 주장마다 '- [V] …' 목록 한 줄로 쓴다")
+    elif loose:
+        out.append(f"경고: 확인된 사실과 결정 절에 목록이 아닌 줄 {len(loose)}개({', '.join(map(str, loose))}줄) — "
+                   f"이 줄들의 [V]·[?] 표시는 세지 못했다. 목록 한 줄로 바꾼다")
+    if unmarked:
+        out.append(f"경고: 확인된 사실과 결정 절 목록 {len(claims)}개 중 {len(unmarked)}개에 [V]·[?] 표시 없음"
+                   f"({', '.join(map(str, unmarked))}줄) — 직접 확인했으면 [V], 기억·추정이면 [?]를 붙인다")
     return out
 
 
@@ -120,8 +184,10 @@ if __name__ == "__main__":
         print(f"{p}: 파일 없음")
         sys.exit(2)
     problems = check_file(p)
-    for x in problems:
+    with open(p, encoding="utf-8", errors="replace") as f:
+        warned = warnings(f.read())
+    for x in problems + warned:
         print(x)
     if not problems:
-        print(f"{p}: 문제 없음")
+        print(f"{p}: 문제 없음" + (" (경고만 있음 — 막지 않는다)" if warned else ""))
     sys.exit(1 if problems else 0)

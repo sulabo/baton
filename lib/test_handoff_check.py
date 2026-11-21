@@ -133,6 +133,57 @@ class HandoffCheckTest(unittest.TestCase):
         text = GOOD.replace("## 이미 한 변경", "#### 이미 한 변경").replace("## 목표와 완료 조건", "## **목표와 완료 조건**")
         self.assertEqual(handoff_check.check(text), [])
 
+    # 경고: 확인된 사실과 결정 절의 [V]·[?] 표시
+    def facts(self, body):
+        return GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "## 확인된 사실과 결정\n" + body)
+
+    def test_marks_present_silent(self):
+        text = self.facts("- [V] 테스트 168개 통과\n- [?] Codex도 같을 것\n  둘째 줄로 이어 쓴 설명\n- 결론 먼저, 근거 뒤 [V]\n")
+        self.assertEqual(handoff_check.warnings(text), [])
+        self.assertEqual(handoff_check.warnings(GOOD), [])  # "- 없음"은 주장이 아니다
+        self.assertEqual(handoff_check.check(text), [])  # 경고는 문제 목록에 섞이지 않는다
+
+    def test_marks_missing_named_by_line(self):
+        text = self.facts("- [V] 확인함\n- 기억으로 적음\n1. 번호 목록도 센다\n- 이어 쓴 줄에 표시\n  [?] 여기\n")
+        out = handoff_check.warnings(text)
+        self.assertEqual(len(out), 1, out)
+        lines = text.splitlines()
+        missing = [n for n, ln in enumerate(lines, 1) if ln in ("- 기억으로 적음", "1. 번호 목록도 센다")]
+        self.assertIn(f"4개 중 2개", out[0])
+        self.assertIn(f"({missing[0]}, {missing[1]}줄)", out[0])
+        self.assertNotIn("기억으로", out[0])  # 줄 번호와 종류만, 내용은 옮기지 않는다
+
+    def test_section_absent_left_to_section_check(self):
+        text = GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "")
+        self.assertEqual(handoff_check.warnings(text), [])
+        self.assertIn("확인된 사실과 결정", handoff_check.check(text)[0])
+
+    def test_uncountable_format_reported_not_zero(self):
+        for body in ["표시 없는 산문 한 문단이다.\n", "| 사실 | 근거 |\n|---|---|\n| a | b |\n", "```\n- [V] 코드 안\n```\n", ""]:
+            out = handoff_check.warnings(self.facts(body))
+            self.assertEqual(len(out), 1, (body, out))
+            self.assertIn("셀 수 없다", out[0])
+        out = handoff_check.warnings(self.facts("- [V] 목록\n산문 한 줄\n"))
+        self.assertEqual(len(out), 1, out)
+        self.assertIn("목록이 아닌 줄 1개", out[0])
+        self.assertIn("세지 못했다", out[0])
+
+    def test_marks_not_forced_on_other_formats(self):
+        other = "# Handoff\n## 확인된 사실\n- 표시 없음\n"
+        self.assertEqual(handoff_check.warnings(other, strict=False), [])
+        self.assertTrue(handoff_check.warnings(other, strict=True))
+
+    def test_cli_warning_keeps_exit_zero(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "HANDOFF.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(self.facts("- 표시 없음\n"))
+            r = subprocess.run([sys.executable, os.path.join(HERE, "handoff_check.py"), p],
+                               capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertIn("경고:", r.stdout)
+            self.assertIn("경고만 있음", r.stdout)
+
     def test_home_path_variants(self):
         for line in ["cd /Users/someone 에서 실행", "/root/.ssh 확인", "C:\\Users\\someone\\x", "- 경로:/Users/someone/x",
                      "- 작업폴더/Users/someone/x", "- file:///Users/someone/x", "d:\\users\\me"]:
