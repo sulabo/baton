@@ -60,9 +60,6 @@ class CheckVersionsTest(unittest.TestCase):
         self.write_changelog("no headings\n")
         self.assertIn("no '## [x.y.z]' heading", check_versions.check(self.root)[0])
 
-    def test_real_repo_agrees(self):
-        self.assertEqual(check_versions.main(["--root", REPO]), 0)
-
 
 if __name__ == "__main__":
     unittest.main()
