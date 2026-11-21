@@ -4,7 +4,7 @@
 > **이 지도는 탐색 앵커다. 실제 코드·결정과 다르면 실제가 정답이다.** 다르다는 것을 찾으면 이 지도를 고친다.
 > 정해진 것의 출처는 `DECISIONS.md`, 실제 동작의 출처는 코드와 테스트 실행 출력, 설명된 곳은 `README.md`·`docs/NORTH_STAR.md`·스킬 문서다.
 > 2026-11-21 같은 날 PR #3·#5·#8이 머지될 때마다 다시 대조했다. 코드 근거는 `fresh.sh`가 재확인으로 올린 개념만 다시 봤다. README 줄 번호는 `fresh.sh`가 보지 않아서 손으로 다시 맞췄다(메타 줄과 낡음 계산 절).
-> 2026-11-21 개념 그래프 이식(`a80a5fd` — 조립기·후보 루프를 `compiler-shadow`에서 main으로) 뒤 `fresh.sh`가 12개 모두를 재확인으로 올렸다. 12개를 다시 대조해 줄 번호를 맞추고 확인 해시를 옮겼고, 맥락 조립기·개념 후보 루프 두 절을 더했다.
+> 2026-11-21 개념 그래프 이식(`a80a5fd` — 조립기·후보 루프를 `compiler-shadow`에서 main으로) 뒤 `fresh.sh`가 12개 모두를 재확인으로 올렸다. 12개를 다시 대조해 줄 번호를 맞추고 확인 해시를 옮겼고, 맥락 조립기·개념 후보 루프 두 절을 더했다. 리뷰 수정(`6695701`) 뒤 다시 올라온 다섯(1·6·8·13·14)도 다시 대조했다.
 > baton이 자기 자신에게 driftmap을 적용한 사례다. 처음 판(PR #7)은 어긋남을 **찾기만 하고 고치지 않았다**. 소유자 승인 뒤 같은 날 고쳤다(`6b51162`). 고친 항목은 지우지 않고 `해소됨(2026-11-21)`으로 남겼다(스킬 절차 7).
 
 ## 요약
@@ -28,7 +28,7 @@
 
 ## 1. 플러그인 구성과 스킬 이름
 
-- **메타**: 상태=중복 정본 · 확인=2026-11-21(`a80a5fd`) · 파일=`.claude-plugin/plugin.json`,`.codex-plugin/plugin.json`,`.claude-plugin/marketplace.json`,`hooks/hooks.json`,`skills/driftmap/SKILL.md`,`skills/baton/SKILL.md`,`skills/baton-setup/SKILL.md`,`tools/check_versions.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`,`commands/drift.md`
+- **메타**: 상태=중복 정본 · 확인=2026-11-21(`6695701`) · 파일=`.claude-plugin/plugin.json`,`.codex-plugin/plugin.json`,`.claude-plugin/marketplace.json`,`hooks/hooks.json`,`skills/driftmap/SKILL.md`,`skills/baton/SKILL.md`,`skills/baton-setup/SKILL.md`,`tools/check_versions.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`,`commands/drift.md`
 
 - **정해진 것**: 범위는 `DECISIONS.md` 10-01 "beta v1.0 범위" — ① 1.0.0-beta 버전 표기. 스킬 이름에 대한 결정 기록은 없다.
 - **실제 동작**:
@@ -50,7 +50,7 @@
 - **실제 동작**:
   - 검사 스크립트 자체는 못 센 경우를 따로 낸다 — 메타 줄 0개면 "계산할 수 없다"로 종료 코드 2(`lib/fresh.sh:88`), 결정 기록 형식을 못 알아보면 "형식 불명 — 0건이 아니라 못 셌다"(`lib/fresh.sh:208`).
   - 훅은 두 조건이 다 맞을 때만 울린다. 첫째, 따옴표를 먼저 푼 뒤 `&&`·`;`·`|`에서 나눈 조각 중 하나가 첫 실행 파일로 `check.sh`·`fresh.sh`·`promote.sh`를 돌린다(`hooks/zero-guard.sh:34`, `hooks/zero-guard.sh:52`). 이때 환경변수 대입과 감싸개(`timeout 60`·`sudo -u x`·`nice -n 5`·`env -u X`·`rtk`·`rtk proxy`·`bash -o pipefail`)는 옵션 값까지 건너뛰고 보고, `bash -c "…"`는 그 문자열 안을 다시 본다(`hooks/zero-guard.sh:60`, `hooks/zero-guard.sh:68`). 둘째, 그 출력에 0건 신호(`0건`·`없음`·`메타 줄 0개`·요약 줄의 `재확인 0`)가 있다(`hooks/zero-guard.sh:85`). 명령 문장 속의 "0건"이나 `10건`은 세지 않는다.
-  - 테스트 `hooks/test_zero_guard.py` 14개 통과(2026-11-21 실행). 후속 PR에서 `. lib/fresh.sh`·`source lib/fresh.sh`와 xargs 세 형태를 더했다. xargs는 이미 잡히고 있었고 `.`·`source`는 그 전 코드에서 실패했다. 처음 고칠 때 넣은 넷(읽기 호출·출력에만 이름·명령 문장에만 "0건")은 그 전 코드에서 실패했다. PR #11 리뷰가 그 수정이 감싸개 실행을 놓친다는 회귀를 잡았고, 그 때문에 더한 셋(감싸개 8가지·감싼 읽기 명령·`재확인 0`)도 리뷰 전 코드에서 실패했다. 리뷰 전 코드는 `bash -c "grep -n x lib/check.sh"`에도 울렸다.
+  - 테스트 `hooks/test_zero_guard.py` 14개 통과(2026-11-21 실행, Python 3.14·3.9 둘 다). 후속 PR에서 `. lib/fresh.sh`·`source lib/fresh.sh`와 xargs 세 형태를 더했다. xargs는 이미 잡히고 있었고 `.`·`source`는 그 전 코드에서 실패했다. 처음 고칠 때 넣은 넷(읽기 호출·출력에만 이름·명령 문장에만 "0건")은 그 전 코드에서 실패했다. PR #11 리뷰가 그 수정이 감싸개 실행을 놓친다는 회귀를 잡았고, 그 때문에 더한 셋(감싸개 8가지·감싼 읽기 명령·`재확인 0`)도 리뷰 전 코드에서 실패했다. 리뷰 전 코드는 `bash -c "grep -n x lib/check.sh"`에도 울렸다.
 - **설명된 곳**: 훅 머리말 `hooks/zero-guard.sh:2` "검사 스크립트가 0건을 냈을 때 … 상기시킨다". README는 PR #8부터 "zero-count reminder"·"0건 구분 가드"라는 이름과 끄는 변수가 없다는 사실만 적는다(`README.md:144`, `README.ko.md:178`) — 언제 울리는지는 말하지 않는다.
 - **어긋남**: 해소됨(2026-11-21, `6b51162`). 전에는 입력 문자열 어디든 스크립트 이름과 "없음"이 같이 있으면 울렸다. 그래서 `{"tool_input":{"command":"cat lib/fresh.sh"},"tool_response":{"stdout":"없음"}}`에도 알림이 났고, 이 지도를 만드는 세션의 읽기 호출 대부분에서 울렸다(거짓 양성). 소유자가 머리말의 뜻대로 코드를 좁히기로 정했다.
 
@@ -62,7 +62,7 @@
 - **실제 동작**:
   - 판단은 MATCHED/AMBIGUOUS/NO_MATCH 셋(`lib/rules.py:74`), 판단 함수 `lib/rules.py:117`, 판정 버전 `rules-v1`(`lib/rules.py:16`). 인계 트리거 정규식의 정본도 여기다(`lib/rules.py:22`).
   - 훅이 프롬프트마다 판단을 `~/.cache/baton/runs.jsonl`에 남긴다. 프롬프트는 원문 대신 해시·길이만(`hooks/handoff-inject.py:99`). 파일 600, 20MB 넘으면 한 번 돌림(`lib/runlog.py:12`, `lib/runlog.py:26`, `lib/runlog.py:28`).
-  - 테스트: `lib/test_rules.py` 12개 통과(2026-11-21, PR #10 머지 뒤 실행).
+  - 테스트: `lib/test_rules.py` 12개 통과(2026-11-21, PR #10 머지 뒤 실행, Python 3.14·3.9 둘 다).
 - **설명된 곳**: `README.md:143`, `README.ko.md:177` — 코드와 일치. `docs/NORTH_STAR.md:70`·`docs/NORTH_STAR.md:71`(2절 표).
 - **어긋남**: 해소됨(2026-11-21, `6b51162` — 두 칸을 코드대로 고쳤다). 고치기 전 기록: 북극성 2절 표는 Decision Layer 칸에 "인터페이스·**3상태 판정**·Jev·Judge 없음", V0 Observe 칸에 "**없음**. 사후 집계기만"이라 적는다. 같은 문서 3절 단계 1과 코드는 둘 다 있다고 말한다. 2절 표가 10-01 구현을 반영하지 않은 것이다 — **낡은 문서**(코드가 앞서 있다). 같은 표의 다른 칸도 같은 원인으로 낡았다(Fallback 칸은 인계서 주입 절, 개념 지도 점검 칸은 '관련' 가리킴 절에 따로 적었다). 이 표 하나가 여러 개념에서 동시에 낡은 것은 개별 실수가 아니라 **갱신 경로의 구멍**이다 — 구현 커밋이 북극성 2절 표를 갱신 대상에 넣지 않았다.
 
@@ -75,7 +75,7 @@
   - 검사기: 필수 8절(`lib/handoff_check.py:23`)·200줄·9,000자·긴 코드 블록·전체 diff·비밀값·홈 절대경로(`lib/handoff_check.py:46`)·개인 자료 목록(`lib/handoff_check.py:58`). 훅 모드에서는 baton 형식으로 보이는 인계서에만 필수 절을 요구한다(`lib/handoff_check.py:122`). PR #6부터 "확인된 사실과 결정" 목록 줄에 [V]·[?] 표시가 없으면 막지 않고 경고만 한다(`lib/handoff_check.py:127`).
   - `HANDOFF.md`를 `Write|Edit|MultiEdit`한 직후 검사(`hooks/handoff-check.py:34`, `hooks/hooks.json:28`), 문제가 있으면 모델에 돌려준다.
   - 제안: `Stop`에서만, 마지막 인계서 저장 뒤 다른 파일을 3개 이상 고쳤으면 세션에 한 번(`hooks/handoff-check.py:99`, `hooks/handoff-check.py:110`, `hooks/handoff-check.py:117`). `SessionEnd`에는 등록돼 있지 않다.
-  - 테스트: `lib/test_handoff_check.py` 31개 + `hooks/test_handoff_check_hook.py` 13개 통과(2026-11-21, PR #6 머지 뒤 실행). 이 저장소의 루트 `HANDOFF.md`도 검사기를 통과한다("문제 없음").
+  - 테스트: `lib/test_handoff_check.py` 31개 + `hooks/test_handoff_check_hook.py` 13개 통과(2026-11-21, PR #6 머지 뒤 실행, Python 3.14·3.9 둘 다). 이 저장소의 루트 `HANDOFF.md`도 검사기를 통과한다("문제 없음").
 - **설명된 곳**: `README.md:124`·`README.md:126`, `README.ko.md:144`·`README.ko.md:146` — 코드와 일치. `docs/NORTH_STAR.md:134`·`docs/NORTH_STAR.md:136`.
 - **어긋남**: 북극성 단계 3 본문(`docs/NORTH_STAR.md:136`)이 결정론 트리거를 "`Stop`·`SessionEnd` 훅에서"라고 적는다. 바로 위 상태 줄(`docs/NORTH_STAR.md:134`)은 "`SessionEnd` 대신 `Stop`만"이라 하고 코드도 `Stop`만이다 — 같은 절 안에서 서로 다르다. 상태 줄의 "테스트 18개"는 10-01 커밋 `8834a01` 기준 검사기 테스트만 센 값이고, 지금은 20 + 11개다. **낡은 문서** → 해소됨(2026-11-21, `6b51162`). 두 줄을 "`Stop`만"과 테스트 수로 고쳤다. 처음 고친 수(31개)는 작업하는 사이 PR #6이 머지되면서 바로 낡았다. 이 지도의 `fresh.sh`가 이 개념을 재확인으로 올려서 알았고, 44개(검사기 31·훅 13)로 다시 고쳤다. 날짜를 붙여 둔 이유다.
 
@@ -90,16 +90,16 @@
 
 ## 6. 메타 줄과 낡음 계산
 
-- **메타**: 상태=낡은 문서 · 확인=2026-11-21(`a80a5fd`) · 파일=`lib/concepts.py`,`lib/fresh.sh`,`lib/check.sh`,`lib/lib.sh`,`hooks/drift-notice.sh`,`lib/test_fresh.py`,`hooks/test_drift_notice.py` · 이웃=개념 8(전제), 개념 13(전제) · 문서=`README.md`,`README.ko.md`,`skills/driftmap/SKILL.md`
+- **메타**: 상태=낡은 문서 · 확인=2026-11-21(`6695701`) · 파일=`lib/concepts.py`,`lib/fresh.sh`,`lib/check.sh`,`lib/lib.sh`,`hooks/drift-notice.sh`,`lib/test_fresh.py`,`hooks/test_drift_notice.py` · 이웃=개념 8(전제), 개념 13(전제) · 문서=`README.md`,`README.ko.md`,`skills/driftmap/SKILL.md`
 
 - **정해진 것**: 결정 기록에 따로 없다. 스킬 문서(`skills/driftmap/SKILL.md`)가 규칙의 정본 역할을 한다.
 - **실제 동작**:
-  - 형식을 아는 곳은 파서 하나다(`lib/concepts.py:22`, `lib/concepts.py:27`, `lib/concepts.py:71`). 숫자 없는 `#`·`##` 제목은 개념 절을 닫는다(`lib/concepts.py:24`). 단 ```·~~~ 코드 펜스 안의 줄은 제목으로 보지 않는다(`lib/concepts.py:26`, `lib/concepts.py:54`). 펜스가 열린 채 파일이 끝나면 `warnings`가 알린다(`lib/concepts.py:196`). 2026-11-21부터 `warnings`는 목록을 돌려주는 함수이고, 맥락 조립기와 후보 루프도 이것으로 못 읽은 부분을 낸다(개념 13). 메타 항목은 키 앞을 `: `·` · `로 고정해 찾는다 — `옛별칭=` 안의 `별칭=`처럼 다른 키 속에서 걸리지 않는다(`lib/concepts.py:42`). 정상으로 닫힌 펜스 안의 `## N.` 예시는 개념이 아니라서 알리지 않는다. `check.sh`는 이를 검사 [7]의 지적으로 세고, `fresh.sh`는 표 위에 `주의:`를 낸다(`lib/fresh.sh:102`). 세션 시작 알림은 재확인이 0건이어도 이때 울린다. 메타 줄의 `문서` 항목도 읽는다(`lib/concepts.py:127`).
+  - 형식을 아는 곳은 파서 하나다(`lib/concepts.py:22`, `lib/concepts.py:27`, `lib/concepts.py:72`). 숫자 없는 `#`·`##` 제목은 개념 절을 닫는다(`lib/concepts.py:24`). 단 ```·~~~ 코드 펜스 안의 줄은 제목으로 보지 않는다(`lib/concepts.py:26`, `lib/concepts.py:55`). 펜스가 열린 채 파일이 끝나면 `warnings`가 알린다(`lib/concepts.py:197`). 2026-11-21부터 `warnings`는 목록을 돌려주는 함수이고, 맥락 조립기와 후보 루프도 이것으로 못 읽은 부분을 낸다(개념 13). 메타 항목은 키 바로 앞이 줄 시작·`:`·`·`일 때만 찾는다(사이 공백 수는 상관없다) — `옛별칭=` 안의 `별칭=`처럼 다른 키 속에서는 안 걸리고, `**메타**:상태=구현`처럼 공백 없이 쓴 줄은 main 이전처럼 읽는다(`lib/concepts.py:42`). 정상으로 닫힌 펜스 안의 `## N.` 예시는 개념이 아니라서 알리지 않는다. `check.sh`는 이를 검사 [7]의 지적으로 세고, `fresh.sh`는 표 위에 `주의:`를 낸다(`lib/fresh.sh:102`). 세션 시작 알림은 재확인이 0건이어도 이때 울린다. 메타 줄의 `문서` 항목도 읽는다(`lib/concepts.py:128`).
   - 판정은 커밋 수(`lib/fresh.sh:149`)·기준 없음·기준 소실(`lib/fresh.sh:117`)·**기준이 현재 이력 밖**(`lib/fresh.sh:118`, HEAD의 조상이 아닌 확인 커밋)·경로 소실·미추적(`lib/fresh.sh:47`)·신선(`lib/fresh.sh:162`)·규칙 개념(`lib/fresh.sh:131`)에 **문서 커밋**(`lib/fresh.sh:64`, `lib/fresh.sh:158`)이 더해졌다. 표 끝에 요약 줄이 붙는다(`lib/fresh.sh:166`).
   - 경로는 쉼표로만 나눠 배열에 담고(`lib/fresh.sh:34`) 따옴표째 git에 넘긴다. 그래서 공백이 든 경로가 쪼개지지 않고, 글롭은 셸이 아니라 git이 저장소 루트 기준으로 맞춘다. 사라진 경로(코드든 문서든, 일부만이라도)는 신선으로 두지 않는다. 그 경로도 `git log` 대상에 넣어 지우거나 옮긴 커밋을 센다(`lib/fresh.sh:156`). 규칙 개념의 확인 해시가 없으면 `(기준 없음 — 문서 못 봄)`을 붙인다(`lib/fresh.sh:130`). 적어 둔 해시가 소실·이력 밖이면 결정 변동도 셀 수 없으니 `재확인 필요 — 기준 소실 (규칙 개념)`으로 올려 세션 알림이 울리게 한다(`lib/fresh.sh:127`).
   - 세션 시작 알림은 개념 수·메타 줄 수를 grep이 아니라 파서로 세고, 판정은 표의 글자 대신 그 요약 줄을 읽는다(`hooks/drift-notice.sh:61`, `hooks/drift-notice.sh:66`, `hooks/drift-notice.sh:67`). 캐시 키에 `fresh.sh`가 들어 있다(`hooks/drift-notice.sh:44`).
   - `check.sh`의 검사는 [1]~[7] 일곱 가지다([5] '파일' 항목의 지침 파일 섞임, [6] 메타 줄 수, [7] 열린 채 끝난 코드 펜스 — `lib/check.sh:99`).
-  - 테스트 `lib/test_fresh.py` 32개(문서 항목 6·파서 2 추가, 리뷰 반영 8 추가, 후속 6 추가, 마지막 후속 2 추가 — 하나는 바꿈), `hooks/test_drift_notice.py` 7개 통과(2026-11-21 실행). 후속 6개(열린 펜스 경고 둘·제목 수 차이·규칙 개념 기준 소실·판정 문서 둘)와 알림 1개는 그 전 코드에서 실패했다. 처음 고칠 때 넣은 문서 항목 5개·파서 1개·이름 속 '신선' 1개는 그 전 코드에서 실패했다. 리뷰 반영으로 넣은 8개(이름 바뀐 문서·없는 문서 경로·일부 사라진 코드 경로·이력 밖 기준·공백 경로·글롭·규칙 개념의 문서 못 봄·펜스)도 리뷰 전 코드에서 모두 실패했다.
+  - 테스트 `lib/test_fresh.py` 32개(문서 항목 6·파서 2 추가, 리뷰 반영 8 추가, 후속 6 추가, 마지막 후속 2 추가 — 하나는 바꿈), `hooks/test_drift_notice.py` 7개 통과(2026-11-21 실행, Python 3.14·3.9 둘 다). 후속 6개(열린 펜스 경고 둘·제목 수 차이·규칙 개념 기준 소실·판정 문서 둘)와 알림 1개는 그 전 코드에서 실패했다. 처음 고칠 때 넣은 문서 항목 5개·파서 1개·이름 속 '신선' 1개는 그 전 코드에서 실패했다. 리뷰 반영으로 넣은 8개(이름 바뀐 문서·없는 문서 경로·일부 사라진 코드 경로·이력 밖 기준·공백 경로·글롭·규칙 개념의 문서 못 봄·펜스)도 리뷰 전 코드에서 모두 실패했다.
 - **설명된 곳**: `README.md:112`·`README.md:117`·`README.md:118`, `README.ko.md:117`·`README.ko.md:122`·`README.ko.md:134`, `skills/driftmap/SKILL.md:253`, `skills/driftmap/SKILL.md:261`, `skills/driftmap/SKILL.md:316`, `skills/driftmap/SKILL.md:169`.
 - **어긋남** (남은 것 둘, 나머지는 해소됨):
   - **남음(낮음, 2026-11-21 재확인 때 찾음, 고치지 않음)**: `check.sh` 검사 수. 코드는 [7](열린 채 끝난 펜스)이 더해져 일곱인데, 스킬 문서는 표(`skills/driftmap/SKILL.md:253`)와 본문(`skills/driftmap/SKILL.md:261`) 모두 "여섯 가지"라 적는다 — **낡은 문서**. 이 지도의 실제 동작 면도 "[1]~[6] 여섯"이라 적고 있었다(지금은 고침). [7]을 더한 PR이 스킬 문서를 갱신 대상에 넣지 않은 것이다.
@@ -126,16 +126,16 @@
   - `UserPromptSubmit`에서 프롬프트가 트리거 말(`lib/rules.py:22`, 설정의 추가 말 포함 — PR #10부터 "where were we" 같은 영어 구도 들어간다)에 맞을 때만 주입(`hooks/handoff-inject.py:73`, `hooks/handoff-inject.py:77`). 무관한 프롬프트에는 넣지 않는다.
   - 출력은 Claude Code·Codex 둘 다 받는 JSON `additionalContext`.
   - git이 없을 때: 저장소 루트 계산이 예외를 삼키고 폴더 기준으로 넘어간다(`lib/rules.py:161`, `lib/rules.py:167`). 2026-11-21에 git이 없는 `PATH`로 `handoff-inject.py`·`split-notice.py`·`handoff-check.py`를 돌렸을 때 셋 다 종료 코드 0, 출력 없음.
-  - 테스트 `hooks/test_handoff_inject.py` 8개 통과(2026-11-21 실행).
+  - 테스트 `hooks/test_handoff_inject.py` 8개 통과(2026-11-21 실행, Python 3.14·3.9 둘 다, 건너뜀 1).
 - **설명된 곳**: `README.md:125`, `README.ko.md:145` — 코드와 일치. `docs/NORTH_STAR.md:83`.
 - **어긋남**: 북극성 2절 표 Fallback 칸(`docs/NORTH_STAR.md:83`)이 "다만 조용하지는 않다 — git을 못 찾으면 traceback을 낸다"고 적는다. 위 실행으로는 traceback이 나지 않는다. **낡은 문서**(낮음) → 해소됨(2026-11-21, `6b51162`). 규칙 판단 절에 적은 것과 같은 표, 같은 원인이다.
 
 ## 8. 새 결정의 '관련' 가리킴
 
-- **메타**: 상태=미결 · 확인=2026-11-21(`a80a5fd`) · 파일=`lib/fresh.sh`,`lib/concepts.py` · 이웃=개념 6(전제) · 문서=`skills/driftmap/SKILL.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=미결 · 확인=2026-11-21(`6695701`) · 파일=`lib/fresh.sh`,`lib/concepts.py` · 이웃=개념 6(전제) · 문서=`skills/driftmap/SKILL.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: 결정 기록에 따로 없다. 스킬 문서 모드 ④ "결정이 움직였는가"가 미구현을 잡는 유일한 경로라고 적는다.
-- **실제 동작**: 메타 줄의 확인 해시 이후 `DECISIONS.md`에 새로 들어온 줄 중 `관련` 뒤의 "개념 N"·개념 이름을 찾아 그 개념을 재확인으로 올린다(`lib/fresh.sh:73`, `lib/concepts.py:33`, `lib/concepts.py:162`). 못 이은 것은 "0건이 아니라 못 셌다"로 따로 낸다. 새 결정 중 `- 관련:` 줄이 없는 것을 구멍으로 센다(`lib/fresh.sh:197`). 확인 커밋이 HEAD의 조상이 아니면 `DECISIONS.md` 비교를 하지 않는다 — 비교할 기준이 없어서다.
+- **실제 동작**: 메타 줄의 확인 해시 이후 `DECISIONS.md`에 새로 들어온 줄 중 `관련` 뒤의 "개념 N"·개념 이름을 찾아 그 개념을 재확인으로 올린다(`lib/fresh.sh:73`, `lib/concepts.py:33`, `lib/concepts.py:163`). 못 이은 것은 "0건이 아니라 못 셌다"로 따로 낸다. 새 결정 중 `- 관련:` 줄이 없는 것을 구멍으로 센다(`lib/fresh.sh:197`). 확인 커밋이 HEAD의 조상이 아니면 `DECISIONS.md` 비교를 하지 않는다 — 비교할 기준이 없어서다.
 - **설명된 곳**: `skills/driftmap/SKILL.md` 모드 ④, `docs/NORTH_STAR.md:78`.
 - **어긋남**:
   - 북극성 2절 표 개념 지도 점검 칸(`docs/NORTH_STAR.md:78`)이 "새 결정 → 재확인(09-30, **커밋 전**)"이라 적는다. 공개 이력 첫 커밋부터 커밋돼 있다. **낡은 문서**(낮음) → 해소됨(2026-11-21, `6b51162`).
@@ -156,7 +156,7 @@
 - **메타**: 상태=일치 · 확인=2026-11-21(`a80a5fd`) · 파일=`lib/config.py`,`lib/setup_scan.py` · 이웃=개념 4·5·7(전제) · 문서=`README.ko.md`,`skills/baton-setup/SKILL.md`,`commands/baton-setup.md`
 
 - **정해진 것**: 결정 기록에 따로 없다(`/baton-setup`은 커밋 `24e3996`에서 들어왔다).
-- **실제 동작**: `lib/config.py:119` — 환경변수 > 저장소 절 > 전역 절 > 기본값. 관찰 로그 키 둘은 전역만(`lib/config.py:22`). 목록 키는 전역 + 저장소(`lib/config.py:132`). 테스트 `lib/test_config.py` 23개 통과(2026-11-21 실행). 세션 끊기 문턱·인계서 제안 문턱·추가 트리거 말·각 훅의 끄기 스위치가 모두 이 설정을 읽는다.
+- **실제 동작**: `lib/config.py:119` — 환경변수 > 저장소 절 > 전역 절 > 기본값. 관찰 로그 키 둘은 전역만(`lib/config.py:22`). 목록 키는 전역 + 저장소(`lib/config.py:132`). 테스트 `lib/test_config.py` 23개 통과(2026-11-21 실행, Python 3.14·3.9 둘 다). 세션 끊기 문턱·인계서 제안 문턱·추가 트리거 말·각 훅의 끄기 스위치가 모두 이 설정을 읽는다.
 - **설명된 곳**: `README.ko.md:167`, `skills/baton-setup/SKILL.md`, `commands/baton-setup.md`.
 - **어긋남**: 없음.
 
@@ -180,7 +180,7 @@
 
 ## 13. 맥락 조립기 — 개념 그래프로 고르기
 
-- **메타**: 상태=미구현 · 확인=2026-11-21(`a80a5fd`) · 파일=`lib/compiler.py`,`lib/test_compiler.py`,`observer/research/compile_eval.py`,`observer/research/test_compile_eval.py` · 이웃=개념 6(전제), 개념 14(정본) · 문서=`docs/research/ONTOLOGY_DESIGN.md`,`README.md`,`README.ko.md`
+- **메타**: 상태=미구현 · 확인=2026-11-21(`6695701`) · 파일=`lib/compiler.py`,`lib/test_compiler.py` · 이웃=개념 6(전제), 개념 14(정본) · 문서=`docs/research/ONTOLOGY_DESIGN.md`,`README.md`,`README.ko.md`
 
 - **정해진 것**: `DECISIONS.md` 10-07 "개념 그래프를 실측 가능한 수준까지" — 설계안 P4를 `lib/compiler.py`로 만들고 프롬프트 훅에 붙이되 기본은 그림자 모드(고른 것을 판단 로그에만 남김), 간선은 메타 줄 `이웃`만 쓴다(소유자). 10-07 두 번째 — 측정 판정은 그래프 완성 뒤. 커밋 co-change 그래프는 10-04 오프라인 평가에서 기준선을 못 이겨 쓰지 않는다(`docs/research/ONTOLOGY_DESIGN.md` 3-1·3-2절).
 - **실제 동작**:
@@ -188,20 +188,20 @@
   - 고르기: 제목 단어·별칭·작업 파일로 맞은 개념과 그 이웃 한 칸(`lib/compiler.py:99`). 세 곳 이상 개념에 걸린 파일과 허브 파일은 개념을 고르는 근거가 아니다(`lib/compiler.py:30`). 예산은 개념 수 8·파일 10·결정 10, 글 300줄·4,000자(`lib/compiler.py:26`, `lib/compiler.py:27`). 이 세션이 이미 만진 파일은 뺀다. 같은 자리에서 기준선 셋(같은 폴더만·인계서만·그래프 뺀 조립기)을 함께 계산한다(`lib/compiler.py:336`).
   - 캐시는 저장소 밖 `~/.cache/baton/compile/`. 상대 경로 `XDG_CACHE_HOME`은 무시하고, 절대 경로를 못 정하면 캐시를 만들지 않는다(`lib/compiler.py:194`).
   - 지금 도는 길은 `python3 lib/compiler.py explain "<프롬프트>"` 하나다. `hooks/handoff-inject.py`는 조립기를 부르지 않고, `BATON_COMPILER`는 설정 키에도 없다.
-  - 테스트 `lib/test_compiler.py` 21개, `observer/research/test_compile_eval.py` 13개 통과(2026-11-21 실행). 이 저장소 지도로 `explain`을 돌리면 개념·파일·결정이 고르게 나온다(2026-11-21).
+  - 테스트 `lib/test_compiler.py` 22개 통과(2026-11-21 실행, Python 3.14·3.9 둘 다). 이 저장소 지도로 `explain`을 돌리면 개념·파일·결정이 고르게 나온다(2026-11-21).
 - **설명된 곳**: `docs/research/ONTOLOGY_DESIGN.md` 7절과 머리말, `README.md:120`, `README.ko.md:138`.
-- **어긋남**: **미구현**(낮음, 미룬 순서). 10-07 결정은 훅에 그림자 모드로 붙이는 것까지인데 main에는 조립기 코드만 있다. 인계서 주입 훅을 다시 쓰는 PR #16·신선도 브랜치 뒤에 붙이기로 했다(`DECISIONS.md` 10-07의 "main 반영" 줄). 그때까지 `compile_eval.py`는 잴 기록이 없어 "못 셌다"를 낸다(2026-11-21 실행: 측정 턴 0). 조립 글 머리의 `BATON_COMPILER=on` 문구(`lib/compiler.py:370`)도 그때 실제 스위치가 된다.
+- **어긋남**: **미구현**(낮음, 미룬 순서). 10-07 결정은 훅에 그림자 모드로 붙이는 것까지인데 main에는 조립기 코드만 있다. 인계서 주입 훅을 다시 쓰는 PR #16·신선도 브랜치 뒤에 붙이기로 했다(`DECISIONS.md` 10-07의 "main 반영" 줄). 그림자 기록을 채점하는 `observer/research/compile_eval.py`(설계안 7절)는 기록이 없으면 늘 "못 셌다"만 내고 Python 3.9에서 시각 오프셋을 못 읽어 이 PR에서 뺐다 — **훅 연결 PR과 함께 돌아온다**(`compiler-shadow`에 있다). 조립 글 머리에서도 아직 없는 스위치(`BATON_COMPILER`) 이름을 뺐다.
 
 ## 14. 개념 후보 루프 — 별칭과 새 개념
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`a80a5fd`) · 파일=`lib/candidates.py`,`lib/test_candidates.py` · 이웃=개념 13(전제), 개념 11(전제) · 문서=`skills/driftmap/SKILL.md`,`docs/research/ONTOLOGY_DESIGN.md`,`README.md`,`README.ko.md`
+- **메타**: 상태=일치 · 확인=2026-11-21(`6695701`) · 파일=`lib/candidates.py`,`lib/test_candidates.py` · 이웃=개념 13(전제), 개념 11(전제) · 문서=`skills/driftmap/SKILL.md`,`docs/research/ONTOLOGY_DESIGN.md`,`README.md`,`README.ko.md`
 
 - **정해진 것**: `DECISIONS.md` 10-07 두 번째 — 개념 그래프 완성은 스펙 21절 루프(관찰 → 저장소 밖 후보 → 결정론 검증 → 사람 승격), 새 개념 신호는 구절 + 안 묶인 파일(소유자). 10-04 ④ — 후보는 `~/.cache/baton/`에만, `CONCEPTS.md`에는 사람이 승격할 때만. 10-08 — 별칭 승격은 개인 자료 검사를 거친다.
 - **실제 동작**:
-  - `scan`: 이 저장소의 Claude Code 세션 기록(다른 폴더에서 열었어도 기록에 이 저장소 경로가 나오는 세션 포함, SDK 세션 제외)에서 사람 프롬프트 턴과 그 턴에 고친 파일을 모은다(`lib/candidates.py:71`, `lib/candidates.py:117`). 구절은 `rules.phrases`(`lib/rules.py:53`) — `/baton-setup`과 같은 정의다.
-  - 검증: 서로 다른 날 3일 이상, 기존 제목·별칭과 안 겹침, 트리거 말 아님, 오발화 ≤ 적중, 버린 것 아님(`lib/candidates.py:22`, `lib/candidates.py:173`). 후보는 저장소 밖 캐시에만 쓰고, 구절만 남기며 프롬프트 원문은 남기지 않는다(`lib/candidates.py:294`). 0건이면 어느 단계에서 0이 됐는지 낸다.
-  - `promote-alias`: 사람이 고른 구절을 그 개념 메타 줄 `별칭=`에만 덧붙인다(`lib/candidates.py:374`). 쓰기 전에 비밀값·홈 경로·개인 자료 단어를 거르고, 걸린 값은 다시 출력하지 않는다(`lib/candidates.py:381`). 절 나누기는 파서와 같아서 펜스 안의 예시 절은 세지 않는다(`lib/candidates.py:391`). 새 개념은 스크립트가 쓰지 않는다.
-  - 테스트 `lib/test_candidates.py` 26개 통과(2026-11-21 실행). 관찰 → 승격 → 조립기가 그 별칭으로 개념을 고르기까지 끝까지 가는 테스트가 있다. 실제 기록으로는 소유자 작업 사본에서 세션 1개·관찰 182건이 모두 날 수·파일 문턱에서 빠져 후보 0건(재료 부족)이 나왔다 — 0은 버그가 아니라 재료가 적어서다.
+  - `scan`: 이 저장소의 Claude Code 세션 기록(다른 폴더에서 열었어도 기록에 이 저장소 경로가 나오는 세션 포함, SDK 세션 제외)에서 사람 프롬프트 턴과 그 턴에 고친 파일을 모은다(`lib/candidates.py:73`, `lib/candidates.py:119`). 구절은 `rules.phrases`(`lib/rules.py:53`) — `/baton-setup`과 같은 정의다.
+  - 검증: 서로 다른 날 3일 이상, 기존 제목·별칭과 안 겹침, 트리거 말 아님, 오발화 ≤ 적중, 버린 것 아님(`lib/candidates.py:22`, `lib/candidates.py:175`). 후보는 저장소 밖 캐시에만 쓰고, 구절만 남기며 프롬프트 원문은 남기지 않는다(`lib/candidates.py:296`). 0건이면 어느 단계에서 0이 됐는지 낸다.
+  - `promote-alias`: 사람이 고른 구절을 그 개념 메타 줄 `별칭=`에만 덧붙인다(`lib/candidates.py:376`). 쓰기 전에 비밀값·홈 경로·개인 자료 단어·이 컴퓨터의 사용자 이름과 홈 폴더 이름을 거르고, 걸린 값은 다시 출력하지 않는다(`lib/candidates.py:387`). `개념 N`이 든 구절은 가짜 간선이 되므로 거절한다(`lib/candidates.py:383`). 파서가 끝까지 못 읽는 지도에는 쓰지 않는다(`lib/candidates.py:395`). 고를 메타 줄은 읽는 쪽(조립기·`concepts.py meta`)과 같은 규칙 — 절 본문의 첫 메타 줄, 펜스 안 줄 포함 — 으로 찾고, 그 줄이 펜스 안이거나 메타 줄이 둘 이상이면 거절한다(`lib/candidates.py:402`, `lib/candidates.py:419`). 지도는 임시 파일에 쓴 뒤 통째로 바꾼다(`lib/candidates.py:437`). 세션 기록 시각의 `+0900` 꼴 오프셋은 Python 3.9에서도 읽도록 고쳐 읽는다(`lib/candidates.py:28`). 새 개념은 스크립트가 쓰지 않는다.
+  - 테스트 `lib/test_candidates.py` 31개 통과(2026-11-21 실행, Python 3.14·3.9 둘 다). 관찰 → 승격 → 조립기가 그 별칭으로 개념을 고르기까지 끝까지 가는 테스트가 있다. 실제 기록으로는 소유자 작업 사본에서 세션 1개·관찰 182건이 모두 날 수·파일 문턱에서 빠져 후보 0건(재료 부족)이 나왔다 — 0은 버그가 아니라 재료가 적어서다.
 - **설명된 곳**: 스킬 모드 ⑤(`skills/driftmap/SKILL.md:46`, `skills/driftmap/SKILL.md:392`), `docs/research/ONTOLOGY_DESIGN.md` 8절, `README.md:120`, `README.ko.md:138`.
 - **어긋남**: 없음.
 
@@ -209,7 +209,7 @@
 
 근거는 각 개념 절의 실제 동작 면에 있다. 여기에는 따로 대조해 맞았던 것만 모은다.
 
-- 테스트 306개 통과(2026-11-21, `a80a5fd`에서 `python3 -m unittest discover -s` 네 묶음: hooks 54·lib 167·tools 8·observer/research 77, 건너뜀 3). macOS 기본 bash 3.2로도 `lib/test_fresh.py`·`hooks/test_drift_notice.py`를 돌려 통과했다.
+- 테스트 300개 통과(2026-11-21, `6695701`에서 Python 3.14.6과 3.9.6 둘 다, `python3 -m unittest discover -s` 네 묶음: hooks 54·lib 173·tools 8·observer/research 65, 건너뜀 3). `compile_eval` 테스트 13개는 그 스크립트와 함께 뺐다. macOS 기본 bash 3.2로도 `lib/test_fresh.py`·`hooks/test_drift_notice.py`를 돌려 통과했다.
 - 매니페스트 세 곳의 버전이 같다(`1.0.0-beta.2`).
 - README의 명령 표 다섯 줄(`README.md:129`, `README.ko.md:149`)은 `commands/` 파일 다섯 개와 맞는다. 훅 등록은 `hooks/hooks.json`에 스크립트 다섯 개다.
 - 인계서 템플릿의 8절(`skills/baton/SKILL.md` 템플릿)과 검사기의 필수 절 목록이 같다.
