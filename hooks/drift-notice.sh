@@ -17,8 +17,14 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 MAP=$(find "$ROOT" -maxdepth 2 -name CONCEPTS.md -not -path "*/node_modules/*" 2>/dev/null | head -1)
 [ -n "$MAP" ] || exit 0
 
-CONC=$(grep -c '^## [0-9]\{1,\}\.' "$MAP" 2>/dev/null | tr -cd '0-9'); CONC=${CONC:-0}
-META=$(grep -c '^- \*\*메타\*\*:' "$MAP" 2>/dev/null | tr -cd '0-9'); META=${META:-0}
+# 개념·메타 줄 수는 파서로 센다 — grep은 코드 펜스 안의 예시 제목·메타 줄까지 세어 "개념 2개 중 메타 줄 1개" 같은 거짓 알림을 냈다(재현 저장소 t6)
+PARSER="$CLAUDE_PLUGIN_ROOT/lib/concepts.py"
+if ! SECS=$(python3 "$PARSER" "$MAP" sections 2>/dev/null) || ! METAS=$(python3 "$PARSER" "$MAP" meta 2>/dev/null); then
+  emit "[baton] 개념 지도를 읽지 못했다 — 0건이 아니라 못 셌다. /drift로 직접 본다."
+  exit 0
+fi
+CONC=$(printf '%s' "$SECS" | grep -c . | tr -cd '0-9'); CONC=${CONC:-0}
+META=$(printf '%s' "$METAS" | grep -c . | tr -cd '0-9'); META=${META:-0}
 [ "$CONC" -eq 0 ] && exit 0
 
 # 메타 줄이 없으면 신선도를 못 센다. 이걸 침묵으로 두면 지도가 무용지물인 줄 모른다.
@@ -59,8 +65,8 @@ if [ -z "$SUM" ]; then    # 요약이 없으면 못 센 것이다 — 조용히 
 fi
 STALE=$(echo "$SUM" | sed 's/^요약: 재확인 \([0-9]*\).*/\1/'); STALE=${STALE:-0}
 FRESH=$(echo "$SUM" | sed 's/.* 신선 \([0-9]*\).*/\1/'); FRESH=${FRESH:-0}
-# 파서 경고(fresh.sh의 '주의: 코드 펜스…'·'주의: 제목 줄로는…')가 있으면 재확인 0건이어도 알린다 — 표에 없는 개념이 있을 수 있다
-PWARN=$(echo "$OUT" | grep -E '^주의: (코드 펜스|제목 줄로는)' | sed 's/^주의: //')
+# 파서 경고(fresh.sh의 '주의: 코드 펜스…')가 있으면 재확인 0건이어도 알린다 — 표에 없는 개념이 있을 수 있다
+PWARN=$(echo "$OUT" | grep -E '^주의: 코드 펜스' | sed 's/^주의: //')
 [ "$STALE" -eq 0 ] && [ -z "$PWARN" ] && exit 0
 
 MSG="[baton] 개념 지도에 재확인 대상 ${STALE}건 (신선 ${FRESH}건). 자세히는 /drift"

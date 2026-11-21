@@ -13,7 +13,7 @@
   concepts.py <파일> states     →  쓰인 상태 어휘 (중복 제거)
   concepts.py <파일> related    →  stdin의 DECISIONS.md diff에서 새로 들어온 '관련' 줄이 가리킨 개념 번호 (중복 제거)
                                    번호 없이 이름으로 가리켰는데 절 이름과 안 맞으면  ? \t 이름
-  concepts.py <파일> warnings   →  파서가 못 읽은 부분 경고 한 줄씩(열린 채 끝난 코드 펜스, 제목 줄 수와 읽은 절 수의 차이)
+  concepts.py <파일> warnings   →  파서가 못 읽은 부분 경고 한 줄씩(열린 채 끝난 코드 펜스)
 """
 import io
 import re
@@ -193,15 +193,12 @@ def cmd_related(lines):
 
 
 def cmd_warnings(lines):
-    """파서가 조용히 못 읽은 부분. 못 센 것을 0으로 두지 않으려고 따로 낸다(2026-11-21 재검증: 열린 채 끝난 펜스 뒤 개념이 사라졌다)."""
+    """파서가 조용히 못 읽은 부분. 못 센 것을 0으로 두지 않으려고 따로 낸다(2026-11-21 재검증: 열린 채 끝난 펜스 뒤 개념이 사라졌다).
+    정상으로 닫힌 펜스 안의 '## N.'은 예시라서 경고하지 않는다(재현 저장소 t6: 세션마다 거짓 알림이 났다)."""
     *_, (_, open_at) = fences(lines)
-    parsed = sum(1 for _ in walk(lines))
-    raw = sum(1 for l in lines if SECTION.match(l))
     if open_at:
         lost = sum(1 for l in lines[open_at:] if SECTION.match(l))
         print("코드 펜스가 %d줄에서 열린 채 파일이 끝난다 — 그 뒤 개념 %d개를 못 읽었다" % (open_at, lost))
-    elif raw != parsed:
-        print("제목 줄로는 개념 %d개인데 읽은 절은 %d개 — 코드 펜스 안의 '## N.'은 개념으로 세지 않는다. 의도한 것인지 본다" % (raw, parsed))
 
 
 COMMANDS = {

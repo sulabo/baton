@@ -96,7 +96,7 @@ echo "    개념 ${CN}개 중 메타 줄 ${MT}개"
 [ "$MT" -lt "$CN" ] && N=$((N+1))
 
 # ── 7. 파서가 못 읽은 부분
-echo "[7] 파서가 끝까지 읽었는가 (열린 채 끝난 코드 펜스, 제목 줄 수와 읽은 절 수)"
+echo "[7] 파서가 끝까지 읽었는가 (열린 채 끝난 코드 펜스)"
 WARN=$(parse warnings)
 if [ -n "$WARN" ]; then
   echo "$WARN" | sed 's/^/    /'

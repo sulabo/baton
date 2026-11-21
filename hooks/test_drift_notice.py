@@ -90,5 +90,21 @@ class DriftNoticeTest(unittest.TestCase):
         self.assertIn("코드 펜스", msg)
 
 
+    def test_heading_in_closed_fence_does_not_trigger_notice(self):  # 재현 저장소 t6
+        self.commit({"a.txt": "a\n"})
+        base = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=self.repo, capture_output=True,
+                              text=True, check=True).stdout.strip()
+        self.commit({"CONCEPTS.md": "## 1. 개념\n- **메타**: 상태=일치 · 확인=2026-11-21(`%s`) · 파일=`a.txt` · 이웃=없음\n\n"
+                                    "예시:\n```\n## 2. 예시 개념\n```\n" % base})
+        self.assertIsNone(self.run_hook())
+
+    def test_meta_count_uses_parser_not_grep(self):  # 펜스 밖 개념 둘 중 하나만 메타 줄 — 펜스 안 예시는 세지 않는다
+        self.commit({"a.txt": "a\n"})
+        self.commit({"CONCEPTS.md": "## 1. 개념\n- **메타**: 상태=일치 · 확인=2026-11-21(`0000000`) · 파일=`a.txt` · 이웃=없음\n"
+                                    "```\n## 3. 예시\n- **메타**: 예시 줄\n```\n## 2. 둘째\n본문\n"})
+        msg = self.run_hook()
+        self.assertIn("개념 2개 중 메타 줄 1개", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

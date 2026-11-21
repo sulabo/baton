@@ -257,11 +257,15 @@ class FollowupTest(RepoCase):
         rc, out = self.check()
         self.assertEqual(rc, 1, out); self.assertIn("코드 펜스가 3줄에서 열린 채", out)
 
-    def test_heading_count_mismatch_is_warned(self):  # 닫힌 펜스 안의 '## 9.'도 알린다(못 센 것이 아닌지 사람이 본다)
+    def test_heading_inside_closed_fence_is_not_warned(self):  # 재현 저장소 t6: 정상으로 닫힌 펜스 안의 예시 제목
         self.write("CONCEPTS.md", f"## 1. 앞\n- **메타**: 상태=일치 · 확인=2026-11-21(`{self.base}`) · 파일=`src/a.ts` · 이웃=없음\n"
-                                  "```\n## 9. 예시\n```\n")
+                                  "예시:\n```\n## 9. 예시\n```\n")
         self.commit("map")
-        self.assertIn("주의: 제목 줄로는 개념 2개인데 읽은 절은 1개", self.fresh())
+        out = self.fresh()
+        self.assertNotIn("주의:", out)
+        _, chk = self.check()
+        self.assertIn("[7] 파서가 끝까지 읽었는가", chk)
+        self.assertEqual(chk.split("[7]", 1)[1].splitlines()[1].strip(), "지적 없음", chk)
 
     def test_rule_concept_with_lost_baseline_is_recheck(self):  # 세션 알림이 울려야 한다
         self.write("CONCEPTS.md", "## 1. 규칙\n- **메타**: 상태=일치 · 확인=2026-11-21(`deadbee`) · 파일=없음(규칙 개념) · 이웃=없음\n")
@@ -299,6 +303,11 @@ class VerdictDocsTest(unittest.TestCase):
         self.assertIn("nine verdicts", self.read("README.md"))
         self.assertIn("판정은 아홉 가지", self.read("README.ko.md"))
         self.assertIn("outside the current history", self.read("README.md"))
+
+    def test_rule_concept_without_hash_reason_is_written(self):  # 해시 미상 규칙 개념이 알림을 안 내는 이유
+        self.assertIn("미상인 규칙 개념은 알림을 내지 않는다", self.read("skills/driftmap/SKILL.md"))
+        self.assertIn("미상인 규칙 개념은 알림을 내지 않습니다", self.read("README.ko.md"))
+        self.assertIn("A rule concept whose commit is unknown does not trigger the notice", self.read("README.md"))
 
 
 if __name__ == "__main__":
