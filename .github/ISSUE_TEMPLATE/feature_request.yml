@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest a new behavior or a change to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        baton's hooks run in every session, so changes that add output or context need a clear reason.
+        Please read the design principles in [CONTRIBUTING.md](https://github.com/sulabo/baton/blob/main/CONTRIBUTING.md#design-principles) first.
+        한국어로 써도 됩니다.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and where does baton get in the way or fall short?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should baton do instead? Include example output if it helps.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Handoff (HANDOFF.md writing, checking, injection)
+        - Driftmap (CONCEPTS.md, /drift)
+        - Hooks (notices, thresholds, off switches)
+        - Promote / DECISIONS.md candidates
+        - Setup (/baton-setup, config)
+        - Codex support
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost and evidence
+      description: |
+        Does this add context to sessions or a new notice? How often would it fire?
+        Any measurement or real-world example that shows the problem is welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve it, including doing it outside baton.
