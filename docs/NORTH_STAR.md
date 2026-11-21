@@ -71,7 +71,7 @@ Ownership / Session change? ── 아니오 → 계속(압축은 native compact
 | V0 Observe·Explain·`.baton/runs.jsonl` | 판단 로그는 저장소별 `.baton/` 대신 `~/.cache/baton/runs.jsonl` 한 곳에(`lib/runlog.py`), 설명은 `/baton-explain`. 행동은 안 바꾸고 기록만 한다(3절 단계 1). 사후 집계기 `usage_week.py`가 세션 기록을 센다 | **있음**(기록만. 행동 라벨과 맞춰 재는 것은 로그가 쌓인 뒤) |
 | **Context Selection** (Graph 검색 → 규칙/Jev 필터) | 개념 제목 단어가 프롬프트에 맞으면 그 절 하나 주입(실험 기능, 기본 끔). 이 매처의 실사용 적중률은 안 쟀다. 참고: V0가 과거 프롬프트 276건에서 잰 도메인 어휘 적중은 3.3%(대부분 폴더명, 개념 제목은 1건 — 다른 매처). 후보를 돌려주는 그래프 검색 없음 | **거의 없음** |
 | Active / Durable 분리 | Durable은 파일로 있다(`CONCEPTS.md`·`DECISIONS.md`·git). Active State 모델 없음 — `HANDOFF.md` 하나가 둘을 겸하고 통째로 주입된다 | **절반** |
-| **Context Compiler · Budget** | 없음. 훅이 인계서 원문을 앞 200줄·9,000자까지 붙인다 | **없음** |
+| **Context Compiler · Budget** | 없음. 훅이 인계서 원문을 앞 200줄·훅 출력 9,600자(Claude Code 문서 상한 10,000자 아래)까지 붙인다 | **없음** |
 | **Structured Handoff**(보내는 쪽) | 스킬 있음(8항목: 목표·사실과 결정·파일·변경·**실패한 접근법=Do Not Repeat**·검증·리스크와 다음 행동·승격 후보), 200줄 상한 | **가장 앞서 있음** |
 | 인계서 받는 쪽(스펙에 없는 baton 고유) | 상태 질문이면 훅이 인계서를 주입. 스냅샷 실험(조건당 n=3~5): 상태 질문 -43~54%(저장소 3곳, 인계서가 상한 안에 다 들어갈 때) · "이어서" +3% · 무관한 작업 +11% · 긴 인계서 잘라 넣기 +7% | 실험 근거 있음, 실사용 전 |
 | Handoff 트리거·검증 | 검사기 `lib/handoff_check.py`(필수 절·200줄·9,000자·긴 코드 블록·diff·비밀값·홈 절대경로)를 `HANDOFF.md` 저장 직후 훅이 돌린다. `Stop` 훅이 "파일 3개 이상 고친 뒤 인계서 안 바뀜"이면 세션에 한 번 제안(10-01). 반복 조사율은 없음 | **절반**(실사용 전) |

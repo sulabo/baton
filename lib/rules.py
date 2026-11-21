@@ -182,6 +182,7 @@ STALE_DAYS = 7  # ponytail: 근거 없는 기본값. 인계서 나이 분포(관
 # deadline으로 넘긴다 — 신선도는 그보다 늦게 끝나지 않는다. 그 앞의 repo_root(Codex만)·config.repo_key(설정에 저장소 절이
 # 있을 때)는 git 시한이 각 5초라, git이 멈추면 그 둘만으로 훅 시한 10초에 닿을 수 있다(이 기능 전부터, PR #16 기준 10.1초 실측)
 GIT_BUDGET = 3.0
+FRESHNESS_MAX = 500  # 신선도 한 줄의 상한(자). 함께 나올 수 없는 까닭까지 전부 붙인 과대 추정이 448자다(hooks/test_handoff_inject.py HookOutputBudgetTest) — 실제 줄은 자르지 않는다
 
 
 def header_date(text):
@@ -264,26 +265,29 @@ def handoff_freshness(repo, text, today=None, deadline=None):
 
 
 def freshness_line(f):
-    """주입 머리말 바로 뒤에 붙일 한 줄. 아무것도 못 셌으면 그 까닭을 말한다(빈 줄로 두면 '신선함'으로 읽힌다)."""
+    """주입 머리말 바로 뒤에 붙일 한 줄. 아무것도 못 셌으면 그 까닭을 말한다(빈 줄로 두면 '신선함'으로 읽힌다).
+    FRESHNESS_MAX자를 넘지 않는다 — 훅이 이 길이만큼 인계서 본문 예산을 덜 쓰므로 길이에 상한이 있어야 한다."""
     why = " · ".join(f.get("unknown") or [])
     if not f["written"]:
-        return f"[baton] 인계서 작성일을 못 셌다({why or '까닭 모름'}) — 다음 행동이 기대는 사실을 먼저 확인한다."
-    when = "첫 줄 작성일" if f["source"] == "header" else "마지막 커밋일"
-    days = f["days"]
-    age = "오늘" if days == 0 else f"{days}일 전" if days > 0 else f"{-days}일 뒤 — 날짜 확인 필요"
-    parts = [f"[baton] 이 인계서는 {f['written']}({age}, {when}) 기준이다."]
-    if f["dirty"]:
-        parts.append("커밋 안 한 수정 중이다.")
-    elif f["commits_after"]:
-        n = f["commits_after"]
-        parts.append(f"그 뒤 커밋 {n}개는 인계서에 없다 — `git log --oneline -{min(n, 20)} -- .`부터 본다.")
-    elif f["commits_after"] == 0:
-        parts.append("그 뒤 커밋은 없다.")
-    if why:
-        parts.append(why + ".")
-    if days >= STALE_DAYS:
-        parts.append(f"{days}일 지났다 — 다음 행동이 아직 유효한지부터 확인한다.")
-    return " ".join(parts)
+        line = f"[baton] 인계서 작성일을 못 셌다({why or '까닭 모름'}) — 다음 행동이 기대는 사실을 먼저 확인한다."
+    else:
+        when = "첫 줄 작성일" if f["source"] == "header" else "마지막 커밋일"
+        days = f["days"]
+        age = "오늘" if days == 0 else f"{days}일 전" if days > 0 else f"{-days}일 뒤 — 날짜 확인 필요"
+        parts = [f"[baton] 이 인계서는 {f['written']}({age}, {when}) 기준이다."]
+        if f["dirty"]:
+            parts.append("커밋 안 한 수정 중이다.")
+        elif f["commits_after"]:
+            n = f["commits_after"]
+            parts.append(f"그 뒤 커밋 {n}개는 인계서에 없다 — `git log --oneline -{min(n, 20)} -- .`부터 본다.")
+        elif f["commits_after"] == 0:
+            parts.append("그 뒤 커밋은 없다.")
+        if why:
+            parts.append(why + ".")
+        if days >= STALE_DAYS:
+            parts.append(f"{days}일 지났다 — 다음 행동이 아직 유효한지부터 확인한다.")
+        line = " ".join(parts)
+    return line if len(line) <= FRESHNESS_MAX else line[:FRESHNESS_MAX - 1] + "…"
 
 
 def safe_freshness(repo, text, deadline=None):
