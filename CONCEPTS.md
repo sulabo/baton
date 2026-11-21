@@ -18,7 +18,7 @@
 | 4 | 인계서 검사와 제안 | 해소됨(2026-11-21) | — | 북극성 단계 3의 트리거(`Stop`만)·테스트 수를 고쳤다 |
 | 5 | 세션 끊기 알림 | 해소됨(2026-11-21) | — | 북극성 단계 S의 테스트 수를 고쳤다 |
 | 7 | 인계서 on-demand 주입 | 해소됨(2026-11-21) | — | 북극성 2절의 "git을 못 찾으면 traceback"을 실제 동작대로 고쳤다 |
-| 9 | 인계서 상한 200줄·9,000자 | 일치 | — | 주입 훅·검사기·스킬 문서의 값이 같다 |
+| 9 | 인계서 상한 200줄·9,000자 | 해소됨 | — | 검사기 글자 상한을 주입 예산 8,708자 안쪽(8,700자)으로 낮추고 테스트로 묶었다 |
 | 10 | 설정 파일과 우선순위 | 일치 | — | 환경변수 > 저장소 절 > 전역 절 > 기본값, 문서와 코드가 같다 |
 | 11 | 공개 경계 — 개인 자료 | 일치 | — | 정본 원문·사례 모음은 gitignore, 인계서 검사가 홈 절대경로·개인 자료 단어를 막는다 |
 | 12 | 결정 기록은 사람이 쓴다 | 일치 | — | `/promote`는 후보만 내고 `DECISIONS.md`에 쓰지 않는다 |
@@ -69,7 +69,7 @@
 
 - **정해진 것**: `DECISIONS.md` 10-01 "beta v1.0 범위" — 길 단계 3의 인계서 검사기와 결정론 트리거를 넣는다(소유자).
 - **실제 동작**:
-  - 검사기: 필수 8절(`lib/handoff_check.py:23`)·200줄·9,000자·긴 코드 블록·전체 diff·비밀값·홈 절대경로(`lib/handoff_check.py:46`)·개인 자료 목록(`lib/handoff_check.py:58`). 훅 모드에서는 baton 형식으로 보이는 인계서에만 필수 절을 요구한다(`lib/handoff_check.py:115`). PR #6부터 "확인된 사실과 결정" 목록 줄에 [V]·[?] 표시가 없으면 막지 않고 경고만 한다(`lib/handoff_check.py:120`).
+  - 검사기: 필수 8절(`lib/handoff_check.py:25`)·200줄·8,700자·긴 코드 블록·전체 diff·비밀값·홈 절대경로(`lib/handoff_check.py:48`)·개인 자료 목록(`lib/handoff_check.py:60`). 훅 모드에서는 baton 형식으로 보이는 인계서에만 필수 절을 요구한다(`lib/handoff_check.py:117`). PR #6부터 "확인된 사실과 결정" 목록 줄에 [V]·[?] 표시가 없으면 막지 않고 경고만 한다(`lib/handoff_check.py:122`).
   - `HANDOFF.md`를 `Write|Edit|MultiEdit`한 직후 검사(`hooks/handoff-check.py:34`, `hooks/hooks.json:28`), 문제가 있으면 모델에 돌려준다.
   - 제안: `Stop`에서만, 마지막 인계서 저장 뒤 다른 파일을 3개 이상 고쳤으면 세션에 한 번(`hooks/handoff-check.py:99`, `hooks/handoff-check.py:110`, `hooks/handoff-check.py:117`). `SessionEnd`에는 등록돼 있지 않다.
   - 테스트: `lib/test_handoff_check.py` 31개 + `hooks/test_handoff_check_hook.py` 13개 통과(2026-11-21, PR #6 머지 뒤 실행). 이 저장소의 루트 `HANDOFF.md`도 검사기를 통과한다("문제 없음").
@@ -140,12 +140,12 @@
 
 ## 9. 인계서 상한 200줄·9,000자
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`7c71c9d`) · 파일=`hooks/handoff-inject.py`,`lib/handoff_check.py`,`skills/baton/SKILL.md` · 이웃=개념 4(정본), 개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`7c71c9d`) · 파일=`hooks/handoff-inject.py`,`lib/handoff_check.py`,`skills/baton/SKILL.md` · 이웃=개념 4(정본), 개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 09-22 "인계서 상한 200줄"(소유자, 이유 칸 비어 있음) · 09-27 "인계서 주입은 on-demand, 200줄·9,000자"(9,000자는 실측: 20,826자는 Claude Code가 파일로 뺐다).
-- **실제 동작**: 주입 훅 `hooks/handoff-inject.py:24`·`hooks/handoff-inject.py:25`, 검사기 `lib/handoff_check.py:18`·`lib/handoff_check.py:19` — 네 상수 모두 200·9000. 주입은 넘치면 자르고 잘랐다고 한 줄 붙인다(`hooks/handoff-inject.py:85`).
+- **실제 동작**: 주입 훅 `hooks/handoff-inject.py:24`·`hooks/handoff-inject.py:25`는 200줄·9,000자지만, 인계서 본문에 쓰는 예산은 머리말과 꼬리 안내 몫을 뺀 8,708자다(`hooks/handoff-inject.py:83`). 검사기는 200줄·8,700자(`lib/handoff_check.py:18`·`lib/handoff_check.py:19`). 주입은 넘치면 자르고 잘랐다고 한 줄 붙인다(`hooks/handoff-inject.py:89`).
 - **설명된 곳**: `skills/baton/SKILL.md:94`, `README.md`, `docs/NORTH_STAR.md` 1절("Handoff ≤ 200줄").
-- **어긋남**: 없음. 값이 코드 두 곳에 따로 박혀 있어(하나를 바꾸면 다른 하나는 그대로) 나중에 갈라질 수 있는 자리다 — 지금은 같다.
+- **어긋남**: 해소됨(2026-11-21). 검사기도 9,000자였어서 8,709~9,000자 인계서는 검사를 통과하고 주입에서 잘렸다. 사용 로그(10-04~11-21)에서 주입 285번 중 163번이 잘렸고, 200줄을 넘은 것은 6번뿐이라 대부분 글자 예산에서 잘렸다. 검사기를 8,700자로 낮췄고, `lib/test_handoff_check.py`의 InjectBudgetTest가 두 값을 묶는다 — 한쪽만 바꾸면 테스트가 깨진다.
 
 ## 10. 설정 파일과 우선순위
 
@@ -161,7 +161,7 @@
 - **메타**: 상태=일치 · 확인=2026-11-21(`7c71c9d`) · 파일=`.gitignore`,`lib/handoff_check.py` · 이웃=개념 4(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 10-01 "북극성 정본 원문과 사례 모음은 공개 저장소에 올리지 않는다" · 10-01 "개인 자료가 섞인 공개 이력을 새 이력 하나로 바꾼다"(공개 전 검사는 실명·프롬프트 원문·다른 저장소 내용·절대경로·커밋 이력까지 본다). 둘 다 소유자.
-- **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:46`, `lib/handoff_check.py:58`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:99`).
+- **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:48`, `lib/handoff_check.py:60`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:99`).
 - **설명된 곳**: `docs/NORTH_STAR.md` 0절(정본 경로는 소유자 로컬 기준이라고 밝힘), `README.md:141`, `README.ko.md:164`·`README.ko.md:175`.
 - **어긋남**: 없음. `docs/NORTH_STAR.md`의 정본 경로 표는 공개판에 없는 파일을 가리키지만, 바로 아래에 "공개 저장소에는 없다"고 밝혀 두었다 — 끊어진 참조가 아니라 의도된 것.
 
