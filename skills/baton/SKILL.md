@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: 세션 인계서(HANDOFF.md) 작성. 작업 하나가 끝났거나 주제를 바꾸거나 대화가 길어졌을 때, 다음 세션이 이어받을 수 있게 현재 작업 상태를 파일로 남긴다. 쓰기 전에 과거 인계서를 훑어 DECISIONS.md로 승격할 것이 있는지 함께 판정한다. "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토"에도 발동.
+description: 세션 인계서(HANDOFF.md) 작성. 작업 하나가 끝났거나 주제를 바꾸거나 대화가 길어졌을 때, 다음 세션이 이어받을 수 있게 현재 작업 상태를 파일로 남긴다. 쓰기 전에 과거 인계서를 훑어 DECISIONS.md로 승격할 것이 있는지 함께 판정한다. "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토"에도 발동. Also triggers on English requests such as "write a handoff", "leave a handoff for the next session", "update HANDOFF.md", "review what to promote to DECISIONS.md".
 ---
 
 # Handoff — 세션 인계서 작성과 승격 검토
