@@ -24,25 +24,65 @@ cmd = ti.get("command") if isinstance(ti, dict) else None
 if not isinstance(cmd, str):
     sys.exit(0)
 SCRIPTS = {"check.sh", "fresh.sh", "promote.sh"}
-WRAPPERS = {"bash", "sh", "zsh", "env", "time", "exec", "command", "nohup"}
-def runs_script(segment):
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+# 감싸개마다 값을 받는 옵션. 이 옵션 뒤의 낱말은 실행 파일이 아니다
+ARG_OPTS = {"sudo": {"-u", "-g", "-h", "-p", "-U", "-C", "-D", "-r", "-t", "-T"}, "timeout": {"-s", "-k", "--signal", "--kill-after"},
+            "nice": {"-n"}, "ionice": {"-c", "-n"}, "env": {"-u", "-C", "-S"}, "xargs": {"-I", "-n", "-P", "-d", "-L", "-s", "-a"}}
+PLAIN = {"time", "exec", "command", "nohup", "nice", "ionice", "sudo", "env", "timeout", "xargs", "rtk", "proxy", "stdbuf"}
+ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+OPS = re.compile(r"^[;&|()<>\n]+$")
+def runs_cmd(cmd, depth=0):
+    """따옴표를 먼저 풀고 &&·|·; 같은 연산자에서 조각을 나눈다(따옴표 안의 &&에서 나누지 않게)."""
+    if depth >= 4:
+        return False
     try:
-        words = shlex.split(segment, comments=True)
+        lx = shlex.shlex(cmd.replace("\n", " ; "), posix=True, punctuation_chars=True)
+        lx.whitespace_split = True
+        toks = list(lx)
     except ValueError:
         return False
-    for w in words:
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w) or w in WRAPPERS or w.startswith("-"):
-            continue  # 앞의 환경변수 대입·bash 같은 감싸개·그 옵션은 건너뛰고 실제 실행 파일을 본다
-        return os.path.basename(w) in SCRIPTS
+    seg, segs = [], []
+    for t in toks:
+        if OPS.match(t):
+            segs.append(seg); seg = []
+        else:
+            seg.append(t)
+    segs.append(seg)
+    return any(runs_seg(x, depth) for x in segs if x)
+def runs_seg(w, depth):
+    """명령 조각(낱말 목록)이 검사 스크립트를 실행하는가. 감싸개(timeout·sudo·env·rtk·bash 옵션)는 건너뛰고 실제 실행 파일을 본다.
+    bash -c "…"는 그 문자열 안을 다시 본다. cat·grep 같은 읽기 명령이 첫 실행 파일이면 실행이 아니다."""
+    i = 0
+    while i < len(w):
+        b = os.path.basename(w[i])
+        if ASSIGN.match(w[i]):
+            i += 1; continue
+        if b in SHELLS:
+            i += 1
+            while i < len(w) and w[i][:1] in "-+" and w[i] not in ("-", "--"):
+                o = w[i]
+                if not o.startswith("--") and "c" in o[1:]:   # -c, -lc, -ec …: 다음 낱말이 명령 문자열
+                    return i + 1 < len(w) and runs_cmd(w[i + 1], depth + 1)
+                i += 2 if o in ("-o", "+o", "-O", "+O") else 1
+            continue
+        if b in PLAIN:
+            opts = ARG_OPTS.get(b, set())
+            i += 1
+            while i < len(w) and (w[i].startswith("-") or ASSIGN.match(w[i])):
+                i += 2 if w[i] in opts else 1
+            if b == "timeout" and i < len(w):
+                i += 1                                       # 시간 값
+            continue
+        return b in SCRIPTS
     return False
-if not any(runs_script(s) for s in re.split(r"&&|\|\||[;|\n&()]", cmd)):
+if not runs_cmd(cmd):
     sys.exit(0)
 r = d.get("tool_response")
 if isinstance(r, dict):
     out = "\n".join(str(r.get(k) or "") for k in ("stdout", "stderr", "output"))
 else:
     out = r if isinstance(r, str) else ""
-if re.search(r"(?<![0-9])0건|없음|메타 줄 0개", out):
+if re.search(r"(?<![0-9])0건|없음|메타 줄 0개|재확인 0(?![0-9])", out):
     print("hit")
 ' 2>/dev/null)
 [ "$HIT" = hit ] || exit 0

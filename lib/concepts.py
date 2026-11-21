@@ -21,6 +21,8 @@ import sys
 SECTION = re.compile(r"^##\s*(\d{1,2})\.\s*(.*)$")
 # 숫자 없는 #·## 제목(일치 확인된 것·유지 규칙 등)은 개념 절을 닫는다. 안 닫으면 마지막 개념 본문에 붙는다(2026-11-21 baton CONCEPTS.md)
 OTHER_HEADING = re.compile(r"^#{1,2}\s")
+# 코드 펜스(``` · ~~~). 펜스 안의 '# 주석'·'## 1.'은 제목이 아니다(PR #11 리뷰가 잡은 회귀)
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 META = re.compile(r"^- \*\*메타\*\*:")
 # "개념 12", "개념 1·3" 만 잡는다. 문장 안의 일반 · 구분자는 먹지 않는다.
 REF = re.compile(r"개념\s*(\d{1,2}(?:\s*[·,]\s*\d{1,2})*)")
@@ -48,12 +50,23 @@ def read(path):
 
 
 def walk(lines):
-    """(개념번호, 이름, 그 절의 줄들)을 차례로 내놓는다. 개념 절은 다음 개념 절이나 숫자 없는 #·## 제목에서 끝난다."""
+    """(개념번호, 이름, 그 절의 줄들)을 차례로 내놓는다. 개념 절은 다음 개념 절이나 숫자 없는 #·## 제목에서 끝난다.
+    코드 펜스 안의 줄은 제목으로 보지 않는다."""
     num = name = None
     body = []
+    fence = None  # 열린 펜스의 (표지 문자, 길이)
     for line in lines:
-        m = SECTION.match(line)
-        if m or OTHER_HEADING.match(line):
+        f = FENCE.match(line)
+        if fence is not None:
+            if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
+                fence = None
+            if num:
+                body.append(line)
+            continue
+        if f:
+            fence = (f.group(1)[0], len(f.group(1)))
+        m = None if f else SECTION.match(line)
+        if m or (not f and OTHER_HEADING.match(line)):
             if num:
                 yield num, name, body
             num, name, body = (m.group(1), m.group(2).strip(), []) if m else (None, None, [])
