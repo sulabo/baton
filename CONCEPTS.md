@@ -18,14 +18,14 @@
 | 4 | 인계서 검사와 제안 | 해소됨(2026-11-21) | — | 북극성 단계 3의 트리거(`Stop`만)·테스트 수를 고쳤다 |
 | 5 | 세션 끊기 알림 | 해소됨(2026-11-21) | — | 북극성 단계 S의 테스트 수를 고쳤다 |
 | 7 | 인계서 on-demand 주입 | 해소됨(2026-11-21) | — | 북극성 2절의 "git을 못 찾으면 traceback"을 실제 동작대로 고쳤다 |
-| 9 | 인계서 상한 200줄·9,000자 | 일치 | — | 주입 훅·검사기·스킬 문서의 값이 같다 |
+| 9 | 인계서 상한 200줄·9,000자 | 해소됨 | — | 검사기 글자 상한을 주입 예산 8,708자 안쪽(8,700자)으로 낮추고 테스트로 묶었다 |
 | 10 | 설정 파일과 우선순위 | 일치 | — | 환경변수 > 저장소 절 > 전역 절 > 기본값, 문서와 코드가 같다 |
 | 11 | 공개 경계 — 개인 자료 | 일치 | — | 정본 원문·사례 모음은 gitignore, 인계서 검사가 홈 절대경로·개인 자료 단어를 막는다 |
 | 12 | 결정 기록은 사람이 쓴다 | 일치 | — | `/promote`는 후보만 내고 `DECISIONS.md`에 쓰지 않는다 |
 
 ## 1. 플러그인 구성과 스킬 이름
 
-- **메타**: 상태=중복 정본 · 확인=2026-11-21(`7c71c9d`) · 파일=`.claude-plugin/plugin.json`,`.codex-plugin/plugin.json`,`.claude-plugin/marketplace.json`,`hooks/hooks.json`,`skills/driftmap/SKILL.md`,`skills/baton/SKILL.md`,`skills/baton-setup/SKILL.md`,`tools/check_versions.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`,`commands/drift.md`
+- **메타**: 상태=중복 정본 · 확인=2026-11-21(`efadcfc`) · 파일=`.claude-plugin/plugin.json`,`.codex-plugin/plugin.json`,`.claude-plugin/marketplace.json`,`hooks/hooks.json`,`skills/driftmap/SKILL.md`,`skills/baton/SKILL.md`,`skills/baton-setup/SKILL.md`,`tools/check_versions.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`,`commands/drift.md`
 
 - **정해진 것**: 범위는 `DECISIONS.md` 10-01 "beta v1.0 범위" — ① 1.0.0-beta 버전 표기. 스킬 이름에 대한 결정 기록은 없다.
 - **실제 동작**:
@@ -41,7 +41,7 @@
 
 ## 2. 0건과 못 셈의 구분
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`7c71c9d`) · 파일=`hooks/zero-guard.sh`,`lib/fresh.sh`,`lib/check.sh`,`lib/promote.sh`,`hooks/test_zero_guard.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`efadcfc`) · 파일=`hooks/zero-guard.sh`,`lib/fresh.sh`,`lib/check.sh`,`lib/promote.sh`,`hooks/test_zero_guard.py` · 이웃=없음 · 문서=`README.md`,`README.ko.md`
 
 - **정해진 것**: 결정 기록에 따로 없다. 제품의 기본 원칙으로 README와 북극성 "모든 단계에 공통"(못 센 것은 0이 아니라 "못 셌다")에 있다.
 - **실제 동작**:
@@ -53,7 +53,7 @@
 
 ## 3. 규칙 판단과 관찰 로그
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`7c71c9d`) · 파일=`lib/rules.py`,`lib/runlog.py`,`hooks/handoff-inject.py`,`commands/baton-explain.md` · 이웃=개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`efadcfc`) · 파일=`lib/rules.py`,`lib/runlog.py`,`hooks/handoff-inject.py`,`commands/baton-explain.md` · 이웃=개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: 북극성 길 단계 1(V0 Observe + Explain). `DECISIONS.md`에 따로 된 항목은 없고, 북극성 3절 단계 1 "상태(09-30)"가 구현 완료라고 적는다.
 - **실제 동작**:
@@ -65,11 +65,11 @@
 
 ## 4. 인계서 검사와 제안
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`7c71c9d`) · 파일=`lib/handoff_check.py`,`hooks/handoff-check.py`,`hooks/hooks.json` · 이웃=개념 9(정본), 개념 10(전제), 개념 11(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`efadcfc`) · 파일=`lib/handoff_check.py`,`hooks/handoff-check.py`,`hooks/hooks.json` · 이웃=개념 9(정본), 개념 10(전제), 개념 11(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 10-01 "beta v1.0 범위" — 길 단계 3의 인계서 검사기와 결정론 트리거를 넣는다(소유자).
 - **실제 동작**:
-  - 검사기: 필수 8절(`lib/handoff_check.py:23`)·200줄·9,000자·긴 코드 블록·전체 diff·비밀값·홈 절대경로(`lib/handoff_check.py:46`)·개인 자료 목록(`lib/handoff_check.py:58`). 훅 모드에서는 baton 형식으로 보이는 인계서에만 필수 절을 요구한다(`lib/handoff_check.py:115`). PR #6부터 "확인된 사실과 결정" 목록 줄에 [V]·[?] 표시가 없으면 막지 않고 경고만 한다(`lib/handoff_check.py:120`).
+  - 검사기: 필수 8절(`lib/handoff_check.py:25`)·200줄·8,700자·긴 코드 블록·전체 diff·비밀값·홈 절대경로(`lib/handoff_check.py:48`)·개인 자료 목록(`lib/handoff_check.py:60`). 훅 모드에서는 baton 형식으로 보이는 인계서에만 필수 절을 요구한다(`lib/handoff_check.py:117`). PR #6부터 "확인된 사실과 결정" 목록 줄에 [V]·[?] 표시가 없으면 막지 않고 경고만 한다(`lib/handoff_check.py:122`).
   - `HANDOFF.md`를 `Write|Edit|MultiEdit`한 직후 검사(`hooks/handoff-check.py:34`, `hooks/hooks.json:28`), 문제가 있으면 모델에 돌려준다.
   - 제안: `Stop`에서만, 마지막 인계서 저장 뒤 다른 파일을 3개 이상 고쳤으면 세션에 한 번(`hooks/handoff-check.py:99`, `hooks/handoff-check.py:110`, `hooks/handoff-check.py:117`). `SessionEnd`에는 등록돼 있지 않다.
   - 테스트: `lib/test_handoff_check.py` 31개 + `hooks/test_handoff_check_hook.py` 13개 통과(2026-11-21, PR #6 머지 뒤 실행). 이 저장소의 루트 `HANDOFF.md`도 검사기를 통과한다("문제 없음").
@@ -78,7 +78,7 @@
 
 ## 5. 세션 끊기 알림
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`7c71c9d`) · 파일=`hooks/split-notice.py`,`hooks/hooks.json` · 이웃=개념 10(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`efadcfc`) · 파일=`hooks/split-notice.py`,`hooks/hooks.json` · 이웃=개념 10(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 09-30 "토큰 효율은 세션 끊기를 먼저 한다"(소유자). 문턱 2배·3배와 "권고만"은 세션의 구현 기본값.
 - **실제 동작**: `Stop`에서 세션 기록의 첫 호출 맥락과 마지막 호출 맥락을 비교해(`hooks/split-notice.py:19`) 문턱(기본 `2,3`, `hooks/split-notice.py:64`)을 처음 넘을 때만 알린다(`hooks/split-notice.py:92`, `hooks/split-notice.py:103`). `hooks/hooks.json:54`에 등록. 테스트 `hooks/test_split_notice.py` 12개 통과(2026-11-21 실행).
@@ -87,7 +87,7 @@
 
 ## 6. 메타 줄과 낡음 계산
 
-- **메타**: 상태=낡은 문서 · 확인=2026-11-21(`7c71c9d`) · 파일=`lib/concepts.py`,`lib/fresh.sh`,`lib/check.sh`,`lib/lib.sh`,`hooks/drift-notice.sh`,`lib/test_fresh.py`,`hooks/test_drift_notice.py` · 이웃=개념 8(전제) · 문서=`README.md`,`README.ko.md`,`skills/driftmap/SKILL.md`
+- **메타**: 상태=낡은 문서 · 확인=2026-11-21(`efadcfc`) · 파일=`lib/concepts.py`,`lib/fresh.sh`,`lib/check.sh`,`lib/lib.sh`,`hooks/drift-notice.sh`,`lib/test_fresh.py`,`hooks/test_drift_notice.py` · 이웃=개념 8(전제) · 문서=`README.md`,`README.ko.md`,`skills/driftmap/SKILL.md`
 
 - **정해진 것**: 결정 기록에 따로 없다. 스킬 문서(`skills/driftmap/SKILL.md`)가 규칙의 정본 역할을 한다.
 - **실제 동작**:
@@ -115,7 +115,7 @@
 
 ## 7. 인계서 on-demand 주입
 
-- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`7c71c9d`) · 파일=`hooks/handoff-inject.py`,`lib/rules.py`,`hooks/hooks.json` · 이웃=개념 3(정본), 개념 9(정본), 개념 10(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`efadcfc`) · 파일=`hooks/handoff-inject.py`,`lib/rules.py`,`hooks/hooks.json` · 이웃=개념 3(정본), 개념 9(정본), 개념 10(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 09-27 "인계서 주입은 on-demand, 200줄·9,000자"(세션 판정, 200줄은 09-22 소유자 결정).
 - **실제 동작**:
@@ -128,7 +128,7 @@
 
 ## 8. 새 결정의 '관련' 가리킴
 
-- **메타**: 상태=미결 · 확인=2026-11-21(`7c71c9d`) · 파일=`lib/fresh.sh`,`lib/concepts.py` · 이웃=개념 6(전제) · 문서=`skills/driftmap/SKILL.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=미결 · 확인=2026-11-21(`efadcfc`) · 파일=`lib/fresh.sh`,`lib/concepts.py` · 이웃=개념 6(전제) · 문서=`skills/driftmap/SKILL.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: 결정 기록에 따로 없다. 스킬 문서 모드 ④ "결정이 움직였는가"가 미구현을 잡는 유일한 경로라고 적는다.
 - **실제 동작**: 메타 줄의 확인 해시 이후 `DECISIONS.md`에 새로 들어온 줄 중 `관련` 뒤의 "개념 N"·개념 이름을 찾아 그 개념을 재확인으로 올린다(`lib/fresh.sh:73`, `lib/concepts.py:33`, `lib/concepts.py:161`). 못 이은 것은 "0건이 아니라 못 셌다"로 따로 낸다. 새 결정 중 `- 관련:` 줄이 없는 것을 구멍으로 센다(`lib/fresh.sh:197`). 확인 커밋이 HEAD의 조상이 아니면 `DECISIONS.md` 비교를 하지 않는다 — 비교할 기준이 없어서다.
@@ -140,16 +140,16 @@
 
 ## 9. 인계서 상한 200줄·9,000자
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`7c71c9d`) · 파일=`hooks/handoff-inject.py`,`lib/handoff_check.py`,`skills/baton/SKILL.md` · 이웃=개념 4(정본), 개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=해소됨(2026-11-21) · 확인=2026-11-21(`efadcfc`) · 파일=`hooks/handoff-inject.py`,`lib/handoff_check.py`,`skills/baton/SKILL.md` · 이웃=개념 4(정본), 개념 7(정본) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 09-22 "인계서 상한 200줄"(소유자, 이유 칸 비어 있음) · 09-27 "인계서 주입은 on-demand, 200줄·9,000자"(9,000자는 실측: 20,826자는 Claude Code가 파일로 뺐다).
-- **실제 동작**: 주입 훅 `hooks/handoff-inject.py:24`·`hooks/handoff-inject.py:25`, 검사기 `lib/handoff_check.py:18`·`lib/handoff_check.py:19` — 네 상수 모두 200·9000. 주입은 넘치면 자르고 잘랐다고 한 줄 붙인다(`hooks/handoff-inject.py:85`).
+- **실제 동작**: 주입 훅 `hooks/handoff-inject.py:24`·`hooks/handoff-inject.py:25`는 200줄·9,000자지만, 인계서 본문에 쓰는 예산은 머리말과 꼬리 안내 몫을 뺀 8,708자다(`hooks/handoff-inject.py:83`). 검사기는 200줄·8,700자(`lib/handoff_check.py:18`·`lib/handoff_check.py:19`). 주입은 넘치면 자르고 잘랐다고 한 줄 붙인다(`hooks/handoff-inject.py:89`).
 - **설명된 곳**: `skills/baton/SKILL.md:94`, `README.md`, `docs/NORTH_STAR.md` 1절("Handoff ≤ 200줄").
-- **어긋남**: 없음. 값이 코드 두 곳에 따로 박혀 있어(하나를 바꾸면 다른 하나는 그대로) 나중에 갈라질 수 있는 자리다 — 지금은 같다.
+- **어긋남**: 해소됨(2026-11-21). 검사기도 9,000자였어서 8,709~9,000자 인계서는 검사를 통과하고 주입에서 잘렸다. 사용 로그(10-04~11-21)에서 주입 285번 중 163번이 잘렸고, 200줄을 넘은 것은 6번뿐이라 대부분 글자 예산에서 잘렸다. 검사기를 8,700자로 낮췄고, `lib/test_handoff_check.py`의 InjectBudgetTest가 두 값을 묶는다 — 한쪽만 바꾸면 테스트가 깨진다.
 
 ## 10. 설정 파일과 우선순위
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`7c71c9d`) · 파일=`lib/config.py`,`lib/setup_scan.py` · 이웃=개념 4·5·7(전제) · 문서=`README.ko.md`,`skills/baton-setup/SKILL.md`,`commands/baton-setup.md`
+- **메타**: 상태=일치 · 확인=2026-11-21(`efadcfc`) · 파일=`lib/config.py`,`lib/setup_scan.py` · 이웃=개념 4·5·7(전제) · 문서=`README.ko.md`,`skills/baton-setup/SKILL.md`,`commands/baton-setup.md`
 
 - **정해진 것**: 결정 기록에 따로 없다(`/baton-setup`은 커밋 `24e3996`에서 들어왔다).
 - **실제 동작**: `lib/config.py:119` — 환경변수 > 저장소 절 > 전역 절 > 기본값. 관찰 로그 키 둘은 전역만(`lib/config.py:22`). 목록 키는 전역 + 저장소(`lib/config.py:132`). 테스트 `lib/test_config.py` 23개 통과(2026-11-21 실행). 세션 끊기 문턱·인계서 제안 문턱·추가 트리거 말·각 훅의 끄기 스위치가 모두 이 설정을 읽는다.
@@ -158,16 +158,16 @@
 
 ## 11. 공개 경계 — 개인 자료
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`7c71c9d`) · 파일=`.gitignore`,`lib/handoff_check.py` · 이웃=개념 4(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
+- **메타**: 상태=일치 · 확인=2026-11-21(`efadcfc`) · 파일=`.gitignore`,`lib/handoff_check.py` · 이웃=개념 4(전제) · 문서=`README.md`,`README.ko.md`,`docs/NORTH_STAR.md`
 
 - **정해진 것**: `DECISIONS.md` 10-01 "북극성 정본 원문과 사례 모음은 공개 저장소에 올리지 않는다" · 10-01 "개인 자료가 섞인 공개 이력을 새 이력 하나로 바꾼다"(공개 전 검사는 실명·프롬프트 원문·다른 저장소 내용·절대경로·커밋 이력까지 본다). 둘 다 소유자.
-- **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:46`, `lib/handoff_check.py:58`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:99`).
+- **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:48`, `lib/handoff_check.py:60`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:99`).
 - **설명된 곳**: `docs/NORTH_STAR.md` 0절(정본 경로는 소유자 로컬 기준이라고 밝힘), `README.md:141`, `README.ko.md:164`·`README.ko.md:175`.
 - **어긋남**: 없음. `docs/NORTH_STAR.md`의 정본 경로 표는 공개판에 없는 파일을 가리키지만, 바로 아래에 "공개 저장소에는 없다"고 밝혀 두었다 — 끊어진 참조가 아니라 의도된 것.
 
 ## 12. 결정 기록은 사람이 쓴다
 
-- **메타**: 상태=일치 · 확인=2026-11-21(`7c71c9d`) · 파일=`lib/promote.sh`,`commands/promote.md`,`skills/baton/SKILL.md` · 이웃=없음 · 문서=`README.md`,`README.ko.md`
+- **메타**: 상태=일치 · 확인=2026-11-21(`efadcfc`) · 파일=`lib/promote.sh`,`commands/promote.md`,`skills/baton/SKILL.md` · 이웃=없음 · 문서=`README.md`,`README.ko.md`
 
 - **정해진 것**: `DECISIONS.md` 머리말 — "이유 칸이 비어 있는 것은 기록이 없어서다, 추측으로 채우지 않았다". 항목마다 결정 주체(소유자/세션 판정)를 적는다.
 - **실제 동작**: `lib/promote.sh`는 과거 인계서를 날짜당 한 판씩 읽어(`lib/promote.sh:38`) 서로 다른 3일 이상 살아남은 항목을 후보로 출력만 한다(`lib/promote.sh:9`, `lib/promote.sh:50`). 파일을 쓰지 않는다. 명령 문서는 "버린 대안·이유는 빈칸으로"(`commands/promote.md:11`).
