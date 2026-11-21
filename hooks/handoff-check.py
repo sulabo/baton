@@ -135,7 +135,7 @@ def on_stop(data):
         open(state, "w").close()
     except OSError:
         return  # 한 번만 알린다는 약속을 못 지키면 아예 알리지 않는다
-    msg = (f"[baton] 이 세션에서 파일 {len(files)}개를 고쳤는데 HANDOFF.md는 그 뒤로 안 바뀌었다. "
+    msg = (f"[baton] 이 세션에서 파일 {len(files)}개를 고쳤는데 인계서(HANDOFF.md·HANDOFF_*.md)는 그 뒤로 안 바뀌었다. "
            f"작업 덩어리가 끝났다면 '핸드오프 작성해줘'로 인계서를 남겨 두면 다음 세션이 처음부터 다시 찾지 않는다. "
            f"쓸지는 정하면 된다 — 이 제안은 세션에 한 번만 나온다.")
     print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
