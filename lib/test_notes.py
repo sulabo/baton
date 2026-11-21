@@ -212,6 +212,199 @@ class MatchTest(unittest.TestCase):
         self.assertEqual(notes.match_paths(self.ns, "세이브를 고쳐"), [])
 
 
+DOT_MAP = """# 지도
+
+## 요약
+
+| # | 개념 | 상태 | 심각도 | 한 줄 |
+|---|---|---|---|---|
+| 1 | 버튼 | 일치 | — | 버튼 줄 |
+| 2 | 색 | 일치 | — | 색 줄 |
+| 3 | 글꼴 | 일치 | — | 글꼴 줄 |
+
+## 1. 버튼
+
+- **메타**: 상태=일치 · 확인=2026-09-01(`0000000`) · 파일=ui/button.py · ui/theme.py · 이웃=개념 2(정본) · 개념 3(전제) · 문서=docs/a.md · docs/b.md
+
+- **정해진 것**: a
+
+## 2. 색
+
+- **메타**: 상태=일치 · 확인=2026-09-01(`0000000`) · 파일=`ui/color.py` · `ui/theme.py` · 이웃=개념 1(정본)
+
+- **정해진 것**: b
+
+## 3. 글꼴
+
+- **메타**: 상태=일치 · 확인=2026-09-01(`0000000`) · 파일=ui/font.py · 이웃=개념 1(전제)
+
+- **정해진 것**: c
+"""
+
+
+class MiddleDotValueTest(unittest.TestCase):
+    """다른 저장소 지도(US-5)의 꼴: 메타 값 안에 ' · '. 내용은 지어낸 것."""
+
+    def test_round_trip(self):
+        ns = notes.to_notes(DOT_MAP)          # 다르면 to_notes가 거절한다
+        self.assertEqual(notes.to_concepts_md(ns), DOT_MAP)
+        n = notes.parse_note("ui/버튼.md", ns["ui/버튼.md"])
+        self.assertEqual(n["fm"]["files"], ["ui/button.py", "ui/theme.py"])
+        self.assertEqual(n["fm"]["docs"], ["docs/a.md", "docs/b.md"])
+        self.assertEqual(n["neighbors"], [("정본", ["색"]), ("전제", ["글꼴"])])
+        self.assertEqual(notes.parse_note("ui/색.md", ns["ui/색.md"])["fm"]["files"], ["ui/color.py", "ui/theme.py"])
+        self.assertEqual(notes.check(ns), [])
+
+    def test_parse_meta_continuation(self):
+        m = notes.parse_meta("- **메타**: 상태=일치 · 파일=a.py · b.py · 이웃=개념 2(정본) · 개념 5(전제)")
+        self.assertEqual(m, {"상태": "일치", "파일": "a.py · b.py", "이웃": "개념 2(정본) · 개념 5(전제)"})
+        with self.assertRaises(ValueError):
+            notes.parse_meta("- **메타**: a.py · 상태=일치")
+
+
+class MalformedExportTest(unittest.TestCase):
+    """export가 내용을 조용히 버리거나 옮기지 않는다 — 되살리거나, 첫 다른 줄을 대며 거절한다."""
+
+    def refused(self, text):
+        with self.assertRaises(ValueError) as cm:
+            notes.to_notes(text)
+        return str(cm.exception)
+
+    def test_text_before_meta_is_kept(self):
+        text = MAP.replace("## 2. 레벨\n\n", "## 2. 레벨\n\n> 메타 줄 앞의 글\n")
+        ns = notes.to_notes(text)
+        self.assertIn(notes.MARK_META, ns[S2])
+        self.assertEqual(notes.to_concepts_md(ns), text)
+
+    def test_no_blank_around_meta_is_kept(self):
+        text = MAP.replace("## 2. 레벨\n\n", "## 2. 레벨\n")
+        self.assertEqual(notes.to_concepts_md(notes.to_notes(text)), text)
+
+    def test_table_row_without_section(self):
+        msg = self.refused(MAP.replace("| 1 | 세이브 |", "| 3 | 유령 | 일치 | — | x |\n| 1 | 세이브 |"))
+        self.assertIn("유령", msg)
+
+    def test_interleaved_heading(self):
+        self.refused(MAP.replace("## 2. 레벨", "## 메모\n\n글\n\n## 2. 레벨"))
+
+    def test_header_bold_order_crlf_spacing(self):
+        self.refused(MAP.replace("| # | 개념 |", "| # | 이름 |"))
+        self.refused(MAP.replace("| 2 | 레벨 |", "| **2** | 레벨 |"))
+        self.refused(MAP.replace("파일=`src/level/map.py` · 이웃=개념 1(정본)", "이웃=개념 1(정본) · 파일=`src/level/map.py`"))
+        self.refused(MAP.replace("\n", "\r\n"))
+        self.refused(MAP.replace("`src/save/save.py`,`src/save/load.py`", "`src/save/save.py`, `src/save/load.py`,`x/y.py`"))
+
+    def test_comma_space_is_preserved(self):
+        text = MAP.replace("`src/save/save.py`,`src/save/load.py`", "`src/save/save.py`, `src/save/load.py`")
+        self.assertEqual(notes.to_concepts_md(notes.to_notes(text)), text)
+
+    def test_duplicate_section_and_missing_neighbor(self):
+        self.assertIn("둘 이상", self.refused(MAP + "\n## 2. 또 레벨\n\n- **메타**: 상태=일치 · 확인=x · 파일=`a` · 이웃=없음\n"))
+        self.assertIn("개념 9", self.refused(MAP.replace("이웃=개념 1(정본)", "이웃=개념 9(정본)")))
+
+    def test_title_colliding_with_index(self):
+        text = MAP.replace("## 2. 레벨", "## 2. _색인").replace("파일=`src/level/map.py`", "파일=없음(규칙 개념)")
+        self.assertIn("겹친다", self.refused(text))
+
+    def test_cli_writes_nothing_when_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "CONCEPTS.md")
+            with open(src, "w", encoding="utf-8") as fh:
+                fh.write(MAP.replace("| # | 개념 |", "| # | 이름 |"))
+            with self.assertRaises(SystemExit) as cm:
+                notes.main(["export", src, os.path.join(d, "out")])
+            self.assertIn("다르다", str(cm.exception.code))
+            self.assertFalse(os.path.exists(os.path.join(d, "out")))
+
+
+class MalformedNotesTest(unittest.TestCase):
+    def setUp(self):
+        self.ns = notes.to_notes(MAP)
+
+    def test_duplicate_no_refused_in_build(self):
+        ns = edit(self.ns, S2, "no: 2", "no: 1")
+        with self.assertRaises(ValueError) as cm:
+            notes.to_concepts_md(ns)
+        self.assertIn("no 1가 노트 2개", str(cm.exception))
+        self.assertTrue(any("no 1가 노트 2개" in p for p in notes.check(ns)))
+
+    def test_non_integer_or_missing_no(self):
+        ns = edit(self.ns, S2, "no: 2", "no: 둘")
+        with self.assertRaises(ValueError) as cm:
+            notes.to_concepts_md(ns)
+        self.assertIn("정수가 아니다", str(cm.exception))
+        self.assertTrue(any("no가 정수가 아니다" in p for p in notes.check(ns)))
+        self.assertEqual(notes.match(ns, "레벨이 이상해 src/level/map.py"), [])
+        self.assertEqual(notes.match_paths(ns, "src/level/map.py"), [])
+        ns = edit(self.ns, S2, "no: 2\n", "")
+        self.assertEqual(notes.match(ns, "레벨이 이상해"), [])
+        self.assertEqual(notes.match_paths(ns, "src/level/map.py"), [])
+
+    def test_unindented_block_list(self):
+        ns = edit(self.ns, S1, 'aliases: ["세이브", "저장"]', "aliases:\n- 세이브\n- 저장")
+        self.assertEqual(notes.to_concepts_md(ns), MAP)
+
+    def test_flow_list_from_spec_example(self):
+        ns = edit(self.ns, S1, 'aliases: ["세이브", "저장"]', "aliases: [세이브, 저장]")
+        self.assertEqual(notes.to_concepts_md(ns), MAP)
+
+    def test_unreadable_frontmatter_line(self):
+        ns = edit(self.ns, S1, "no: 1\n", "no: 1\n그냥 글\n")
+        self.assertTrue(any("머리 항목 줄을 못 읽었다" in p for p in notes.check(ns)))
+        with self.assertRaises(ValueError):
+            notes.to_concepts_md(ns)
+
+    def test_nfd_names(self):
+        nfd = lambda s: notes.unicodedata.normalize("NFD", s)
+        ns = dict(self.ns)
+        ns[nfd(S2)] = ns.pop(S2)                                      # macOS가 돌려준 NFD 파일 이름
+        self.assertEqual(notes.to_concepts_md(ns), MAP)
+        self.assertEqual(notes.check(ns), [])
+        ns = edit(self.ns, S1, "[[레벨]]", "[[%s]]" % nfd("레벨"))     # NFD 링크 대상
+        self.assertEqual(notes.to_concepts_md(ns), MAP)
+        self.assertEqual(notes.check(ns), [])
+        dup = edit(self.ns, S1, '"저장"', '"%s"' % nfd("레벨"))
+        self.assertTrue(any("'레벨'가 노트끼리 겹친다" in p for p in notes.check(dup)))
+        short = edit(self.ns, S2, "aliases: []", 'aliases: ["%s"]' % nfd("저"))   # NFD로는 2글자, NFC로는 1글자
+        self.assertEqual(notes.match(short, "저 고쳐"), [])
+
+    def test_links_in_code_fence_ignored(self):
+        ns = edit(self.ns, S1, "- **정해진 것**: a", "- **정해진 것**: a\n\n```\n[[없는 노트]]\n```")
+        self.assertEqual(notes.check(ns), [])
+        ns = edit(self.ns, S1, "- **정해진 것**: a", "- **정해진 것**: a [[없는 노트]]")
+        self.assertTrue(any("[[없는 노트]] 노트가 없다" in p for p in notes.check(ns)))
+
+    def test_unknown_key_and_missing_title(self):
+        ns = edit(self.ns, S1, "no: 1\n", 'no: 1\ntags: ["x"]\ncolor: "red"\n')
+        out = notes.check(ns)
+        self.assertTrue(any("모르는 머리 항목 'color'" in p for p in out), out)
+        self.assertFalse(any("'tags'" in p for p in out), out)
+        out = notes.check(edit(self.ns, S2, "# 레벨\n", ""))
+        self.assertTrue(any("'# 제목' 줄이 없다" in p for p in out), out)
+
+
+class ParticleDecisionTest(unittest.TestCase):
+    """2글자 한글 별칭 + 조사 떼기: 적중과 알려진 오탐을 함께 박는다(소유자가 정할 열린 질문 — notes.PARTICLES 주석)."""
+
+    def setUp(self):
+        ns = edit(notes.to_notes(MAP), S2, "aliases: []", 'aliases: ["개념", "설계"]')
+        self.ns = ns
+
+    def test_hit(self):
+        self.assertEqual(notes.match(self.ns, "저장을 다시"), [1])
+
+    def test_known_false_positives(self):
+        self.assertEqual(notes.match(self.ns, "개념도 그려 줘"), [2])   # '개념도'(그림) → '개념' + 조사 '도'
+        self.assertEqual(notes.match(self.ns, "설계도 보여 줘"), [2])
+
+    def test_machine_regex_is_pr16s(self):
+        self.assertTrue(notes.machine_prompt("<task-notification>\n세이브를</task-notification>"))
+        self.assertTrue(notes.machine_prompt("<agent-message/>"))
+        self.assertFalse(notes.machine_prompt("<agent-messages 얘기> 세이브를 고쳐"))
+        self.assertFalse(notes.machine_prompt("<task-notification-log> 세이브를 고쳐"))  # \b였다면 기계로 쳤다
+        self.assertEqual(notes.match(self.ns, "<agent-messages 얘기> 세이브를 고쳐"), [1])
+
+
 class CliTest(unittest.TestCase):
     def test_export_build_check_match(self):
         with tempfile.TemporaryDirectory() as d:
