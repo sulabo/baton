@@ -17,7 +17,17 @@ VERSION = "rules-v1"
 
 # 인계·진행 상황을 가리키는 프롬프트. 훅이 인계서를 넣는 유일한 조건이다(루프 1·2).
 # 사용자가 /baton-setup에서 고른 말(설정 BATON_HANDOFF_TRIGGERS_EXTRA)이 이것에 더해진다 — trigger_words.
-TRIGGER = re.compile(r"핸드오프|인계|이어서|이어가|어디까지|진행 상황|다음에 뭘|다음 할 일|handoff", re.I)
+# 영어는 구 단위로만 넣는다. "continue"·"progress"·"status" 같은 단어 하나는 붙여 넣은 지시문·로그에 흔해서
+# 기존 관찰 로그로 재 보니 새로 걸린 것이 모두 오발동이었다(11-21, 복원한 프롬프트 905개 기준).
+TRIGGER = re.compile(
+    r"핸드오프|인계|이어서|이어가|어디까지|진행 상황|다음에 뭘|다음 할 일|handoff|hand-off"
+    r"|\bwhere were we\b"
+    r"|\bwhere (?:we|you|i|did we) (?:left|leave) off\b"
+    r"|\bpick(?:s|ed|ing)? (?:it |this |things )?(?:back )?up where\b"
+    r"|\bcatch me up\b"
+    r"|\bhow far (?:did we get|have we (?:got|gotten)|along are we)\b"
+    r"|\bfrom (?:the |our )?(?:last|previous) session\b",
+    re.I)
 
 # 작업 종류 — BATON V0 전역 규칙 v0.1.0. 제품 내장·고정(프로젝트 데이터를 본 뒤 바꾸지 않는다, V0_SPEC).
 TASK_TYPES = {

@@ -49,6 +49,18 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(rules.decide(repo({}), "이어서")["handoff"]["file"], False)
         self.assertEqual(rules.decide(repo({}), "버그 고쳐줘")["handoff"]["state"], "NO_MATCH")
 
+    def test_english_trigger_phrases(self):
+        r = repo({"HANDOFF.md": "x"})
+        for p in ("Where were we?", "pick up where we left off", "Let's pick things back up where we stopped",
+                  "catch me up on this repo", "how far did we get?", "continue from the last session",
+                  "read the hand-off and go"):
+            self.assertEqual(rules.decide(r, p)["handoff"]["state"], "MATCHED", p)
+        # 단어 하나·다른 뜻은 걸리지 않는다
+        for p in ("continue", "please continue the refactor", "show the progress bar", "what's the status code?",
+                  "resume the download", "where were the logs written?", "last session cookie expired",
+                  "the payload handed off to a worker"):
+            self.assertEqual(rules.decide(r, p)["handoff"]["state"], "NO_MATCH", p)
+
     def test_concept_states(self):
         r = repo({"CONCEPTS.md": MAP})
         self.assertEqual(rules.decide(r, "세이브 고쳐줘")["concepts"]["state"], "MATCHED")

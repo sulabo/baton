@@ -1,6 +1,6 @@
 ---
 name: baton-setup
-description: 설치 후 한 번 돌리는 개인화. 이 사용자의 과거 세션 기록·git 이력·인계서를 읽어 baton 문턱(세션 끊기 알림·인계서 제안)과 인계 트리거 말, 인계서 검사가 막을 개인 자료 목록을 그 사람 분포로 제안하고, 사용자가 고른 것만 설정 파일에 쓴다. "baton 설정해줘", "baton setup", "문턱 내 기록으로 맞춰줘", "개인 자료 목록 만들어줘"에도 발동.
+description: 설치 후 한 번 돌리는 개인화. 이 사용자의 과거 세션 기록·git 이력·인계서를 읽어 baton 문턱(세션 끊기 알림·인계서 제안)과 인계 트리거 말, 인계서 검사가 막을 개인 자료 목록을 그 사람 분포로 제안하고, 사용자가 고른 것만 설정 파일에 쓴다. "baton 설정해줘", "baton setup", "문턱 내 기록으로 맞춰줘", "개인 자료 목록 만들어줘"에도 발동. Also triggers on English requests such as "set up baton", "tune baton thresholds to my history", "build my private terms list".
 ---
 
 # Baton Setup — 내 기록으로 baton 맞추기
