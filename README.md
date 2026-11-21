@@ -208,16 +208,16 @@ All numbers come from one person's use (the author), on their own repositories. 
 
 This part is a design, not a feature. It is not built or verified yet.
 
-The problem it targets is vocabulary. People ask for work in their own words, and those words rarely match concept titles. We tried matching prompt words to concept titles on the author's usage log (one person, one repo). When the matcher picked exactly one concept, it was the right one **0–1% of the time**, across nine variants. The right concept was among the candidates in only 6 of 54 cases. So the experimental concept injection (`BATON_CONCEPT_INJECT`) stays off.
+The problem it targets is vocabulary. People ask for work in their own words, and those words rarely match concept titles. We tried matching prompt words to concept titles on the author's usage log (one person, one repo). When the matcher picked exactly one concept, it was the right one **0–1% of the time**, across nine variants. The right concept was among the candidates in only 6 of 54 cases. So the experimental concept injection (`BATON_CONCEPT_INJECT`) stays off. We also tried to learn the missing words from the same logs, and there was too little to learn from: very few prompts were followed by opening a concept's files. The vocabulary has to come from people, as aliases you add yourself.
 
 The plan is to keep one note per concept, in a format that also opens in [Obsidian](https://obsidian.md):
 
-- `aliases` in each note's frontmatter hold the words people actually use for that concept, so the vocabulary is unified;
+- `aliases` in each note's frontmatter hold the words you add for that concept, so the vocabulary is unified (none are learned automatically);
 - `[[links]]` between notes are the edges of the graph;
 - note folders mirror the code folders, so a note's location says where the code lives;
 - `CONCEPTS.md` is generated from the notes, so `/drift` keeps working.
 
-Retrieval would match a prompt against aliases, go to that note, follow one hop of links, and then read the files. Targets are set before measuring. Design draft: [docs/CONCEPT_GRAPH.md](docs/CONCEPT_GRAPH.md) (Korean, awaiting owner approval).
+Retrieval would match a prompt against aliases, go to that note, follow one hop of links, and then read the files. None of this works yet: targets were set before measuring, and the first alias-matching test did not meet them. Design draft: [docs/CONCEPT_GRAPH.md](docs/CONCEPT_GRAPH.md) (Korean, awaiting owner approval).
 
 ## Limitations
 
