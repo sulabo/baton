@@ -59,7 +59,7 @@
 - **실제 동작**:
   - 판단은 MATCHED/AMBIGUOUS/NO_MATCH 셋(`lib/rules.py:67`), 판단 함수 `lib/rules.py:110`, 판정 버전 `rules-v1`(`lib/rules.py:16`). 인계 트리거 정규식의 정본도 여기다(`lib/rules.py:22`).
   - 훅이 프롬프트마다 판단을 `~/.cache/baton/runs.jsonl`에 남긴다. 프롬프트는 원문 대신 해시·길이만(`hooks/handoff-inject.py:180`). 파일 600, 20MB 넘으면 한 번 돌림(`lib/runlog.py:12`, `lib/runlog.py:26`, `lib/runlog.py:28`). 인계서를 넣을 조건인데 건너뛰면 `acted.handoff_skip`에 까닭을 남긴다 — `machine`·`already`, 아니면 null(`hooks/handoff-inject.py:183`).
-  - 사람이 친 프롬프트가 아닌 것(`<agent-message>`·`<cross-session-message>`·`<task-notification>`으로 시작)은 `MACHINE`(`lib/rules.py:35`)이 가린다. `explain`은 그때 넣지 않는 까닭을 보여 준다.
+  - 사람이 친 프롬프트가 아닌 것(`<agent-message>`·`<cross-session-message>`·`<task-notification>`으로 시작)은 `MACHINE`(`lib/rules.py:35`)이 가린다. 그런 프롬프트는 판단에서도 개념·작업 종류를 세지 않고 `MACHINE` 상태로 남긴다(0이 아니라 안 셈 — 긴 서브에이전트 보고가 후보를 수십 개씩 만들었다). `explain`은 훅과 같은 순서(끄기 → 트리거 → 파일 → 기계 프롬프트)로 넣지 않는 까닭을 보여 준다.
   - 테스트: `lib/test_rules.py` 13개 통과(2026-11-21, 세션당 한 번 주입 이식 뒤 실행).
 - **설명된 곳**: `README.md:141`, `README.ko.md:175` — 코드와 일치. `docs/NORTH_STAR.md:70`·`docs/NORTH_STAR.md:71`(2절 표).
 - **어긋남**: 해소됨(2026-11-21, `6b51162` — 두 칸을 코드대로 고쳤다). 고치기 전 기록: 북극성 2절 표는 Decision Layer 칸에 "인터페이스·**3상태 판정**·Jev·Judge 없음", V0 Observe 칸에 "**없음**. 사후 집계기만"이라 적는다. 같은 문서 3절 단계 1과 코드는 둘 다 있다고 말한다. 2절 표가 10-01 구현을 반영하지 않은 것이다 — **낡은 문서**(코드가 앞서 있다). 같은 표의 다른 칸도 같은 원인으로 낡았다(Fallback 칸은 인계서 주입 절, 개념 지도 점검 칸은 '관련' 가리킴 절에 따로 적었다). 이 표 하나가 여러 개념에서 동시에 낡은 것은 개별 실수가 아니라 **갱신 경로의 구멍**이다 — 구현 커밋이 북극성 2절 표를 갱신 대상에 넣지 않았다.
@@ -123,7 +123,7 @@
   - `UserPromptSubmit`에서 프롬프트가 트리거 말(`lib/rules.py:22`, 설정의 추가 말 포함 — PR #10부터 "where were we" 같은 영어 구도 들어간다)에 맞을 때만 주입(`hooks/handoff-inject.py:145`, `hooks/handoff-inject.py:150`). 무관한 프롬프트에는 넣지 않는다.
   - 한 세션에 같은 인계서는 한 번만 넣는다. 세션 id별로 넣은 내용의 해시와 그때 세션 기록 크기를 캐시 `injected/`에 남기고(`hooks/handoff-inject.py:118` `remember_injected`, 파일 600, 7일 지난 것은 지움), 같은 내용이면 그 뒤 세션 기록에 압축 경계(Claude Code `"subtype":"compact_boundary"`, Codex `"type":"compacted"`)가 생겼거나 기록이 줄었거나 64MB 넘게 자랐을 때만 다시 넣는다(`hooks/handoff-inject.py:106` `already_injected`). 세션 기록을 못 읽으면 다시 넣지 않고, 세션 id가 없거나 기억 파일이 깨졌으면 예전처럼 넣는다. 사람이 친 프롬프트가 아닌 것(`lib/rules.py:35` `MACHINE`)에는 인계서도 개념도 넣지 않는다(`hooks/handoff-inject.py:196`). 근거: 11-18 실사용 로그 주입 263번 중 226번이 같은 세션 재주입, 최소 152번이 다른 세션 메시지 계기.
   - 출력은 Claude Code·Codex 둘 다 받는 JSON `additionalContext`.
-  - git이 없을 때: 저장소 루트 계산이 예외를 삼키고 폴더 기준으로 넘어간다(`lib/rules.py:156`, `lib/rules.py:162`). 2026-11-21에 git이 없는 `PATH`로 `handoff-inject.py`·`split-notice.py`·`handoff-check.py`를 돌렸을 때 셋 다 종료 코드 0, 출력 없음.
+  - git이 없을 때: 저장소 루트 계산이 예외를 삼키고 폴더 기준으로 넘어간다(`lib/rules.py:166`, `lib/rules.py:172`). 2026-11-21에 git이 없는 `PATH`로 `handoff-inject.py`·`split-notice.py`·`handoff-check.py`를 돌렸을 때 셋 다 종료 코드 0, 출력 없음.
   - 테스트 `hooks/test_handoff_inject.py` 13개 중 12개 통과·1개 건너뜀(실험 스냅샷 없음, 2026-11-21 실행).
 - **설명된 곳**: `README.md:123`, `README.ko.md:143` — 코드와 일치. `docs/NORTH_STAR.md:83`.
 - **어긋남**: 북극성 2절 표 Fallback 칸(`docs/NORTH_STAR.md:83`)이 "다만 조용하지는 않다 — git을 못 찾으면 traceback을 낸다"고 적는다. 위 실행으로는 traceback이 나지 않는다. **낡은 문서**(낮음) → 해소됨(2026-11-21, `6b51162`). 규칙 판단 절에 적은 것과 같은 표, 같은 원인이다.

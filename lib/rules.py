@@ -111,13 +111,20 @@ def decide(repo, prompt):
     """프롬프트 하나에 대한 규칙 판단. 파일을 쓰지 않는다."""
     handoff_file = os.path.isfile(os.path.join(repo, "HANDOFF.md"))
     trig = trigger_words(repo, prompt)
-    sections = concept_sections(repo)
-    hits = concept_hits(sections, prompt) if sections is not None else []
-    tstate, tvalue, thits = classify_task_type(prompt)
+    machine = machine_prompt(prompt)
+    if machine:
+        # 다른 세션·작업 알림이 보낸 메시지는 개념·작업 종류를 세지 않는다. 긴 서브에이전트 보고가 2글자 제목 단어를
+        # 거의 다 덮어 후보가 수십 개씩 찍혔다(11-21 로그: 후보 10개 이상 228건 중 211건). 0이 아니라 "안 셈"이다
+        cstate, hits, tstate, tvalue, thits = "MACHINE", [], "MACHINE", None, []
+    else:
+        sections = concept_sections(repo)
+        hits = concept_hits(sections, prompt) if sections is not None else []
+        cstate = "NO_MAP" if sections is None else state_of(hits)
+        tstate, tvalue, thits = classify_task_type(prompt)
     return {
-        "provider": "rules", "version": VERSION,
+        "provider": "rules", "version": VERSION, "machine": machine,
         "handoff": {"state": "MATCHED" if trig else "NO_MATCH", "words": trig, "file": handoff_file},
-        "concepts": {"state": "NO_MAP" if sections is None else state_of(hits),
+        "concepts": {"state": cstate,
                      "candidates": [{"num": n, "name": name.split("—")[0].strip()} for n, name in hits]},
         "task_type": {"state": tstate, "value": tvalue, "words": thits},
         "domain": {"state": "UNCONFIGURED"},  # 도메인은 사람이 configure에서 정한다(V0_SPEC). 아직 없음
@@ -128,17 +135,20 @@ def explain(repo, prompt):
     d = decide(repo, prompt)
     h, c, t = d["handoff"], d["concepts"], d["task_type"]
     lines = [f"[baton] 규칙 판단 ({d['version']}) — 저장소 {repo}", ""]
-    if h["state"] == "MATCHED" and machine_prompt(prompt):
-        lines.append(f"인계서   MATCHED — 하지만 사람이 아니라 다른 세션·작업 알림이 보낸 메시지라 넣지 않는다 (맞은 말: {', '.join(h['words'])})")
-    elif h["state"] == "MATCHED" and config.get("BATON_HANDOFF_INJECT", repo).strip().lower() in ("off", "0", "false", "no"):
+    # 훅(hooks/handoff-inject.py inject_handoff)과 같은 순서로 본다: 끄기 → 트리거 → 파일 → 기계 프롬프트
+    if h["state"] == "MATCHED" and config.get("BATON_HANDOFF_INJECT", repo).strip().lower() in ("off", "0", "false", "no"):
         lines.append(f"인계서   MATCHED — 하지만 BATON_HANDOFF_INJECT=off라 넣지 않는다 (맞은 말: {', '.join(h['words'])})")
-    elif h["state"] == "MATCHED" and h["file"]:
-        lines.append(f"인계서   MATCHED — 넣는다 (맞은 말: {', '.join(h['words'])})")
-    elif h["state"] == "MATCHED":
+    elif h["state"] == "MATCHED" and not h["file"]:
         lines.append(f"인계서   MATCHED — 하지만 HANDOFF.md가 없어 못 넣는다 (맞은 말: {', '.join(h['words'])})")
+    elif h["state"] == "MATCHED" and d["machine"]:
+        lines.append(f"인계서   MATCHED — 하지만 사람이 아니라 다른 세션·작업 알림이 보낸 메시지라 넣지 않는다 (맞은 말: {', '.join(h['words'])})")
+    elif h["state"] == "MATCHED":
+        lines.append(f"인계서   MATCHED — 넣는다 (맞은 말: {', '.join(h['words'])})")
     else:
         lines.append("인계서   NO_MATCH — 넣지 않는다")
-    if c["state"] == "NO_MAP":
+    if c["state"] == "MACHINE":
+        lines.append("개념     MACHINE — 다른 세션·작업 알림이 보낸 메시지라 후보를 세지 않았다")
+    elif c["state"] == "NO_MAP":
         lines.append("개념     지도 없음(CONCEPTS.md 없거나 못 읽음) — 후보를 못 셌다")
     else:
         names = ", ".join(f"{x['num']}. {x['name']}" for x in c["candidates"]) or "없음"

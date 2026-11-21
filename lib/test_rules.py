@@ -123,6 +123,14 @@ class DecideTest(unittest.TestCase):
             self.assertFalse(rules.machine_prompt(p), p)
         out = rules.explain(repo({"HANDOFF.md": "a\n"}), '<agent-message from="x">이어서')
         self.assertIn("다른 세션·작업 알림이 보낸 메시지라 넣지 않는다", out)
+        r = repo({"HANDOFF.md": "a\n", "CONCEPTS.md": "## 1. 세이브\n본문\n"})
+        d = rules.decide(r, '<agent-message from="x">세이브 고쳐줘, 이어서')
+        self.assertTrue(d["machine"])
+        self.assertEqual((d["concepts"]["state"], d["concepts"]["candidates"]), ("MACHINE", []))  # 0이 아니라 안 셈
+        self.assertEqual(d["task_type"]["state"], "MACHINE")
+        self.assertEqual(rules.decide(r, "세이브 고쳐줘")["concepts"]["state"], "MATCHED")
+        self.assertFalse(rules.decide(r, "세이브 고쳐줘")["machine"])
+        self.assertIn("HANDOFF.md가 없어", rules.explain(repo({}), '<agent-message from="x">이어서'))  # 훅과 같은 순서
 
 
 class ObserveLogTest(unittest.TestCase):
