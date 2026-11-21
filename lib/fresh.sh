@@ -55,7 +55,7 @@ fi
 row "#" "개념" "상태" "판정"
 printf -- "---- ---------------------- ------------ ------------------------------\n"
 
-while IFS=$'\t' read -r num name state date hash files neighbors; do
+while IFS=$'\t' read -r num name state _date hash files _neighbors; do
   [ -z "$num" ] && continue
 
   [ "$hash" = "-" ] && hash=""

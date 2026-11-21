@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs the hooks with BSD sed/grep; ubuntu with GNU.
+        os: [ubuntu-latest, macos-latest]
+        # 3.9 = the /usr/bin/python3 that macOS Command Line Tools ship; hooks call plain `python3`.
+        python: ["3.9", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Configure git identity for tests that commit
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+      - name: unittest
+        shell: bash
+        run: |
+          python --version
+          git ls-files -z 'hooks/test_*.py' 'lib/test_*.py' 'observer/**/test_*.py' 'tools/test_*.py' \
+            | xargs -0 python -m unittest -v
+
+  manifest:
+    name: plugin manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLAUDE_CODE_VERSION: 2.1.323 # npm dist-tag "stable" when pinned
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: All tracked JSON parses
+        run: git ls-files -z '*.json' | xargs -0 -n1 python3 -m json.tool > /dev/null
+      - name: claude plugin validate --strict (marketplace + plugin)
+        run: |
+          npx --yes "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" plugin validate --strict .claude-plugin/marketplace.json
+          npx --yes "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" plugin validate --strict .
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck (preinstalled on ubuntu runners)
+        run: |
+          shellcheck --version
+          git ls-files -z '*.sh' | xargs -0 shellcheck -x --severity=warning
