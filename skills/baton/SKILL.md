@@ -104,7 +104,7 @@ $CLAUDE_PLUGIN_ROOT/lib/promote.sh [저장소 경로] [판수(기본 8)]
 python3 $CLAUDE_PLUGIN_ROOT/lib/handoff_check.py HANDOFF.md
 ```
 
-필수 8절·200줄·9,000자·20줄 넘는 코드 블록·전체 diff·비밀값·홈 절대경로를 본다. Claude Code에서는
+필수 8절·200줄·9,000자·20줄 넘는 코드 블록·전체 diff·비밀값·홈 절대경로를 본다. "확인된 사실과 결정" 목록 줄에 [V]·[?] 표시가 없으면 막지 않고 경고만 한다. Claude Code에서는
 `Write`/`Edit`로 저장하면 훅이 같은 검사를 자동으로 돌려 문제를 돌려준다. Codex의 `apply_patch`는 훅이
 경로를 못 받으므로 직접 돌린다.
 
@@ -129,6 +129,7 @@ python3 $CLAUDE_PLUGIN_ROOT/lib/handoff_check.py HANDOFF.md
 - 완료 조건:
 
 ## 확인된 사실과 결정
+<!-- 줄마다 [V](파일·실행으로 직접 확인함) 또는 [?](기억·추정)를 붙인다 -->
 -
 
 ## 관련 파일·심볼
