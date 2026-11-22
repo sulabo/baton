@@ -23,7 +23,7 @@ Install it inside Claude Code:
 
 Then say "write a handoff" when you finish a piece of work, and ask "where were we?" in the next session. More in [Quick start](#quick-start).
 
-> **Beta** (`1.0.0-beta.2`). Messages and skill instructions are in Korean for now, and all numbers below come from one person's use. See [Limitations](#limitations).
+> **Beta** (`1.0.0-beta.3`). Messages and skill instructions are in Korean for now, and all numbers below come from one person's use. See [Limitations](#limitations).
 
 ## The problem
 

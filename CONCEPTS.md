@@ -231,7 +231,7 @@
 근거는 각 개념 절의 실제 동작 면에 있다. 여기에는 따로 대조해 맞았던 것만 모은다.
 
 - 테스트 300개 통과(2026-11-21, `6695701`에서 Python 3.14.6과 3.9.6 둘 다, `python3 -m unittest discover -s` 네 묶음: hooks 54·lib 173·tools 8·observer/research 65, 건너뜀 3). `compile_eval` 테스트 13개는 그 스크립트와 함께 뺐다. macOS 기본 bash 3.2로도 `lib/test_fresh.py`·`hooks/test_drift_notice.py`를 돌려 통과했다.
-- 매니페스트 세 곳의 버전이 같다(`1.0.0-beta.2`).
+- 매니페스트 세 곳의 버전이 같다(`1.0.0-beta.3`).
 - README의 명령 표 다섯 줄(`README.md:186`, `README.ko.md:143`)은 `commands/` 파일 다섯 개와 맞는다. 훅 등록은 `hooks/hooks.json`에 스크립트 다섯 개다.
 - 인계서 템플릿의 8절(`skills/baton/SKILL.md` 템플릿)과 검사기의 필수 절 목록이 같다.
 - 루트 `HANDOFF.md`는 검사기를 통과한다(49줄, "문제 없음"). 이 작업은 그 파일을 고치지 않았다.
