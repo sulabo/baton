@@ -131,6 +131,26 @@ def decide(repo, prompt):
     }
 
 
+def index_line(repo, machine):
+    """explain의 개념 색인 한 줄 — 훅(hooks/handoff-inject.py concept_index)과 같은 순서: 끄기 → 지도 → 기계 프롬프트."""
+    if config.get("BATON_CONCEPT_INDEX", repo).strip().lower() in ("off", "0", "false", "no"):
+        return "개념 색인 넣지 않는다 — BATON_CONCEPT_INDEX=off"
+    path, rel = concept_path(repo)
+    if not path:
+        return "개념 색인 넣지 않는다 — 개념 지도(CONCEPTS.md)가 없다"
+    if machine:
+        return "개념 색인 넣지 않는다 — 다른 세션·작업 알림이 보낸 메시지다"
+    try:
+        text = concepts.index(concepts.read_text(path), concepts.INDEX_LIMIT_CHARS, rel)
+    except Exception as e:
+        return f"개념 색인 못 만들었다({type(e).__name__}) — 훅은 색인 없이 간다"
+    if not text:
+        return f"개념 색인 넣지 않는다 — {rel}에 넣을 개념이 없다"
+    n = sum(1 for l in text.splitlines()[1:] if re.match(r"\d{1,2}\. ", l))
+    return (f"개념 색인 넣는다 — {len(text):,}자·개념 {n}개, 세션의 첫 사람 프롬프트에 한 번(압축 뒤 다시). "
+            f"이 세션에 이미 넣었으면 안 넣는다. 인계서와 같이 들어가 자리가 모자라면 줄인다")
+
+
 def explain(repo, prompt):
     d = decide(repo, prompt)
     h, c, t = d["handoff"], d["concepts"], d["task_type"]
@@ -160,6 +180,7 @@ def explain(repo, prompt):
         names = ", ".join(f"{x['num']}. {x['name']}" for x in c["candidates"]) or "없음"
         lines.append(f"개념     {c['state']} — 후보: {names}")
         lines.append("         (관찰만 한다. 개념 절 주입은 BATON_CONCEPT_INJECT=on이고 후보가 정확히 하나이며 그 절이 2,000자 이하일 때만)")
+    lines.append(index_line(repo, d["machine"]))
     if t["state"] == "MACHINE":  # "없음"이면 0건으로 읽힌다 — 센 적이 없다
         lines.append("작업 종류 MACHINE — 다른 세션·작업 알림이 보낸 메시지라 세지 않았다")
     else:

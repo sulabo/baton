@@ -286,6 +286,18 @@ class FreshnessTest(unittest.TestCase):
                 self.assertNotIn("2020-01-01(", rules.explain(r, "이어서"))
 
 
+class ExplainIndexTest(unittest.TestCase):
+    def test_explain_shows_index_size_and_why_not(self):
+        r = repo({"CONCEPTS.md": MAP})
+        out = rules.explain(r, "카메라 어디서 돌려?")
+        self.assertRegex(out, r"개념 색인 넣는다 — [0-9,]+자·개념 2개")
+        self.assertIn("넣지 않는다 — 다른 세션", rules.explain(r, '<agent-message from="a">x'))
+        with mock.patch.dict(os.environ, {"BATON_CONCEPT_INDEX": "off"}):
+            self.assertIn("개념 색인 넣지 않는다 — BATON_CONCEPT_INDEX=off", rules.explain(r, "x"))
+        self.assertIn("개념 색인 넣지 않는다 — 개념 지도(CONCEPTS.md)가 없다", rules.explain(repo({}), "x"))
+        self.assertIn("넣을 개념이 없다", rules.explain(repo({"CONCEPTS.md": "# 빈 지도\n"}), "x"))
+
+
 class ObserveLogTest(unittest.TestCase):
     def run_hook(self, root, prompt, **env):
         log = os.path.join(root, "runs.jsonl")
@@ -302,9 +314,10 @@ class ObserveLogTest(unittest.TestCase):
         self.assertEqual(rec["session_id"], "s1")
         self.assertEqual(rec["decision"]["handoff"]["state"], "MATCHED")
         self.assertEqual(rec["decision"]["concepts"]["candidates"], [{"num": "1", "name": "세이브"}])
+        self.assertGreater(rec["acted"].pop("concept_index"), 0)  # 개념 색인은 기본 켬 — 세션 첫 프롬프트에 넣은 글자 수
         self.assertEqual(rec["acted"], {"handoff_lines": 2, "handoff_total": 2, "handoff_days": None,  # 작성일·git 없음 — 못 셈
                                         "handoff_commits_after": None, "handoff_skip": None,
-                                        "concept": None})  # 개념 주입은 기본 끔 — 관찰만
+                                        "concept": None, "concept_index_skip": None})  # 개념 절 주입은 기본 끔 — 관찰만
         self.assertNotIn("이어서 세이브 고쳐줘", json.dumps(rec, ensure_ascii=False))  # 프롬프트 원문은 남기지 않는다(맞은 규칙 어휘만)
 
     def test_log_is_private_and_surrogate_prompt_still_logged(self):

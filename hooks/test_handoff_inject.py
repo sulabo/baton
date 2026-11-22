@@ -232,7 +232,8 @@ class HandoffInjectTest(unittest.TestCase):
             self.write(root, "CONCEPTS.md", "## 1. 엔딩 판정\n현재 빌드 기준.\n")
             result = self.run_hook(root, "엔딩 판정 확인")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "")
+        self.assertNotIn("현재 빌드 기준.", result.stdout)  # 개념 절은 넣지 않는다 — 기본 켬인 색인 한 줄만
+        self.assertIn("1. 엔딩 판정", result.stdout)
 
     def test_concept_injection_matches_one_full_root_section(self):
         with tempfile.TemporaryDirectory() as root:
@@ -275,7 +276,7 @@ class HandoffInjectTest(unittest.TestCase):
                 "CONCEPTS.md",
                 "## 1. 엔딩 판정\n첫 절.\n\n## 2. 엔딩 판정 규칙\n둘째 절.\n",
             )
-            result = self.run_hook(root, "엔딩 판정 확인", {"BATON_CONCEPT_INJECT": "on"})
+            result = self.run_hook(root, "엔딩 판정 확인", {"BATON_CONCEPT_INJECT": "on", "BATON_CONCEPT_INDEX": "off"})
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
 
@@ -283,7 +284,7 @@ class HandoffInjectTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             long_body = "긴문장 " * 500
             self.write(root, "CONCEPTS.md", "## 1. 엔딩 판정\n" + long_body + "\n")
-            result = self.run_hook(root, "엔딩 판정 확인", {"BATON_CONCEPT_INJECT": "on"})
+            result = self.run_hook(root, "엔딩 판정 확인", {"BATON_CONCEPT_INJECT": "on", "BATON_CONCEPT_INDEX": "off"})
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
 
@@ -295,6 +296,106 @@ class HandoffInjectTest(unittest.TestCase):
         self.assertEqual(bad.stdout, "")
         self.assertEqual(non_string.returncode, 0)
         self.assertEqual(non_string.stdout, "")
+
+
+class ConceptIndexHookTest(unittest.TestCase):
+    """개념 색인: 세션의 첫 사람 프롬프트에 한 번, 압축 뒤 다시. 인계서와 따로 기억한다."""
+    run_hook, write, last_acted = HandoffInjectTest.run_hook, HandoffInjectTest.write, HandoffInjectTest.last_acted
+    MAP = "## 1. 엔딩 판정\n- **메타**: 상태=일치 · 파일=`src/end.ts`\n\n## 2. 저장 슬롯\n- **메타**: 상태=일치 · 파일=`src/save.ts`\n"
+    INDEX_HEAD = "[baton] 이 저장소 개념 지도(CONCEPTS.md) 색인이다."
+
+    def test_first_human_prompt_only_then_after_compaction(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "CONCEPTS.md", self.MAP)
+            tr = os.path.join(root, "t.jsonl")
+            self.write(root, "t.jsonl", '{"type":"user"}\n')
+            d = {"session_id": "s1", "transcript_path": tr}
+            r = self.run_hook(root, '<agent-message from="a">작업 끝', **d)
+            self.assertEqual(r.stdout, "")
+            self.assertEqual((self.last_acted(root)["concept_index"], self.last_acted(root)["concept_index_skip"]), (None, "machine"))
+            first = self.run_hook(root, "세이브 어디서 해?", **d)
+            self.assertTrue(first.stdout.startswith(self.INDEX_HEAD), first.stdout)
+            self.assertIn("2. 저장 슬롯 · 파일: src/save.ts", first.stdout)
+            self.assertEqual(self.last_acted(root)["concept_index"], len(first.stdout))
+            again = self.run_hook(root, "엔딩은?", **d)
+            self.assertEqual(again.stdout, "")
+            self.assertEqual(self.last_acted(root)["concept_index_skip"], "already")
+            self.assertIn(self.INDEX_HEAD, self.run_hook(root, "엔딩은?", session_id="s2").stdout)  # 다른 세션은 따로
+            with open(tr, "a", encoding="utf-8") as f:
+                f.write('{"type":"system","subtype":"compact_boundary"}\n')
+            self.assertIn(self.INDEX_HEAD, self.run_hook(root, "엔딩은?", **d).stdout)
+            self.assertEqual(self.run_hook(root, "엔딩은?", **d).stdout, "")
+
+    def test_handoff_and_index_are_remembered_separately(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "CONCEPTS.md", self.MAP)
+            self.write(root, "HANDOFF.md", "다음 행동\n")
+            first = self.run_hook(root, "이어서", session_id="s1").stdout
+            self.assertIn("다음 행동", first)
+            self.assertLess(first.index("다음 행동"), first.index(self.INDEX_HEAD))  # 인계서 뒤에 색인
+            self.assertEqual(self.run_hook(root, "이어서", session_id="s1").stdout, "")
+            self.write(root, "HANDOFF.md", "새 다음 행동\n")
+            changed = self.run_hook(root, "이어서", session_id="s1").stdout
+            self.assertIn("새 다음 행동", changed)
+            self.assertNotIn(self.INDEX_HEAD, changed)  # 인계서가 바뀌어도 색인은 세션에 한 번
+        with tempfile.TemporaryDirectory() as root:  # 색인을 먼저 넣고, 나중 프롬프트에서 인계서
+            self.write(root, "CONCEPTS.md", self.MAP)
+            self.write(root, "HANDOFF.md", "다음 행동\n")
+            self.assertNotIn("다음 행동", self.run_hook(root, "세이브 고쳐줘", session_id="s1").stdout)
+            later = self.run_hook(root, "이어서", session_id="s1").stdout
+            self.assertIn("다음 행동", later)
+            self.assertNotIn(self.INDEX_HEAD, later)
+
+    def test_off_switch_and_no_map(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertEqual(self.run_hook(root, "세이브", session_id="s1").stdout, "")
+            self.assertEqual(self.last_acted(root)["concept_index_skip"], "no_map")
+            self.write(root, "CONCEPTS.md", self.MAP)
+            self.assertEqual(self.run_hook(root, "세이브", {"BATON_CONCEPT_INDEX": "off"}, session_id="s1").stdout, "")
+            self.assertEqual((self.last_acted(root)["concept_index"], self.last_acted(root)["concept_index_skip"]), (None, "off"))
+            self.write(root, "cfg/baton/config.json", json.dumps({"global": {"BATON_CONCEPT_INDEX": "off"}}))
+            self.assertEqual(self.run_hook(root, "세이브", {"XDG_CONFIG_HOME": os.path.join(root, "cfg")}, session_id="s1").stdout, "")
+            self.assertIn(self.INDEX_HEAD, self.run_hook(root, "세이브", session_id="s1").stdout)  # 끈 동안은 기억하지 않는다
+            self.write(root, "CONCEPTS.md", "# 빈 지도\n")
+            self.assertEqual(self.run_hook(root, "세이브", session_id="s9").stdout, "")
+            self.assertEqual(self.last_acted(root)["concept_index_skip"], "empty")
+
+    def test_fail_open_handoff_still_goes_in(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "HANDOFF.md", "다음 행동\n")
+            self.write(root, "CONCEPTS.md", self.MAP)
+            os.chmod(os.path.join(root, "CONCEPTS.md"), 0)
+            try:
+                if os.access(os.path.join(root, "CONCEPTS.md"), os.R_OK):
+                    self.skipTest("권한을 무시하는 사용자(root)")
+                r = self.run_hook(root, "이어서", session_id="s1")
+            finally:
+                os.chmod(os.path.join(root, "CONCEPTS.md"), 0o600)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("다음 행동", r.stdout)
+            self.assertNotIn(self.INDEX_HEAD, r.stdout)
+            self.assertEqual(self.last_acted(root)["concept_index_skip"], "error")
+            self.assertIn(self.INDEX_HEAD, self.run_hook(root, "세이브", session_id="s1").stdout)  # 실패는 기억하지 않는다
+
+    def test_index_builder_crash_fails_open(self):
+        import importlib.util, io
+        spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "HANDOFF.md", "다음 행동\n")
+            self.write(root, "CONCEPTS.md", self.MAP)
+            out = io.StringIO()
+            env = {"CLAUDE_PROJECT_DIR": root, "BATON_LOG": os.path.join(root, ".test-runs.jsonl"),
+                   "XDG_CACHE_HOME": os.path.join(root, ".cache")}
+            with mock.patch.dict(os.environ, env), mock.patch.object(hook.concepts, "index", side_effect=RuntimeError("x")), \
+                    mock.patch.object(sys, "stdin", io.StringIO(json.dumps({"prompt": "이어서", "session_id": "s1"}))), \
+                    mock.patch.object(sys, "stdout", out):
+                hook.main()
+            ctx = json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("다음 행동", ctx)
+            self.assertNotIn(self.INDEX_HEAD, ctx)
+            self.assertEqual(self.last_acted(root)["concept_index_skip"], "error")
 
 
 class HookOutputBudgetTest(unittest.TestCase):
@@ -356,6 +457,58 @@ class HookOutputBudgetTest(unittest.TestCase):
             self.assertNotIn("까지만 넣었다", out)
             self.assertEqual(h["lines"], h["total"])
             self.assertLessEqual(len(out), hook.LIMIT_CHARS)
+
+    def big_map(self, n=30):
+        return "\n".join("## %d. 개념%02d — 이 개념의 한 줄 요약이다 조금 길게\n- **메타**: 상태=일치 · 파일=%s\n"
+                         % (i, i, ",".join("`src/mod%02d/file%d.py`" % (i, k) for k in range(4))) for i in range(1, n + 1))
+
+    def test_largest_handoff_still_whole_with_index_reserved(self):
+        # 색인 몫을 먼저 잡아도 8,700자 인계서는 신선도 한 줄이 가장 길 때도 전부 들어간다 — 줄어드는 것은 색인이다
+        hook = self.load()
+        with tempfile.TemporaryDirectory() as root:
+            text, _ = self.write_handoff(root, self.CHECKER_MAX)
+            longest = "F" * hook.rules.FRESHNESS_MAX
+            with mock.patch.object(hook.rules, "freshness_line", return_value=longest):
+                out, h, _ = hook.inject_handoff(root, "이어서", {}, reserve=hook.concepts.INDEX_LIMIT_CHARS + 1)
+            self.assertIn(longest + "\n\n" + text, out)
+            self.assertEqual(h["lines"], h["total"])
+            # 짧은 인계서는 색인 몫을 빼고도 남는다 — 긴 인계서만 잘릴 때 색인 몫을 양보한다
+            self.write_handoff(root, 30000)
+            with mock.patch.object(hook.rules, "freshness_line", return_value="F" * 100):
+                plain, _, _ = hook.inject_handoff(root, "이어서", {})
+                reserved, _, _ = hook.inject_handoff(root, "이어서", {}, reserve=1000)
+            self.assertLess(len(reserved), len(plain))
+            self.assertGreaterEqual(len(reserved) - len(hook.HEAD) - 1 - 100 - hook.TAIL_RESERVE, hook.HANDOFF_KEEP - 1000)
+
+    def run_hook(self, root, prompt):
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=root, BATON_LOG=os.path.join(root, "runs.jsonl"),
+                   XDG_CACHE_HOME=os.path.join(root, ".cache"))
+        r = subprocess.run([sys.executable, HOOK], input=json.dumps({"prompt": prompt, "session_id": "s1"}),
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(root, "runs.jsonl"), encoding="utf-8") as f:
+            acted = json.loads(f.read().splitlines()[-1])["acted"]
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"], acted
+
+    def test_hook_output_with_big_handoff_and_index_stays_under_limit(self):
+        hook = self.load()
+        for chars in (self.CHECKER_MAX, 30000, 200):
+            with tempfile.TemporaryDirectory() as root:
+                text, last = self.write_handoff(root, chars)
+                with open(os.path.join(root, "CONCEPTS.md"), "w", encoding="utf-8") as f:
+                    f.write(self.big_map())
+                ctx, acted = self.run_hook(root, "이어서")
+                self.assertLessEqual(len(ctx), hook.LIMIT_CHARS, chars)
+                if chars <= self.CHECKER_MAX:
+                    self.assertIn(text, ctx)  # 인계서는 줄지 않는다
+                    self.assertEqual(acted["handoff_lines"], acted["handoff_total"])
+                if acted["concept_index"]:
+                    self.assertTrue(ctx[-acted["concept_index"]:].startswith(ConceptIndexHookTest.INDEX_HEAD))  # 맨 뒤에 색인
+                    self.assertLessEqual(acted["concept_index"], hook.concepts.INDEX_LIMIT_CHARS)
+                else:
+                    self.assertEqual(acted["concept_index_skip"], "budget")
+                if chars == 200:
+                    self.assertTrue(acted["concept_index"])
 
     def test_cut_handoff_output_stays_under_limit(self):
         hook = self.load()

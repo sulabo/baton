@@ -26,6 +26,12 @@
 # 그 앞의 repo_root(Codex만)·config.repo_key(설정에 저장소 절이 있을 때)는 git이 멈추면 각 5초 — 그 둘만으로 10초에 닿을 수
 # 있다(이 기능 전부터, PR #16 기준 Codex+설정 10.1초 실측). 그때 훅이 죽으면 인계서는 조용히 안 들어간다 — 이 PR에서 안 고친다.
 # 끄기: BATON_HANDOFF_INJECT=off. 이 스위치들과 추가 트리거 말은 환경변수 또는 설정 파일에서 읽는다(lib/config.py, /baton-setup).
+# 개념 색인: 저장소에 CONCEPTS.md가 있으면 세션의 첫 사람 프롬프트에 한 번 개념 색인(lib/concepts.py index — 개념마다
+# 이름·한 줄·주요 파일 한 줄, 최대 concepts.INDEX_LIMIT_CHARS자)을 인계서 뒤에 넣는다. 에이전트가 스스로 고른다(북극성 3절 기준선 ②).
+# 같은 세션 기억 파일에 index_offset으로 따로 적어, 인계서와 색인이 각자 한 번씩 들어간다. 압축 뒤에는 인계서처럼 다시 넣는다.
+# 예산: 색인 몫을 먼저 잡고 인계서 본문 예산을 그만큼 줄이되, HANDOFF_KEEP(8,700자 인계서 + 끝 줄바꿈) 밑으로는 줄이지 않는다.
+# 둘 다 안 들어가면 색인을 줄인다(인계서를 줄이지 않는다). 끄기: BATON_CONCEPT_INDEX=off. 무엇이 터져도 색인만 빠진다(fail-open).
+# 세션 id가 없으면 기억을 못 해 프롬프트마다 넣는다(인계서와 같은 쪽 — Claude Code·Codex는 늘 세션 id를 준다).
 # 실험: BATON_CONCEPT_INJECT=on 이면 프롬프트가 개념 제목을 가리킬 때 CONCEPTS.md의 해당 절만 넣는다.
 #
 # 관찰(북극성 길 단계 1): 프롬프트마다 규칙 판단(lib/rules.py)과 실제로 넣은 것을 판단 로그에 한 줄 남긴다.
@@ -34,12 +40,13 @@
 import hashlib, json, os, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
-import config, rules, runlog
+import concepts, config, rules, runlog
 
 LIMIT = 200
 LIMIT_CHARS = 9600  # 훅 출력 전체(문서 상한 10,000자 − 여유 400)
 TAIL_RESERVE = 200  # 잘렸을 때 붙이는 꼬리 안내 몫
 CONCEPT_LIMIT_CHARS = 2000
+HANDOFF_KEEP = 8701  # 색인 몫 때문에 인계서 본문 예산을 이 밑으로 줄이지 않는다 — 검사기 상한 8,700자(PR #14) + 끝 줄바꿈
 TRIGGER = rules.TRIGGER
 SEEN_SCAN_MAX = 64 * 1024 * 1024  # 넣은 뒤 세션 기록이 이보다 많이 자랐으면 읽지 않고 다시 넣는다(43MB 세션 기록 실측, 11-18)
 SEEN_KEEP_DAYS = 7
@@ -118,21 +125,44 @@ def compacted_since(transcript, offset):
         return False
 
 
-def already_injected(data, sha):
+def read_seen(data):
+    """(기억 파일 경로 또는 None, 기억 dict). 못 읽거나 깨졌으면 빈 dict — 넣는 쪽."""
     p = seen_path(data.get("session_id"))
     if not p:
-        return False
+        return None, {}
     try:
         with open(p, encoding="utf-8") as f:
             seen = json.load(f)
+        return p, seen if isinstance(seen, dict) else {}
+    except Exception:
+        return p, {}
+
+
+def already_injected(data, sha):
+    p, seen = read_seen(data)
+    if not p or "sha" not in seen:
+        return False
+    try:
         return seen.get("sha") == sha and not compacted_since(data.get("transcript_path"), int(seen.get("offset", 0)))
     except Exception:
         return False  # 기억을 못 읽으면 넣는다 — 예전 동작
 
 
-def remember_injected(data, sha):
-    """넣은 내용의 해시와 그때의 세션 기록 크기를 남긴다. 실패는 조용히 넘긴다(다음에 또 넣을 뿐)."""
-    p = seen_path(data.get("session_id"))
+def index_injected(data):
+    """이 세션에 개념 색인을 이미 넣었나(그 뒤 압축되지 않았나). 기억이 없거나 깨졌으면 False — 넣는다."""
+    p, seen = read_seen(data)
+    if not p or "index_offset" not in seen:
+        return False
+    try:
+        return not compacted_since(data.get("transcript_path"), int(seen["index_offset"]))
+    except Exception:
+        return False
+
+
+def remember_injected(data, sha=None, index=False):
+    """넣은 인계서의 해시와 그때의 세션 기록 크기(offset), 색인을 넣었으면 그때의 크기(index_offset)를 남긴다.
+    한 파일에 둘을 같이 두고 안 넣은 쪽 기억은 그대로 둔다. 실패는 조용히 넘긴다(다음에 또 넣을 뿐)."""
+    p, seen = read_seen(data)
     if not p:
         return
     try:
@@ -140,6 +170,10 @@ def remember_injected(data, sha):
             offset = os.path.getsize(data.get("transcript_path"))
         except (OSError, TypeError):
             offset = 0
+        if sha is not None:
+            seen.update(sha=sha, offset=offset)
+        if index:
+            seen["index_offset"] = offset
         d = os.path.dirname(p)
         os.makedirs(d, mode=0o700, exist_ok=True)
         cut = time.time() - SEEN_KEEP_DAYS * 86400
@@ -151,15 +185,16 @@ def remember_injected(data, sha):
                 pass
         tmp = f"{p}.{os.getpid()}.tmp"
         with os.fdopen(os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
-            json.dump({"sha": sha, "offset": offset}, f)
+            json.dump(seen, f)
         os.replace(tmp, p)
     except Exception:
         pass
 
 
-def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None):
+def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None, reserve=0):
     """(넣을 텍스트, 넣은 것 dict, 건너뛴 이유). 조건이 안 맞으면 ("", None, None).
-    넣을 조건인데 건너뛰면 이유를 남긴다: machine(사람이 친 프롬프트가 아님) · already(이 세션에 같은 내용을 이미 넣음)."""
+    넣을 조건인데 건너뛰면 이유를 남긴다: machine(사람이 친 프롬프트가 아님) · already(이 세션에 같은 내용을 이미 넣음).
+    reserve는 같은 출력에 뒤따를 개념 색인 몫 — 본문 예산을 그만큼 줄이되 HANDOFF_KEEP 밑으로는 줄이지 않는다."""
     if off("BATON_HANDOFF_INJECT", repo):
         return "", None, None
     if not rules.trigger_words(repo, prompt):
@@ -178,7 +213,8 @@ def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None):
     deadline = None if hook_deadline is None else min(time.monotonic() + rules.GIT_BUDGET, hook_deadline)
     fresh = rules.safe_freshness(repo, text, deadline)
     head = HEAD + "\n" + rules.freshness_line(fresh)
-    budget = LIMIT_CHARS - len(head) - TAIL_RESERVE  # 신선도 한 줄을 먼저 만들고 실제 길이를 뺀다
+    full = LIMIT_CHARS - len(head) - TAIL_RESERVE  # 신선도 한 줄을 먼저 만들고 실제 길이를 뺀다
+    budget = max(min(full, HANDOFF_KEEP), full - reserve)
     keep, used = 0, 0
     for ln in lines[:LIMIT]:
         if used + len(ln) + 1 > budget: break
@@ -191,7 +227,22 @@ def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None):
                  "days": fresh["days"], "commits_after": fresh["commits_after"]}, None
 
 
-def observe(repo, prompt, data, handoff, concept, skip=None):
+def concept_index(repo, data, machine):
+    """(CONCEPTS.md 본문, 상대 경로, 건너뛴 이유). 넣을 조건이면 이유 None. 이유: off · no_map · machine · already."""
+    if off("BATON_CONCEPT_INDEX", repo):
+        return "", "", "off"
+    path, rel = rules.concept_path(repo)
+    if not path:
+        return "", "", "no_map"
+    if machine:
+        return "", "", "machine"
+    if index_injected(data):
+        return "", "", "already"
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return f.read(), rel, None
+
+
+def observe(repo, prompt, data, handoff, concept, skip=None, index_chars=None, index_skip=None):
     h = handoff or {}
     try:
         runlog.append({
@@ -200,7 +251,8 @@ def observe(repo, prompt, data, handoff, concept, skip=None):
             "prompt_chars": len(prompt), "decision": rules.decide(repo, prompt),
             "acted": {"handoff_lines": h.get("lines", 0), "handoff_total": h.get("total"),
                       "handoff_days": h.get("days"), "handoff_commits_after": h.get("commits_after"),
-                      "handoff_skip": skip, "concept": concept},
+                      "handoff_skip": skip, "concept": concept,
+                      "concept_index": index_chars, "concept_index_skip": index_skip},
         })
     except Exception:
         pass  # 관찰이 실패해도 주입과 프롬프트는 그대로 간다
@@ -215,17 +267,37 @@ def main():
     repo = rules.repo_root()  # HEAD와 같이 프로세스 cwd 기준(Claude Code는 CLAUDE_PROJECT_DIR, Codex는 세션 cwd에서 훅을 돌린다)
     # 다른 세션·작업 알림이 보낸 메시지에는 인계서도 개념도 넣지 않는다 — 사람이 부른 것이 아니다
     machine = rules.machine_prompt(prompt)
-    htext, handoff, skip = inject_handoff(repo, prompt, data, machine, t0 + HOOK_DEADLINE)
+    # 개념 색인 몫을 먼저 잡는다 — 무엇이 터져도 색인만 빠지고 인계서는 그대로 간다
+    itext, iskip = "", None
+    try:
+        mtext, rel, iskip = concept_index(repo, data, machine)
+        if iskip is None:
+            itext = concepts.index(mtext, concepts.INDEX_LIMIT_CHARS, rel)
+            iskip = None if itext else "empty"
+    except Exception:
+        mtext, itext, iskip = "", "", "error"
+    htext, handoff, skip = inject_handoff(repo, prompt, data, machine, t0 + HOOK_DEADLINE,
+                                          len(itext) + 1 if itext else 0)
     ctext, concept = ("", None) if machine else inject_concept(repo, prompt)
-    if htext or ctext:
+    if itext:
+        try:  # 인계서·개념 절 뒤에 남은 자리만 쓴다. 안 맞으면 색인을 줄이고, 그래도 안 되면 뺀다
+            sep = 1 if htext else 0
+            room = LIMIT_CHARS - len(htext) - len(ctext) - sep - (1 if ctext else 0)
+            if len(itext) > room:
+                itext = concepts.index(mtext, room, rel) if room > 0 else ""
+                iskip = None if itext else "budget"
+        except Exception:
+            itext, iskip = "", "error"
+    if htext or itext or ctext:
         # 일반 stdout은 Claude Code만 맥락에 넣는다. Codex는 additionalContext만 받는다(10-01 실제 Codex 세션 확인) — 둘 다 받는 JSON으로 낸다
-        out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": htext + ctext}}
+        ctx = "\n".join(x for x in (htext, itext, ctext) if x)
+        out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ctx}}
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
         sys.stdout.flush()
-    observe(repo, prompt, data, handoff, concept, skip)
-    if handoff:
+    observe(repo, prompt, data, handoff, concept, skip, len(itext) if itext else None, iskip)
+    if handoff or itext:
         # 맨 끝에 기억한다 — 출력 뒤에 훅이 죽으면 출력이 버려질 수 있다. 그때 기억이 없어야 다음에 다시 넣는다
-        remember_injected(data, handoff["sha"])
+        remember_injected(data, handoff["sha"] if handoff else None, bool(itext))
 
 
 if __name__ == "__main__":
