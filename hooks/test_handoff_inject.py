@@ -505,7 +505,7 @@ class HookOutputBudgetTest(unittest.TestCase):
         return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"], acted
 
     def test_keep_follows_the_checker_cap(self):
-        # 검사기를 통과한 인계서(8,700자 — PR #14 뒤, 9,000자 — 이 브랜치)는 색인 몫 때문에 잘리지 않는다
+        # 검사기를 통과한 인계서(8,700자)는 색인 몫 때문에 잘리지 않는다. 9,000자는 검사기 상한이 바뀌어도 같은지 보는 값
         hook = self.load()
         self.assertEqual(hook.HANDOFF_KEEP, hook.handoff_check.MAX_CHARS + 1)
         for cap in (8700, 9000):

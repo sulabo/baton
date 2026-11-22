@@ -53,7 +53,7 @@ LIMIT_CHARS = 9600  # 훅 출력 전체(문서 상한 10,000자 − 여유 400)
 TAIL_RESERVE = 200  # 잘렸을 때 붙이는 꼬리 안내 몫
 CONCEPT_LIMIT_CHARS = 2000
 HANDOFF_KEEP = handoff_check.MAX_CHARS + 1  # 색인 몫 때문에 인계서 본문 예산을 이 밑으로 줄이지 않는다 — 검사기 상한 + 끝 줄바꿈
-# (이 브랜치 9,000자 → 9,001, PR #14 뒤 8,700자 → 8,701. 상수를 따로 두면 검사기와 갈라진다 — 리뷰 MEDIUM-1)
+# (검사기 8,700자 → 8,701. 상수를 따로 두면 검사기와 갈라진다 — 리뷰 MEDIUM-1)
 TRIGGER = rules.TRIGGER
 SEEN_SCAN_MAX = 64 * 1024 * 1024  # 넣은 뒤 세션 기록이 이보다 많이 자랐으면 읽지 않고 다시 넣는다(43MB 세션 기록 실측, 11-18)
 SEEN_KEEP_DAYS = 7
