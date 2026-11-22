@@ -276,7 +276,7 @@ class FollowupTest(RepoCase):
 
 
 class VerdictDocsTest(unittest.TestCase):
-    """fresh.sh가 내는 판정 이름이 README.ko.md·SKILL.md 판정 표에 모두 있고, README.md의 개수가 SKILL.md와 같다."""
+    """fresh.sh가 내는 판정 이름이 docs/GUIDE.ko.md·SKILL.md 판정 표에 모두 있고, docs/GUIDE.md의 개수가 SKILL.md와 같다."""
     ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     def read(self, rel):
@@ -292,7 +292,7 @@ class VerdictDocsTest(unittest.TestCase):
         return out
 
     def test_korean_readme_and_skill_list_every_verdict(self):
-        for rel in ("README.ko.md", "skills/driftmap/SKILL.md"):
+        for rel in ("docs/GUIDE.ko.md", "skills/driftmap/SKILL.md"):
             text = self.read(rel)
             for label in sorted(self.labels()):
                 with self.subTest(doc=rel, label=label):
@@ -300,14 +300,14 @@ class VerdictDocsTest(unittest.TestCase):
 
     def test_english_readme_count_matches_skill(self):
         self.assertIn("아홉 가지", self.read("skills/driftmap/SKILL.md"))
-        self.assertIn("nine verdicts", self.read("README.md"))
-        self.assertIn("판정은 아홉 가지", self.read("README.ko.md"))
-        self.assertIn("outside the current history", self.read("README.md"))
+        self.assertIn("nine verdicts", self.read("docs/GUIDE.md"))
+        self.assertIn("판정은 아홉 가지", self.read("docs/GUIDE.ko.md"))
+        self.assertIn("outside the current history", self.read("docs/GUIDE.md"))
 
     def test_rule_concept_without_hash_reason_is_written(self):  # 해시 미상 규칙 개념이 알림을 안 내는 이유
         self.assertIn("미상인 규칙 개념은 알림을 내지 않는다", self.read("skills/driftmap/SKILL.md"))
-        self.assertIn("미상인 규칙 개념은 알림을 내지 않습니다", self.read("README.ko.md"))
-        self.assertIn("A rule concept whose commit is unknown does not trigger the notice", self.read("README.md"))
+        self.assertIn("미상인 규칙 개념은 알림을 내지 않습니다", self.read("docs/GUIDE.ko.md"))
+        self.assertIn("A rule concept whose commit is unknown does not trigger the notice", self.read("docs/GUIDE.md"))
 
 
 if __name__ == "__main__":
