@@ -1,0 +1,692 @@
+<!doctype html>
+<!-- 한국어판. 영어판 site/index.html과 구조·CSS·JS를 같게 둔다(손으로 맞춘다).
+     ponytail: 두 벌이라 갈라질 수 있다 — tools/test_site.py가 요소 id와 측정 숫자만 맞춰 본다. 판이 더 늘면 한 템플릿에서 만든다. -->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>baton — AI가 새 대화마다 프로젝트를 다시 읽지 않게</title>
+<meta name="description" content="Claude Code와 Codex에서 쓰는 플러그인이에요. 새 대화는 한 장짜리 인계서로 이어받고, 필요한 파일은 개념 지도로 찾아요.">
+<link rel="canonical" href="https://sulabo.github.io/baton/ko/">
+<link rel="alternate" hreflang="en" href="https://sulabo.github.io/baton/">
+<link rel="alternate" hreflang="ko" href="https://sulabo.github.io/baton/ko/">
+<link rel="alternate" hreflang="x-default" href="https://sulabo.github.io/baton/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@400;600&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+/* Hallmark · macrostructure: Split Studio (studied) · H2 hero knobs: ratio=5/7, right=real-output card, divider=negative-space
+ * nav: N10 scroll-morph (opacity/transform only) · footer: Ft5 statement + link row
+ * theme: studied-DNA (source: https://hellosol.app) — dress: "A · Paper relay"
+ * paper oklch(0.992 0.002 255) · accent oklch(0.5 0.17 262) cobalt · display Zilla Slab 400 · body Hanken Grotesk · mono JetBrains Mono
+ * motion: entrance blur+rise (one curve) · relay line draw · nav morph · sticky 3-step story · drift rows stagger · reduced-motion = off
+ * studied: yes · DNA-source: url + browser capture · pre-emit critique: P4 H4 E4 S5 R4 V4
+ */
+/* Layout: one message per screen; asymmetric hero, sticky three-step story, dark measured band, centred install, FAQ, statement footer. */
+:root {
+  color-scheme: light;
+  --paper: oklch(0.992 0.002 255);
+  --paper-2: oklch(0.972 0.005 260);
+  --ink: oklch(0.25 0.025 265);
+  --ink-2: oklch(0.42 0.02 265);
+  --ink-3: oklch(0.5 0.018 265);
+  --ink-quiet: oklch(0.64 0.015 265);
+  --line: oklch(0.9 0.008 265);
+  --card: oklch(1 0 0);
+  --field: oklch(0.955 0.006 265);
+  --accent: oklch(0.5 0.17 262);
+  --accent-hover: oklch(0.44 0.17 262);
+  --accent-soft: oklch(0.5 0.17 262 / 0.1);
+  --on-accent: oklch(0.99 0 0);
+  --night: oklch(0.2 0.03 265);
+  --night-2: oklch(0.26 0.07 262);
+  --night-3: oklch(0.33 0.11 262);
+  --night-ink: oklch(0.97 0.006 255);
+  --night-ink-2: oklch(0.86 0.025 260);
+  --night-line: oklch(1 0 0 / 0.14);
+  --warn: oklch(0.55 0.15 45);
+  --ok: oklch(0.5 0.12 155);
+  --shadow: 0 1px 2px oklch(0.25 0.025 265 / 0.06), 0 16px 40px -16px oklch(0.25 0.025 265 / 0.22);
+
+  --font-display: "Zilla Slab", "Pretendard Variable", Pretendard, Rockwell, Georgia, serif;
+  --font-ui: "Hanken Grotesk", "Pretendard Variable", Pretendard, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Pretendard Variable", Pretendard, ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.125rem;
+  --text-h3: clamp(1.375rem, 1.1rem + 0.9vw, 1.75rem);
+  --text-h2: clamp(2rem, 1.3rem + 2.2vw, 3rem);
+  --text-display: clamp(2.25rem, 1.3rem + 2.4vw, 3.4rem);
+
+  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem; --space-6: 1.5rem; --space-8: 2rem;
+  --space-12: 3rem; --space-16: 4rem; --space-24: 6rem;
+  --section: clamp(80px, 9vw, 136px);
+  --max: 1180px;
+  --radius: 12px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 150ms; --dur-mid: 600ms; --dur-slow: 900ms;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-ui); font-size: var(--text-md); line-height: 1.6;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.container { max-width: var(--max); margin: 0 auto; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+code { font-family: var(--font-mono); font-size: 0.92em; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 400; font-style: normal; color: var(--ink); margin: 0; text-wrap: balance; overflow-wrap: anywhere; min-width: 0; }
+h2 { font-size: var(--text-h2); line-height: 1.06; letter-spacing: -0.03em; }
+h3 { font-size: var(--text-h3); line-height: 1.15; letter-spacing: -0.02em; }
+p { margin: 0; }
+.mark-accent { color: var(--accent); }
+.label { font: 600 0.75rem/1.4 var(--font-ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
+.lede { font-size: var(--text-lg); line-height: 1.6; color: var(--ink-2); max-width: 46ch; }
+.muted { color: var(--ink-3); }
+
+/* ---------- nav (N10 scroll-morph: transform + opacity only) ---------- */
+.nav { position: fixed; z-index: 20; top: calc(env(safe-area-inset-top, 0px) + 14px); left: 0; right: 0; pointer-events: none; }
+.nav-bar { position: relative; max-width: 780px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  padding: 8px 8px 8px 18px; pointer-events: auto; }
+.nav-bar::before { content: ""; position: absolute; inset: 0; border-radius: 999px; background: oklch(1 0 0 / 0.97); border: 1px solid var(--line);
+  box-shadow: 0 8px 24px -12px oklch(0.25 0.025 265 / 0.25); opacity: 0; transform: scale(0.97);
+  transition: opacity var(--dur-mid) var(--ease-out), transform var(--dur-mid) var(--ease-out); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.nav.is-scrolled .nav-bar::before { opacity: 1; transform: none; }
+.wordmark { position: relative; display: inline-flex; align-items: center; gap: 10px; font: 600 1.25rem/1 var(--font-display); letter-spacing: -0.01em; text-decoration: none; color: var(--ink); white-space: nowrap; }
+.wordmark svg { width: 34px; height: 17px; flex: none; overflow: visible; }
+.nav-links { position: relative; display: flex; align-items: center; gap: var(--space-6); list-style: none; margin: 0; padding: 0; }
+.nav-links a { font-size: var(--text-sm); font-weight: 500; color: var(--ink-2); text-decoration: none; white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
+.nav-links a:hover { color: var(--ink); }
+.nav-cta { font: 600 var(--text-xs)/1 var(--font-ui); color: var(--on-accent) !important; background: var(--accent); border-radius: 999px; padding: 0.7rem 1rem;
+  opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.nav.is-scrolled:not(.cta-hidden) .nav-cta { opacity: 1; transform: none; pointer-events: auto; }
+.nav-cta:hover { background: var(--accent-hover); }
+
+/* ---------- hero ---------- */
+.hero { position: relative; padding-top: clamp(120px, 16vw, 200px); padding-bottom: var(--section); }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: clamp(32px, 6vw, 88px); align-items: center; }
+.hero-copy { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); min-width: 0; }
+.pill { justify-self: start; display: inline-flex; align-items: center; gap: 8px; max-width: 100%; font-size: var(--text-xs); font-weight: 500; color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px 4px 4px; background: var(--card); text-decoration: none; transition: border-color var(--dur-fast) var(--ease-out); }
+.pill:hover { border-color: var(--ink-quiet); }
+.pill b { flex: none; white-space: nowrap; font-weight: 600; color: var(--on-accent); background: var(--accent); border-radius: 999px; padding: 2px 8px; }
+.pill span { min-width: 0; overflow-wrap: anywhere; }
+.hero h1 { font-size: var(--text-display); line-height: 1.02; letter-spacing: -0.035em; }
+.install { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); align-items: center; }
+.cmd { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; font: 400 var(--text-sm)/1.3 var(--font-mono); color: var(--ink);
+  background: var(--field); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 16px; }
+.cmd code { white-space: nowrap; overflow-x: auto; min-width: 0; scrollbar-width: none; font-size: 1em; }
+.copy { font: 600 var(--text-xs)/1 var(--font-ui); color: var(--on-accent); background: var(--accent); border: 0; border-radius: 999px; padding: 0.65rem 1rem;
+  cursor: pointer; white-space: nowrap; transition: background-color var(--dur-fast) var(--ease-out); }
+.copy:hover { background: var(--accent-hover); }
+.copy:active { transform: translateY(1px); }
+.copy[data-state="done"] { background: var(--ok); }
+.textlink { font-size: var(--text-sm); font-weight: 500; color: var(--ink-2); text-decoration: none; white-space: nowrap; border-bottom: 1px solid var(--line); padding-bottom: 2px;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
+.textlink:hover { color: var(--ink); border-color: var(--ink-2); }
+.note { font-size: var(--text-xs); color: var(--ink-3); }
+.relay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.relay path { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: 0.5; }
+
+/* ---------- card (real output) ---------- */
+.card { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: 12px 16px; border-bottom: 1px solid var(--line);
+  font-size: var(--text-xs); color: var(--ink-2); }
+.card-top strong { color: var(--ink); font-weight: 600; }
+.tag { font: 500 0.6875rem/1 var(--font-mono); letter-spacing: 0.02em; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; white-space: nowrap; }
+.rows { display: grid; }
+.row { padding: 14px 16px; display: grid; gap: 6px; border-bottom: 1px solid var(--line); min-width: 0; }
+.row:last-child { border-bottom: 0; }
+.row-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: center; font-size: var(--text-sm); font-weight: 600; }
+.out { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.65; color: var(--ink); overflow-wrap: anywhere; }
+.out .b { color: var(--accent); }
+.out .w { color: var(--warn); }
+.fresh { display: inline-flex; align-items: center; gap: 6px; }
+.fresh i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.table-wrap { overflow-x: auto; }
+.drift { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.drift th { text-align: left; font-weight: 500; color: var(--ink-3); padding: 10px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.drift td { padding: 10px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.drift tr:last-child td { border-bottom: 0; }
+.v-re { color: var(--warn); }
+.v-fresh { color: var(--ok); }
+.summary { padding: 12px 16px; border-top: 1px solid var(--line); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-2); }
+
+/* ---------- pin: hero stays while the problem band covers it ---------- */
+.pin { position: relative; }
+.problem, .story, .mapsec, .measured, .diff, .get, .faq, .foot { position: relative; z-index: 1; }
+.story, .mapsec, .diff, .get, .faq, .foot { background: var(--paper); }
+@media (min-width: 900px) { .js .pin > .hero { position: sticky; top: 0; z-index: 0; } }
+.hero-fade { transform-origin: 50% 30%; will-change: opacity, transform, filter; }
+
+/* ---------- lenis ---------- */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+/* ---------- problem ---------- */
+.problem { padding-block: calc(var(--section) + 40px) var(--section); background: linear-gradient(to bottom, oklch(0.992 0.002 255 / 0) 0, var(--paper) 160px); }
+.problem-inner { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(32px, 6vw, 96px); align-items: end; }
+.big-num { font: 400 clamp(4.5rem, 2rem + 9vw, 9rem)/0.9 var(--font-display); letter-spacing: -0.04em; color: var(--ink); }
+.big-num small { font-size: 0.42em; letter-spacing: -0.02em; color: var(--ink-3); }
+
+/* ---------- story (Sol-style: pinned stage, sliding step track, sliding panel strip) ---------- */
+.story { position: relative; }
+.story-sticky { padding-block: var(--section); }
+.story-head { display: grid; gap: var(--space-4); margin-bottom: var(--space-16); max-width: 40rem; }
+.story-grid { position: relative; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 6vw, 88px); align-items: center; }
+.steps-window { position: relative; min-width: 0; }
+.steps { list-style: none; margin: 0; padding: 0 0 0 28px; display: grid; gap: var(--space-12); }
+.rail { position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--line); border-radius: 2px; overflow: hidden; z-index: 1; }
+.rail i { position: absolute; inset: 0; background: var(--accent); transform-origin: top; transform: scaleY(var(--p, 0)); }
+.step { display: grid; gap: var(--space-3); align-content: center; }
+.step-num { font: 500 var(--text-xs)/1 var(--font-mono); color: var(--accent); transition: color var(--dur-mid) var(--ease-out); }
+.step h3 { transition: color var(--dur-mid) var(--ease-out); }
+.step p { color: var(--ink-2); max-width: 38ch; transition: color var(--dur-mid) var(--ease-out); }
+.panel { min-width: 0; margin-top: var(--space-6); }
+.strip-window { display: none; }
+
+@media (min-width: 900px) {
+  .js .story { height: 420vh; }
+  .js .story-sticky { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding-block: 80px 32px; }
+  .js .story-head { margin-bottom: clamp(20px, 4vh, 44px); }
+  .js .steps-window { height: var(--window-h, 380px); overflow: hidden;
+    -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent); mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent); }
+  .js .steps { gap: 0; transform: translateY(var(--track-y, 0px)); transition: transform 850ms var(--ease-out); }
+  .js .step { min-height: var(--step-h, 190px); }
+  .js .step:not(.is-active) h3, .js .step:not(.is-active) p, .js .step:not(.is-active) .step-num { color: var(--ink-quiet); }
+  .js .strip-window { display: block; height: var(--panel-h, 420px); overflow: hidden; border-radius: var(--radius); min-width: 0; }
+  .js .strip { display: grid; transform: translateY(var(--strip-y, 0px)); transition: transform 950ms var(--ease-in-out); }
+  .js .strip .panel { margin: 0; height: var(--panel-h, 420px); display: grid; align-items: center; padding: 2px; }
+}
+
+/* ---------- index (concept map) ---------- */
+.mapsec { padding-block: var(--section); }
+.map-grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: clamp(32px, 6vw, 88px); align-items: start; }
+.map-copy { display: grid; gap: var(--space-6); }
+.facts { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); border-top: 1px solid var(--line); }
+.facts li { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); gap: var(--space-4); padding-top: var(--space-4); border-bottom: 1px solid var(--line); padding-bottom: var(--space-4); }
+.facts b { font-weight: 600; }
+.facts span { color: var(--ink-2); }
+.drift tbody tr { transition: opacity var(--dur-mid) var(--ease-out), transform var(--dur-mid) var(--ease-out); }
+.armed .drift tbody tr { opacity: 0; transform: translateY(8px); }
+
+/* ---------- measured (night band) ---------- */
+.measured { color: var(--night-ink); background: linear-gradient(180deg, var(--paper) 0, var(--night) 240px, var(--night) 42%, var(--night-2) 72%, var(--night-3) calc(100% - 260px), var(--paper) 100%); padding-block: calc(var(--section) + 200px) calc(var(--section) + 220px); }
+.measured h2 { color: var(--night-ink); }
+.measured .label { color: var(--night-ink-2); }
+.measured-head { display: grid; gap: var(--space-4); max-width: 44rem; margin-bottom: var(--space-16); }
+.measured-head p { color: var(--night-ink-2); }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--night-line); }
+.stat { padding: var(--space-8) var(--space-8) var(--space-8) 0; border-bottom: 1px solid var(--night-line); display: grid; gap: var(--space-3); align-content: start; }
+.stat:nth-child(odd) { border-right: 1px solid var(--night-line); }
+.stat:nth-child(even) { padding-left: var(--space-8); }
+.stat .n { font: 400 clamp(2.25rem, 1.4rem + 2.6vw, 3.5rem)/1 var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--night-ink); }
+.stat p { color: var(--night-ink-2); max-width: 42ch; }
+.stat .scope { font-size: var(--text-xs); color: var(--night-ink-2); }
+.measured a { color: var(--night-ink); }
+
+/* ---------- different ---------- */
+.diff { padding-block: var(--section); }
+.diff-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 6vw, 88px); }
+.diff ol { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--line); }
+.diff li { padding: var(--space-6) 0; border-bottom: 1px solid var(--line); display: grid; gap: var(--space-2); }
+.diff li p { color: var(--ink-2); }
+.diff .aside { font-size: var(--text-sm); color: var(--ink-3); margin-top: var(--space-6); max-width: 60ch; }
+
+/* ---------- install ---------- */
+.get { padding-block: var(--section); text-align: center; }
+.get-inner { display: grid; gap: var(--space-8); justify-items: center; max-width: 44rem; margin: 0 auto; }
+.tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
+.tabs button { font: 500 var(--text-sm)/1 var(--font-ui); color: var(--ink-2); background: transparent; border: 0; border-radius: 999px; padding: 0.6rem 1rem; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+.tabs button:hover:not([aria-selected="true"]) { color: var(--ink); }
+.tabpanel { display: grid; gap: var(--space-3); justify-items: center; width: 100%; }
+.tabpanel[hidden] { display: none; } /* 위 display가 hidden 속성을 덮어써 두 탭이 함께 보였다 */
+.tabpanel .cmd { width: min(100%, 34rem); justify-content: space-between; }
+.tabpanel .note { max-width: 46ch; }
+
+/* ---------- faq ---------- */
+.faq { padding-block: var(--section); }
+.faq-inner { max-width: 50rem; margin: 0 auto; display: grid; gap: var(--space-8); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { cursor: pointer; list-style: none; padding: var(--space-6) 0; display: flex; justify-content: space-between; gap: var(--space-4); font-weight: 600; font-size: var(--text-lg); }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font: 400 1.25rem/1 var(--font-mono); color: var(--ink-3); transition: transform var(--dur-fast) var(--ease-out); }
+.faq details[open] summary::after { transform: rotate(45deg); }
+.faq details p { color: var(--ink-2); padding-bottom: var(--space-6); max-width: 62ch; }
+
+/* ---------- footer ---------- */
+.foot { padding-block: var(--space-24) var(--space-12); border-top: 1px solid var(--line); }
+.foot-inner { display: grid; gap: var(--space-12); }
+.foot-statement { font: 400 clamp(1.75rem, 1.1rem + 2vw, 2.75rem)/1.1 var(--font-display); letter-spacing: -0.03em; max-width: 22ch; text-wrap: balance; }
+.foot-row { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-8); align-items: center; justify-content: space-between; font-size: var(--text-sm); color: var(--ink-3); }
+.foot-links { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); list-style: none; margin: 0; padding: 0; }
+.foot-links a { color: var(--ink-2); text-decoration: none; white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
+.foot-links a:hover { color: var(--accent); }
+
+/* ---------- motion ---------- */
+@keyframes rise { from { opacity: 0; transform: translateY(28px); filter: blur(12px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.js .enter { animation: rise var(--dur-slow) var(--ease-out) both; }
+.js .enter.d1 { animation-delay: 120ms; } .js .enter.d2 { animation-delay: 220ms; } .js .enter.d3 { animation-delay: 320ms; } .js .enter.d4 { animation-delay: 470ms; }
+.js .relay { animation: draw 1200ms 650ms var(--ease-out) both; }
+
+@media (max-width: 899px) {
+  .hero-grid, .problem-inner, .story-grid, .map-grid, .diff-grid { grid-template-columns: minmax(0, 1fr); }
+  .nav-links li.hide-sm { display: none; }
+  .relay { display: none; }
+  .steps { gap: var(--space-16); }
+  .stats { grid-template-columns: minmax(0, 1fr); }
+  .stat, .stat:nth-child(even) { padding: var(--space-6) 0; border-right: 0 !important; }
+  .facts li { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .js .enter, .js .relay { animation: none; }
+  *, *::before, *::after { transition-duration: 1ms !important; }
+  .armed .drift tbody tr { opacity: 1; transform: none; }
+}
+/* 한국어판: 한글은 Pretendard(라틴 글자는 영어판 글꼴 그대로), 낱말 중간에서 줄을 바꾸지 않는다 */
+body { word-break: keep-all; }
+.label { letter-spacing: 0.04em; } /* 한글에 넓은 자간을 주면 띄어 쓴 것처럼 보인다 */
+</style>
+</head>
+<body>
+
+<header class="nav gutter" id="nav">
+  <div class="nav-bar enter">
+    <a class="wordmark" href="#top" aria-label="baton, 맨 위로"><svg viewBox="0 0 100 50" aria-hidden="true"><path d="M66.87 12.32 C67.41 12.12 67.95 11.93 68.51 11.77 C69.07 11.60 69.64 11.45 70.21 11.33 C70.79 11.20 71.38 11.10 71.98 11.02 C72.58 10.95 73.18 10.89 73.80 10.87 C74.41 10.85 75.03 10.85 75.66 10.89 C76.28 10.93 76.91 11.00 77.54 11.11 C78.16 11.22 78.80 11.36 79.42 11.55 C80.04 11.73 80.66 11.95 81.27 12.21 C81.87 12.47 82.47 12.77 83.05 13.11 C83.63 13.46 84.19 13.84 84.72 14.27 C85.25 14.69 85.77 15.16 86.24 15.66 C86.71 16.16 87.16 16.70 87.56 17.28 C87.95 17.85 88.32 18.46 88.63 19.09 C88.93 19.72 89.20 20.39 89.41 21.07" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/><path d="M89.41 28.93 C89.09 29.98 88.62 31.01 88.06 31.94 C87.51 32.87 86.82 33.74 86.08 34.51 C85.34 35.27 84.49 35.95 83.62 36.53 C82.75 37.10 81.81 37.58 80.86 37.96 C79.92 38.34 78.93 38.61 77.96 38.81 C76.99 39.01 76.00 39.10 75.03 39.13 C74.07 39.17 73.11 39.11 72.18 39.00 C71.25 38.90 70.33 38.71 69.45 38.49 C68.57 38.27 67.71 37.99 66.88 37.68 C66.04 37.37 65.24 37.01 64.47 36.62 C63.69 36.24 62.94 35.82 62.22 35.39 C61.49 34.95 60.79 34.49 60.11 34.01 C59.43 33.54 58.78 33.04 58.14 32.54 C57.50 32.03 56.88 31.51 56.27 30.98 C55.66 30.46 55.07 29.92 54.49 29.38 C53.90 28.84 53.33 28.29 52.77 27.74 C52.20 27.19 51.64 26.64 51.08 26.08 C50.53 25.53 49.97 24.97 49.42 24.42 C48.86 23.86 48.30 23.31 47.74 22.75 C47.18 22.20 46.61 21.65 46.03 21.11 C45.46 20.57 44.87 20.02 44.27 19.49 C43.67 18.96 43.06 18.44 42.43 17.92 C41.80 17.41 41.16 16.91 40.49 16.42 C39.83 15.94 39.14 15.46 38.43 15.01 C37.72 14.56 36.99 14.13 36.23 13.73 C35.46 13.33 34.68 12.95 33.86 12.62 C33.05 12.28 32.21 11.97 31.34 11.72 C30.47 11.47 29.57 11.26 28.66 11.11 C27.74 10.97 26.79 10.87 25.83 10.86 C24.88 10.85 23.90 10.90 22.92 11.04 C21.95 11.18 20.96 11.40 20.00 11.73 C19.04 12.05 18.08 12.46 17.18 12.98 C16.28 13.50 15.40 14.12 14.62 14.83 C13.83 15.53 13.09 16.35 12.47 17.24 C11.85 18.12 11.31 19.11 10.92 20.13 C10.53 21.14 10.24 22.25 10.10 23.34 C9.97 24.43 9.97 25.57 10.10 26.66 C10.24 27.75 10.52 28.86 10.92 29.87 C11.31 30.89 11.85 31.88 12.47 32.76 C13.09 33.65 13.83 34.46 14.61 35.17 C15.40 35.88 16.28 36.50 17.18 37.02 C18.08 37.54 19.04 37.95 20.00 38.27 C20.96 38.60 21.95 38.82 22.92 38.96 C23.89 39.10 24.88 39.15 25.83 39.14 C26.79 39.13 27.74 39.03 28.65 38.89 C29.57 38.74 30.47 38.53 31.34 38.28 C32.21 38.03 33.05 37.72 33.86 37.38 C34.68 37.05 35.46 36.67 36.23 36.27 C36.99 35.87 37.72 35.44 38.43 34.99 C39.14 34.54 39.82 34.06 40.49 33.58 C41.16 33.09 41.80 32.59 42.43 32.08 C43.06 31.56 43.67 31.04 44.27 30.51 C44.87 29.98 45.45 29.43 46.03 28.89 C46.61 28.35 47.18 27.80 47.74 27.25 C48.30 26.69 48.86 26.14 49.42 25.58 C49.97 25.03 50.53 24.47 51.08 23.92 C51.64 23.36 52.20 22.81 52.77 22.26 C53.33 21.71 53.90 21.16 54.49 20.62 C55.07 20.08 55.66 19.54 56.27 19.02 C56.88 18.49 57.50 17.97 58.14 17.47 C58.78 16.96 59.43 16.46 60.11 15.99 C60.79 15.51 61.49 15.05 62.22 14.61 C62.94 14.18 63.69 13.76 64.47 13.38 C65.24 12.99 66.04 12.63 66.87 12.32" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>baton</a>
+    <ul class="nav-links">
+      <li class="hide-sm"><a href="#how">작동 방식</a></li>
+      <li class="hide-sm"><a href="#measured">잰 것</a></li>
+      <li class="hide-sm"><a href="../" hreflang="en" lang="en">English</a></li>
+      <li><a href="https://github.com/sulabo/baton">GitHub</a></li>
+      <li><a class="nav-cta" href="#install" tabindex="-1" id="navcta">설치</a></li>
+    </ul>
+  </div>
+</header>
+
+<main id="top">
+  <div class="pin">
+  <section class="hero gutter" aria-labelledby="hero-title">
+    <svg class="relay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M44 50 C 48 50, 49 54, 53 54" vector-effect="non-scaling-stroke"/></svg>
+    <div class="container hero-grid hero-fade">
+      <div class="hero-copy">
+        <a class="pill enter d1" href="https://github.com/sulabo/baton/releases"><b>새 버전</b><span>v1.0.0-beta.3 · 같은 인계서는 대화마다 한 번만 넣어요</span></a>
+        <h1 id="hero-title" class="enter d1">AI가 새 대화마다 프로젝트를 처음부터 <span class="mark-accent">다시 읽지</span> 않게.</h1>
+        <p class="lede enter d2">지난 대화는 인계서 한 장으로 이어받고, 필요한 파일은 개념 지도로 바로 찾아요.</p>
+        <div class="install enter d3" id="hero-install">
+          <div class="cmd"><code>/plugin marketplace add sulabo/baton</code><button class="copy" type="button" id="copy-hero" data-copy="/plugin marketplace add sulabo/baton">복사</button></div>
+          <a class="textlink" href="https://github.com/sulabo/baton">GitHub에서 보기</a>
+        </div>
+        <p class="note enter d3">Claude Code와 Codex에서 써요. git과 python3가 필요해요. 무료 오픈소스예요(MIT).</p>
+      </div>
+      <figure class="card enter d4" style="margin:0">
+        <div class="card-top"><span><strong>새 대화</strong> · 데모 저장소</span><span class="tag">HANDOFF.md · 한 번만 넣음</span></div>
+        <div class="rows">
+          <div class="row"><div class="row-head"><span>나</span></div><div>어디까지 했지?</div></div>
+          <div class="row"><div class="row-head"><span class="fresh"><i></i>AI가 먼저 받는 줄</span><span class="tag">실제 출력</span></div>
+            <div class="out"><span class="b">[baton]</span> 이 인계서는 2026-11-11(11일 전, 첫 줄 작성일) 기준이다. 그 뒤 커밋 3개는 인계서에 없다 — <code>git log --oneline -3 -- .</code>부터 본다. 11일 지났다 — 다음 행동이 아직 유효한지부터 확인한다.</div></div>
+          <div class="row"><div class="row-head"><span>그다음 인계서 본문</span></div><div class="out"># Session Handoff (작성: 2026-11-11)</div></div>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="problem gutter" aria-labelledby="problem-title">
+    <div class="container problem-inner" data-rise="120">
+      <div class="big-num" aria-hidden="true">41<small> / 42</small></div>
+      <div style="display:grid;gap:var(--space-4)">
+        <p class="label">문제</p>
+        <h2 id="problem-title">새 대화는 읽는 일부터 시작해요.</h2>
+        <p class="muted">만든 사람의 기록을 보면, "어디까지 했지?"로 시작한 대화 42개 중 41개에서 AI가 첫 5번 호출 안에 <code>HANDOFF.md</code>를 다시 읽었어요. 읽은 내용은 대화가 끝날 때까지 맥락에 남아, AI를 부를 때마다 다시 보내져요. 오래된 메모는 지금 코드와 어긋나 있을 수도 있어요.</p>
+      </div>
+    </div>
+  </section>
+
+  </div>
+
+  <section class="story gutter" id="how" aria-labelledby="how-title">
+    <div class="story-sticky">
+      <div class="container">
+        <div class="story-head" data-rise="60">
+          <p class="label">작동 방식</p>
+          <h2 id="how-title">한 장으로 넘기고, <span class="mark-accent">바뀐 곳</span>만 다시 읽어요.</h2>
+        </div>
+        <div class="story-grid" data-rise="160">
+          <div class="steps-window">
+          <span class="rail" aria-hidden="true"><i></i></span>
+          <ol class="steps" id="steps">
+            <li class="step is-active">
+              <span class="step-num">1 · 대화를 마칠 때</span>
+              <h3>인계서를 써요. 저장하는 순간 검사해요.</h3>
+              <p>"인계서 써 줘"라고 말하세요. 정해진 때에 도는 작은 스크립트(훅)가 길이, 꼭 있어야 하는 8개 항목, 비밀값, 홈 폴더 경로, 직접 정해 둔 비공개 단어를 검사해요. 문제가 있으면 AI에게 돌려줘요.</p>
+              <div class="panel">
+                <figure class="card" style="margin:0">
+                  <div class="card-top"><span><strong>저장한 HANDOFF.md</strong> · 데모 저장소</span><span class="tag">실제 출력</span></div>
+                  <div class="rows">
+                    <div class="row"><div class="out"><span class="b">[baton]</span> 방금 쓴 HANDOFF.md에 인계서 검사 문제가 있다. 고친 뒤 다시 저장한다:<br>
+                      <span class="w">- 6줄:</span> API 토큰 의심 값 — 지우거나 일반 표기(~/, &lt;키&gt;)로 바꾼다<br>
+                      <span class="w">- 6줄:</span> 비밀번호·키 대입 의심 값 — 지우거나 일반 표기(~/, &lt;키&gt;)로 바꾼다<br>
+                      <span class="w">- 7줄:</span> 홈 절대경로 의심 값 — 지우거나 일반 표기(~/, &lt;키&gt;)로 바꾼다<br>
+                      <span class="w">- 9,277자</span> — 상한 8,700자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)</div></div>
+                    <div class="row"><div class="row-head"><span>찾은 값은 다시 출력하지 않아요.</span></div></div>
+                  </div>
+                </figure>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step-num">2 · 다음 대화</span>
+              <h3>"어디까지 했지?"라고 물어요. 인계서가 작성 시점과 함께 한 번 들어가요.</h3>
+              <p>훅이 인계서를 맥락에 넣으면서, 언제 썼는지와 그 뒤 커밋이 몇 개인지 알려 주는 한 줄을 붙여요. 한 대화에 한 번만 넣고, 보조 AI(서브에이전트)가 보낸 메시지에는 넣지 않아요.</p>
+              <div class="panel">
+                <figure class="card" style="margin:0">
+                  <div class="card-top"><span><strong>새 대화</strong> · 데모 저장소</span><span class="tag">실제 출력</span></div>
+                  <div class="rows">
+                    <div class="row"><div class="row-head"><span>나</span></div><div>어디까지 했지?</div></div>
+                    <div class="row"><div class="out"><span class="b">[baton]</span> 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). 파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, 다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다.</div></div>
+                    <div class="row"><div class="out"><span class="b">[baton]</span> 이 인계서는 2026-11-11(11일 전, 첫 줄 작성일) 기준이다. 그 뒤 커밋 3개는 인계서에 없다 — <code>git log --oneline -3 -- .</code>부터 본다. 11일 지났다 — 다음 행동이 아직 유효한지부터 확인한다.</div></div>
+                  </div>
+                </figure>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step-num">3 · 커밋한 뒤</span>
+              <h3>파일이 바뀐 개념만 다시 봐요.</h3>
+              <p><code>CONCEPTS.md</code>는 개념마다 관련 파일과 마지막으로 확인한 커밋을 묶어 둬요. baton은 신선한지 짐작하지 않고, 커밋 수를 세요.</p>
+              <div class="panel">
+                <figure class="card" style="margin:0">
+                  <div class="card-top"><span><strong>/drift</strong> · 데모 저장소</span><span class="tag">실제 출력</span></div>
+                  <div class="row"><div class="out"><span class="b">[baton]</span> 개념 지도에 재확인 대상 2건 (신선 1건). 자세히는 /drift</div></div>
+                  <div class="table-wrap"><table class="drift"><thead><tr><th>#</th><th>개념</th><th>상태</th><th>판정</th></tr></thead><tbody>
+                    <tr><td>1</td><td>목숨</td><td>일치</td><td class="v-re">재확인 필요 — 커밋 1건</td></tr>
+                    <tr><td>2</td><td>점수</td><td>일치</td><td class="v-fresh">신선</td></tr>
+                    <tr><td>3</td><td>레벨</td><td>미구현</td><td class="v-re">재확인 필요 — 기준 없음</td></tr>
+                  </tbody></table></div>
+                  <div class="summary">요약: 재확인 2 · 신선 1 · 규칙 개념 0</div>
+                </figure>
+              </div>
+            </li>
+          </ol>
+          </div>
+          <div class="strip-window"><div class="strip" id="strip"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mapsec gutter" aria-labelledby="map-title">
+    <div class="container map-grid">
+      <div class="map-copy" data-rise="80">
+        <p class="label">개념 지도</p>
+        <h2 id="map-title">셀 수 없으면, 셀 수 없다고 말해요.</h2>
+        <p class="muted">한 번도 확인하지 않은 개념은 기준이 없어요. 그래서 신선하다고 세지 않고 따로 표시해요. 판정은 모두 커밋 수이거나, 이름이 붙은 이유예요.</p>
+        <ul class="facts">
+          <li><b>신선</b><span>확인한 뒤로 커밋이 없어요. 다시 읽을 게 없어요.</span></li>
+          <li><b>커밋 N건</b><span>확인한 커밋 뒤에 이 개념의 파일이 바뀌었어요.</span></li>
+          <li><b>기준 없음</b><span>확인한 커밋이 아직 기록되지 않았어요.</span></li>
+          <li><b>문서 커밋 N건</b><span>코드는 그대로인데, 그 코드를 설명하는 문서가 바뀌었어요.</span></li>
+        </ul>
+      </div>
+      <figure class="card" style="margin:0" id="map-card" data-rise="200">
+        <div class="card-top"><span><strong>대화의 첫 프롬프트</strong> · 데모 저장소</span><span class="tag">1,500자 이하 · 실제 출력</span></div>
+        <div class="row"><div class="out"><span class="b">[baton]</span> 이 저장소 개념 지도(CONCEPTS.md) 색인이다. 작업에 맞는 개념의 파일부터 연다. 개념은 탐색 앵커다 — 실제 동작은 코드로 확인한다. 자세한 근거는 CONCEPTS.md의 그 절에.<br>1. 목숨 — 시작할 때 목숨 수 · 파일: src/lives.ts<br>2. 점수 — 코인 하나당 점수 · 파일: src/score.ts<br>3. 레벨 — 레벨 목록, 아직 비어 있음 · 파일: src/levels.ts</div></div>
+        <div class="table-wrap"><table class="drift"><thead><tr><th>#</th><th>개념</th><th>판정</th></tr></thead><tbody>
+          <tr><td>1</td><td>목숨</td><td class="v-re">재확인 필요 — 커밋 1건</td></tr>
+          <tr><td>2</td><td>점수</td><td class="v-fresh">신선</td></tr>
+          <tr><td>3</td><td>레벨</td><td class="v-re">재확인 필요 — 기준 없음</td></tr>
+        </tbody></table></div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="measured gutter" id="measured" aria-labelledby="measured-title">
+    <div class="container">
+      <div class="measured-head" data-rise="80">
+        <p class="label">지금까지 잰 것</p>
+        <h2 id="measured-title">잰 것과, 아직 못 잰 것.</h2>
+        <p>숫자는 모두 만든 사람 한 명이 자기 저장소에서 쓴 기록이에요. 숫자마다 기간과 범위가 달라요. 명령과 출처는 <a href="https://github.com/sulabo/baton/blob/main/CHANGELOG.md">변경 기록</a>에 있어요.</p>
+      </div>
+      <div class="stats" data-rise="160">
+        <div class="stat"><div class="n">41/42 → 3/11</div><p>AI가 첫 5번 호출 안에 <code>HANDOFF.md</code>를 다시 읽은 대화예요. 설치 전과 설치 후를 비교했어요.</p><p class="scope">설치 전 08-31~10-04, 설치 후 10-19~11-20. 설치 후 대화가 11개라, 효과의 크기보다 방향을 보여 줘요.</p></div>
+        <div class="stat"><div class="n">40–54%</div><p>진행 상황을 물을 때 인계서를 넣어서 줄어든 입력 토큰이에요. 같은 저장소 상태에서 되풀이한 실험(스냅숏) 결과예요.</p><p class="scope">저장소 3곳, 조건마다 3~5번. 관련 없는 작업에 인계서를 넣으면 약 11% 더 썼어요.</p></div>
+        <div class="stat"><div class="n">아직</div><p>실제 사용에서는 아직 토큰이 줄지 않았어요. 같은 인계서가 대화 39개에서 269번 들어갔어요. 대화마다 한 번만 넣도록 고쳤고, 그 효과는 아직 재지 못했어요.</p><p class="scope">10-04~11-19. 같은 기간에 다른 플러그인이 처음부터 차지하는 맥락도 커졌어요.</p></div>
+        <div class="stat"><div class="n">85%</div><p>맥락이 첫 호출의 2배를 넘은 뒤에 나간 비용이에요. 그래서 baton은 2배와 3배일 때 인계서를 쓰자고 알려요.</p><p class="scope">AI 호출이 20번 이상인 대화 60개, API 가격 기준.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="diff gutter" aria-labelledby="diff-title">
+    <div class="container diff-grid" data-rise="100">
+      <div style="display:grid;gap:var(--space-4);align-content:start">
+        <p class="label">다른 도구와 함께</p>
+        <h2 id="diff-title"><code style="font-size:0.8em">/compact</code> 대신이 아니라, 함께 써요.</h2>
+      </div>
+      <div>
+        <ol>
+          <li><h3>이어서 하자고 할 때만 인계서를 넣어요</h3><p>한 대화에 한 번만 넣고, 보조 AI나 다른 대화가 보낸 메시지에는 넣지 않아요.</p></li>
+          <li><h3>저장할 때 인계서를 검사해요</h3><p>길이, 꼭 있어야 하는 항목, 비밀값, 홈 폴더 경로, 직접 고른 비공개 단어를 봐요.</p></li>
+          <li><h3>개념마다 마지막으로 확인한 커밋을 적어 둬요</h3><p>바뀌지 않은 개념은 다시 읽지 않아요. 결정 기록, 코드, 문서가 서로 다른 말을 하는 곳도 표시해요.</p></li>
+        </ol>
+        <p class="aside">2026-11-21과 11-22에 살펴본 도구 중, 이 세 가지를 문서에 적어 둔 곳은 없었어요. <code>/compact</code>와 <code>/resume</code>은 대화 하나를 계속 이어 가요. baton은 새 대화에 짧은 인계서를 건네요. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.ko.md#다른-도구와-비교">전체 비교 보기</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="get gutter" id="install" aria-labelledby="install-title">
+    <div class="get-inner" data-rise="100" data-stay>
+      <p class="label">설치</p>
+      <h2 id="install-title">두 줄로 설치하고, "어디까지 했지?"라고 물어보세요.</h2>
+      <div class="tabs" role="tablist" aria-label="쓰는 도구 고르기">
+        <button role="tab" type="button" id="tab-claude" aria-selected="true" aria-controls="panel-claude">Claude Code</button>
+        <button role="tab" type="button" id="tab-codex" aria-selected="false" aria-controls="panel-codex" tabindex="-1">Codex</button>
+      </div>
+      <div class="tabpanel" role="tabpanel" id="panel-claude" aria-labelledby="tab-claude">
+        <div class="cmd"><code>/plugin marketplace add sulabo/baton</code><button class="copy" type="button" id="copy-c1" data-copy="/plugin marketplace add sulabo/baton">복사</button></div>
+        <div class="cmd"><code>/plugin install baton@baton</code><button class="copy" type="button" id="copy-c2" data-copy="/plugin install baton@baton">복사</button></div>
+        <p class="note">Claude Code 안에서 실행하세요. 그다음 새 대화를 열고 <code>/baton-doctor</code>를 실행해요.</p>
+      </div>
+      <div class="tabpanel" role="tabpanel" id="panel-codex" aria-labelledby="tab-codex" hidden>
+        <div class="cmd"><code>codex plugin marketplace add sulabo/baton</code><button class="copy" type="button" id="copy-x1" data-copy="codex plugin marketplace add sulabo/baton">복사</button></div>
+        <div class="cmd"><code>codex plugin add baton@baton</code><button class="copy" type="button" id="copy-x2" data-copy="codex plugin add baton@baton">복사</button></div>
+        <p class="note">Codex 0.155 이상에서 돼요. 플러그인 훅을 '신뢰함'으로 표시해야 훅이 돌아가요.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="faq gutter" aria-labelledby="faq-title">
+    <div class="faq-inner" data-rise="80" data-stay>
+      <h2 id="faq-title">설치하기 전에.</h2>
+      <div>
+        <details open><summary>baton이 인터넷으로 무언가를 보내나요?</summary><p>아니요. 훅은 git 기록과 내 컴퓨터의 파일만 읽고, <code>~/.cache/baton/</code> 아래에만 써요.</p></details>
+        <details><summary>토큰이 줄어드나요?</summary><p>스냅숏 실험에서는 진행 상황을 물을 때 줄었어요. 실제 사용에서는 아직 줄어든 걸 보여 주지 못했어요. 숫자와 범위는 위의 "지금까지 잰 것"에 있어요.</p></details>
+        <details><summary>/compact나 /resume과 뭐가 달라요?</summary><p>그 둘은 대화 하나를 요약과 그 뒤 메시지로 계속 이어 가요. baton은 새 대화를 시작할 때 써요. 직접 읽고 고칠 수 있는 짧은 인계서를 AI에게 건네고, 그 인계서가 얼마나 오래됐는지도 알려 줘요. 둘을 같이 써도 돼요.</p></details>
+        <details><summary>어떤 말을 하면 인계서가 들어가나요?</summary><p>"이어서", "어디까지", "인계", "handoff" 같은 말이 프롬프트에 있으면 들어가요. 그런 말이 없으면 넣지 않아요. 말은 <code>/baton-setup</code>으로 더 넣을 수 있어요.</p></details>
+        <details><summary>DECISIONS.md가 꼭 있어야 하나요?</summary><p>아니요. 파일 신선도는 git 기록만으로 돼요. 결정 기록이 없으면 "정했는데 아직 안 만든 것"은 잡지 못하고, 파일이 없는 개념은 추적하지 않아요.</p></details>
+        <details><summary>내 파일을 바꾸나요?</summary><p>훅은 알림을 보여 주고 문제를 AI에게 돌려줄 뿐이에요. <code>CONCEPTS.md</code>와 <code>HANDOFF.md</code>는 요청할 때 AI가 써요.</p></details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot gutter">
+  <div class="container foot-inner">
+    <p class="foot-statement">한 번 적어 두면, 다음 대화는 거기서 시작해요.</p>
+    <div class="foot-row">
+      <a class="wordmark" href="#top" aria-label="baton, 맨 위로"><svg viewBox="0 0 100 50" aria-hidden="true"><path d="M66.87 12.32 C67.41 12.12 67.95 11.93 68.51 11.77 C69.07 11.60 69.64 11.45 70.21 11.33 C70.79 11.20 71.38 11.10 71.98 11.02 C72.58 10.95 73.18 10.89 73.80 10.87 C74.41 10.85 75.03 10.85 75.66 10.89 C76.28 10.93 76.91 11.00 77.54 11.11 C78.16 11.22 78.80 11.36 79.42 11.55 C80.04 11.73 80.66 11.95 81.27 12.21 C81.87 12.47 82.47 12.77 83.05 13.11 C83.63 13.46 84.19 13.84 84.72 14.27 C85.25 14.69 85.77 15.16 86.24 15.66 C86.71 16.16 87.16 16.70 87.56 17.28 C87.95 17.85 88.32 18.46 88.63 19.09 C88.93 19.72 89.20 20.39 89.41 21.07" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/><path d="M89.41 28.93 C89.09 29.98 88.62 31.01 88.06 31.94 C87.51 32.87 86.82 33.74 86.08 34.51 C85.34 35.27 84.49 35.95 83.62 36.53 C82.75 37.10 81.81 37.58 80.86 37.96 C79.92 38.34 78.93 38.61 77.96 38.81 C76.99 39.01 76.00 39.10 75.03 39.13 C74.07 39.17 73.11 39.11 72.18 39.00 C71.25 38.90 70.33 38.71 69.45 38.49 C68.57 38.27 67.71 37.99 66.88 37.68 C66.04 37.37 65.24 37.01 64.47 36.62 C63.69 36.24 62.94 35.82 62.22 35.39 C61.49 34.95 60.79 34.49 60.11 34.01 C59.43 33.54 58.78 33.04 58.14 32.54 C57.50 32.03 56.88 31.51 56.27 30.98 C55.66 30.46 55.07 29.92 54.49 29.38 C53.90 28.84 53.33 28.29 52.77 27.74 C52.20 27.19 51.64 26.64 51.08 26.08 C50.53 25.53 49.97 24.97 49.42 24.42 C48.86 23.86 48.30 23.31 47.74 22.75 C47.18 22.20 46.61 21.65 46.03 21.11 C45.46 20.57 44.87 20.02 44.27 19.49 C43.67 18.96 43.06 18.44 42.43 17.92 C41.80 17.41 41.16 16.91 40.49 16.42 C39.83 15.94 39.14 15.46 38.43 15.01 C37.72 14.56 36.99 14.13 36.23 13.73 C35.46 13.33 34.68 12.95 33.86 12.62 C33.05 12.28 32.21 11.97 31.34 11.72 C30.47 11.47 29.57 11.26 28.66 11.11 C27.74 10.97 26.79 10.87 25.83 10.86 C24.88 10.85 23.90 10.90 22.92 11.04 C21.95 11.18 20.96 11.40 20.00 11.73 C19.04 12.05 18.08 12.46 17.18 12.98 C16.28 13.50 15.40 14.12 14.62 14.83 C13.83 15.53 13.09 16.35 12.47 17.24 C11.85 18.12 11.31 19.11 10.92 20.13 C10.53 21.14 10.24 22.25 10.10 23.34 C9.97 24.43 9.97 25.57 10.10 26.66 C10.24 27.75 10.52 28.86 10.92 29.87 C11.31 30.89 11.85 31.88 12.47 32.76 C13.09 33.65 13.83 34.46 14.61 35.17 C15.40 35.88 16.28 36.50 17.18 37.02 C18.08 37.54 19.04 37.95 20.00 38.27 C20.96 38.60 21.95 38.82 22.92 38.96 C23.89 39.10 24.88 39.15 25.83 39.14 C26.79 39.13 27.74 39.03 28.65 38.89 C29.57 38.74 30.47 38.53 31.34 38.28 C32.21 38.03 33.05 37.72 33.86 37.38 C34.68 37.05 35.46 36.67 36.23 36.27 C36.99 35.87 37.72 35.44 38.43 34.99 C39.14 34.54 39.82 34.06 40.49 33.58 C41.16 33.09 41.80 32.59 42.43 32.08 C43.06 31.56 43.67 31.04 44.27 30.51 C44.87 29.98 45.45 29.43 46.03 28.89 C46.61 28.35 47.18 27.80 47.74 27.25 C48.30 26.69 48.86 26.14 49.42 25.58 C49.97 25.03 50.53 24.47 51.08 23.92 C51.64 23.36 52.20 22.81 52.77 22.26 C53.33 21.71 53.90 21.16 54.49 20.62 C55.07 20.08 55.66 19.54 56.27 19.02 C56.88 18.49 57.50 17.97 58.14 17.47 C58.78 16.96 59.43 16.46 60.11 15.99 C60.79 15.51 61.49 15.05 62.22 14.61 C62.94 14.18 63.69 13.76 64.47 13.38 C65.24 12.99 66.04 12.63 66.87 12.32" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>baton</a>
+      <ul class="foot-links">
+        <li><a href="https://github.com/sulabo/baton">GitHub</a></li>
+        <li><a href="https://github.com/sulabo/baton/releases">릴리스</a></li>
+        <li><a href="https://github.com/sulabo/baton/blob/main/CHANGELOG.md">변경 기록</a></li>
+        <li><a href="../" hreflang="en" lang="en">English</a></li>
+        <li><a href="https://github.com/sulabo/baton/blob/main/LICENSE">MIT 라이선스</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+<script>
+(function () {
+  var root = document.documentElement;
+  root.classList.add('js');
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // copy buttons
+  document.querySelectorAll('.copy').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = b.dataset.copy;
+      var done = function () { b.textContent = '복사됨'; b.dataset.state = 'done'; setTimeout(function () { b.textContent = '복사'; delete b.dataset.state; }, 1600); };
+      var fallback = function () { var c = b.previousElementSibling, r = document.createRange(); r.selectNodeContents(c); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+      try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+    });
+  });
+
+  // tabs
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(t) {
+    tabs.forEach(function (x) { var on = x === t; x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; document.getElementById(x.getAttribute('aria-controls')).hidden = !on; });
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { select(t); });
+    t.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { var n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]; select(n); n.focus(); } });
+  });
+
+  // nav morph + hide nav CTA while an install block is on screen
+  var nav = document.getElementById('nav'), navcta = document.getElementById('navcta');
+  var visibleInstalls = new Set();
+  var heroEl = document.querySelector('.hero');
+  function syncCta() {
+    // the hero stays pinned (and invisible) under later sections, so judge it by scroll position, not visibility
+    var hidden = window.scrollY < heroEl.offsetHeight * 0.45 || visibleInstalls.size > 0;
+    nav.classList.toggle('cta-hidden', hidden); navcta.tabIndex = hidden ? -1 : 0;
+  }
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) visibleInstalls.add(e.target); else visibleInstalls.delete(e.target); });
+      syncCta();
+    });
+    io.observe(document.getElementById('install'));
+  }
+
+  // ---------- scroll engine: one rAF pass per scroll frame ----------
+  var wide = window.matchMedia('(min-width: 900px)');
+  var finePointer = window.matchMedia('(pointer: fine)').matches;
+  var clamp = function (v) { return v < 0 ? 0 : v > 1 ? 1 : v; };
+  var easeOut = function (t) { return 1 - Math.pow(1 - t, 3); };
+
+  // story: move panels between the steps (narrow) and the strip (wide)
+  var story = document.querySelector('.story'), steps = Array.prototype.slice.call(document.querySelectorAll('.step'));
+  var panels = steps.map(function (st) { return st.querySelector('.panel'); });
+  var strip = document.getElementById('strip'), stepsList = document.getElementById('steps'), win = document.querySelector('.steps-window'), rail = document.querySelector('.rail');
+  var active = -1, mode = '';
+  function layoutStory() {
+    var m = wide.matches ? 'wide' : 'narrow';
+    if (m !== mode) {
+      mode = m;
+      panels.forEach(function (pn, k) { (m === 'wide' ? strip : steps[k]).appendChild(pn); });
+      active = -1;
+    }
+    if (m === 'wide') {
+      steps.forEach(function (st) { st.style.minHeight = ''; });
+      var stepH = Math.max.apply(null, steps.map(function (st) { return st.offsetHeight; })) + 24;
+      var panelH = Math.max.apply(null, panels.map(function (pn) { pn.style.height = 'auto'; var h = pn.offsetHeight; pn.style.height = ''; return h; }));
+      story.style.setProperty('--step-h', stepH + 'px');
+      story.style.setProperty('--window-h', Math.round(stepH * 2) + 'px');
+      story.style.setProperty('--panel-h', panelH + 'px');
+      story.dataset.stepH = stepH; story.dataset.panelH = panelH;
+    }
+  }
+  function setActive(i) {
+    if (i === active) return; active = i;
+    steps.forEach(function (st, k) { st.classList.toggle('is-active', k === i); });
+    if (mode === 'wide') {
+      var stepH = +story.dataset.stepH, panelH = +story.dataset.panelH;
+      stepsList.style.setProperty('--track-y', Math.round(stepH / 2 - i * stepH) + 'px');
+      strip.style.setProperty('--strip-y', Math.round(-i * panelH) + 'px');
+    }
+  }
+
+  // elements that rise with scroll (scrubbed, not timed)
+  var risers = Array.prototype.slice.call(document.querySelectorAll('[data-rise]'));
+  var heroFade = document.querySelector('.hero-fade'), hero = document.querySelector('.hero');
+  function frame() {
+    ticking = false;
+    var vh = window.innerHeight;
+    nav.classList.toggle('is-scrolled', window.scrollY > 40);
+    syncCta();
+
+    // hero: stays pinned and fades as the next band covers it (wide only)
+    if (!reduce && wide.matches) {
+      var hp = clamp(window.scrollY / (hero.offsetHeight * 0.85));
+      heroFade.style.opacity = (1 - hp).toFixed(3);
+      heroFade.style.transform = 'scale(' + (1 - hp * 0.04).toFixed(4) + ')';
+      heroFade.style.filter = hp > 0.01 ? 'blur(' + (hp * 6).toFixed(2) + 'px)' : '';
+    } else { heroFade.style.opacity = ''; heroFade.style.transform = ''; heroFade.style.filter = ''; }
+
+    // risers: scrubbed in from the bottom edge, scrubbed out past the top, so neighbours dissolve into each other
+    if (!reduce) risers.forEach(function (el) {
+      var r = el.getBoundingClientRect(), d = +el.dataset.rise || 80;
+      var tin = easeOut(clamp((vh - r.top) / (vh * 0.45)));
+      var tout = el.hasAttribute('data-stay') ? 1 : easeOut(clamp(r.bottom / (vh * 0.38)));
+      var y = (1 - tin) * d - (1 - tout) * 48, o = (0.12 + 0.88 * tin) * (0.2 + 0.8 * tout), b = (1 - tin) * 8 + (1 - tout) * 6;
+      el.style.transform = (y > 0.2 || y < -0.2) ? 'translate3d(0,' + y.toFixed(1) + 'px,0)' : '';
+      el.style.opacity = o < 0.999 ? o.toFixed(3) : '';
+      el.style.filter = b > 0.05 ? 'blur(' + b.toFixed(2) + 'px)' : '';
+    });
+
+    // story: progress through the pinned stage picks the step; rail fills continuously
+    if (mode === 'wide') {
+      var sr = story.getBoundingClientRect(), total = story.offsetHeight - vh;
+      var p = total > 0 ? clamp(-sr.top / total) : 0;
+      setActive(Math.min(steps.length - 1, Math.floor(p * steps.length * 0.9999)));
+      rail.style.setProperty('--p', p.toFixed(4));
+    } else { steps.forEach(function (st) { st.classList.add('is-active'); }); rail.style.setProperty('--p', '1'); }
+  }
+  var ticking = false;
+  function request() { if (!ticking) { ticking = true; requestAnimationFrame(frame); } }
+
+  // smooth wheel scrolling, as on the reference: fine pointers only, never with reduced motion
+  var lenis = null;
+  if (!reduce && finePointer && window.Lenis) {
+    lenis = new window.Lenis({ lerp: 0.1, smoothWheel: true });
+    var loop = function (t) { lenis.raf(t); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+    lenis.on('scroll', request);
+    document.querySelectorAll('a[href^="#"]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        var id = a.getAttribute('href'); if (id.length < 2) return;
+        var t = document.querySelector(id); if (!t) return;
+        e.preventDefault(); lenis.scrollTo(t, { offset: id === '#top' ? 0 : -72 });
+      });
+    });
+  }
+  window.addEventListener('scroll', request, { passive: true });
+  window.addEventListener('resize', function () { layoutStory(); active = -1; request(); });
+  (wide.addEventListener ? wide.addEventListener('change', function () { layoutStory(); request(); }) : wide.addListener(function () { layoutStory(); request(); }));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { layoutStory(); active = -1; request(); });
+  layoutStory(); frame();
+
+  // drift rows stagger when the map card enters (armed only if below the fold at load)
+  var card = document.getElementById('map-card');
+  if (!reduce && 'IntersectionObserver' in window && card.getBoundingClientRect().top > window.innerHeight) {
+    card.classList.add('armed');
+    var rows = card.querySelectorAll('tbody tr');
+    var io2 = new IntersectionObserver(function (es) {
+      if (es[0].isIntersecting) {
+        rows.forEach(function (tr, k) { tr.style.transitionDelay = (k * 120) + 'ms'; });
+        card.classList.remove('armed'); io2.disconnect();
+      }
+    }, { threshold: 0.35 });
+    io2.observe(card);
+    setTimeout(function () { card.classList.remove('armed'); }, 8000);
+  }
+})();
+</script>
+</body>
+</html>
