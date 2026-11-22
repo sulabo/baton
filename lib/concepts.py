@@ -19,6 +19,7 @@
 import io
 import re
 import sys
+import unicodedata
 
 SECTION = re.compile(r"^##\s*(\d{1,2})\.\s*(.*)$")
 # 숫자 없는 #·## 제목(일치 확인된 것·유지 규칙 등)은 개념 절을 닫는다. 안 닫으면 마지막 개념 본문에 붙는다(2026-11-21 baton CONCEPTS.md)
@@ -214,9 +215,14 @@ def cmd_warnings(lines):
 INDEX_LIMIT_CHARS = 1500
 INDEX_FILES = 3      # 개념마다 보이는 파일 수(나머지는 "(+N)")
 INDEX_SUMMARY = 60   # 한 줄 요약의 최대 글자(넘으면 "…")
-INDEX_HEAD = ("[baton] 이 저장소 개념 지도({path}) 색인이다. 작업에 맞는 개념을 골라 그 파일만 연다. "
-              "자세한 근거는 {path}의 그 절에.")
-RETIRED = ("폐기", "retired")
+INDEX_MAX_CONCEPTS = 200  # 이보다 많은 개념은 '… N개 더'로만 센다 — 아주 큰 지도로 훅 시한을 넘겨 인계서까지 잃지 않게
+# 인계서·개념 절 머리말과 같은 입장: 지도는 가설이다. "그 파일만"이라고 하면 탐색을 너무 일찍 멈춘다(리뷰 MEDIUM-5)
+INDEX_HEAD = ("[baton] 이 저장소 개념 지도({path}) 색인이다. 작업에 맞는 개념의 파일부터 연다. "
+              "개념은 탐색 앵커다 — 실제 동작은 코드로 확인한다. 자세한 근거는 {path}의 그 절에.")
+RETIRED = ("폐기", "폐기됨", "retired")  # 상태의 첫 낱말이 정확히 이것일 때만(스킬 어휘는 '폐기됨(날짜)')
+# 색인에 내지 않는 경로: 홈 절대경로(lib/handoff_check.py SECRETS의 '홈 절대경로'와 같은 범위)와 '~/'. 공개 저장소의 지도에
+# 남아 있어도 다른 사람 컴퓨터에서는 열리지 않고 사용자 이름을 드러낸다. 같은 범위인지는 lib/test_concepts_index.py가 묶는다
+HOME_PATH = re.compile(r"^(?:~/|(?:/Users/|/home/)(?!Shared(?:/|$))[^/\s]+|/root/|[A-Za-z]:\\[Uu]sers\\)")
 
 
 def meta_fields(line):
@@ -234,16 +240,16 @@ def meta_fields(line):
 
 
 def meta_files(value):
-    """'파일=' 값 → 경로 목록. 백틱이 있든 없든, 쉼표·' · '로 나뉜 것을 받는다. 백틱이 있는 조각은 백틱 안만 경로로 본다
-    (뒤에 붙은 '(코드)' 같은 설명을 버린다). 줄 번호(':12')는 뗀다. '없음(규칙 개념)'·'-'는 파일이 없다는 뜻이다."""
-    out = []
-    for item in re.split(r"\s*,\s*| · ", value.strip()):
-        item = item.strip()
-        paths = TICKED.findall(item) if "`" in item else [re.sub(r"\s*\(.*\)$", "", item)]
-        for x in paths:
-            x = re.sub(r":[0-9][0-9,~-]*$", "", x.strip())
-            if x and x != "-" and not x.startswith("없음") and x not in out:
-                out.append(x)
+    """'파일=' 값 → 경로 목록. 백틱 안은 통째로 경로 하나다 — 먼저 꺼낸다(`a.py:12,30`의 쉼표에서 끊지 않게). 백틱 밖에 남은 것만
+    쉼표·' · '로 나눈다(뒤에 붙은 '(코드)' 같은 설명은 뗀다). 줄 번호(':12')는 뗀다. '없음(규칙 개념)'·'-'는 파일이 없다는 뜻이다.
+    홈 절대경로·'~/'는 뺀다(HOME_PATH)."""
+    out, cands = [], []
+    for m in re.finditer(r"`([^`]+)`|([^`]+)", value):  # 적힌 순서를 지킨다 — 첫 파일이 그 개념의 입구다
+        cands += [m.group(1)] if m.group(1) else [re.sub(r"\s*\(.*\)$", "", x) for x in re.split(r"\s*[,·]\s*", m.group(2))]
+    for x in cands:
+        x = re.sub(r":[0-9][0-9,~-]*$", "", x.strip())
+        if x and x != "-" and not x.startswith("없음") and not x.startswith("(") and not HOME_PATH.match(x) and x not in out:
+            out.append(x)
     return out
 
 
@@ -277,15 +283,17 @@ def index(text, max_chars=INDEX_LIMIT_CHARS, path="CONCEPTS.md"):
     폐기된 개념은 뺀다(메타 줄 상태 또는 요약표 상태). 파일이 없는 개념(규칙 개념)은 파일 부분이 없다.
     max_chars를 넘으면 이 순서로 줄인다: 뒤쪽 개념부터 요약을 뗀다 → 뒤쪽 개념부터 첫 파일만 남긴다 → 뒤쪽 개념을 빼고
     '… N개 더' 한 줄로 남긴다(조용히 자르지 않는다). 결정론·표준 라이브러리만."""
-    lines = text.splitlines()
+    lines = unicodedata.normalize("NFC", text).splitlines()  # macOS에서 온 NFD 글자도 같은 이름으로
     table = table_states(lines)
     items = []
     for num, name, body in walk(lines):
         meta = next((meta_fields(l) for l in body if META.match(l)), {})
-        state = meta.get("상태", "") or table.get(num, "")
-        if any(w in state.lower() for w in RETIRED):
+        state = (meta.get("상태", "") or table.get(num, "")).strip()
+        if state and re.split(r"[\s(]", state, maxsplit=1)[0].lower() in RETIRED:
             continue
-        title, _, sub = name.partition("—")
+        title, _, sub = name.partition(" — ")
+        if not title.strip():
+            continue  # 제목 없는 절('## 3.')은 고를 이름이 없다
         items.append((num, title.strip(), clip(sub.strip(), INDEX_SUMMARY), meta_files(meta.get("파일", ""))))
     if not items:
         return ""
@@ -301,22 +309,32 @@ def index(text, max_chars=INDEX_LIMIT_CHARS, path="CONCEPTS.md"):
             s += " · 파일: " + ", ".join(files[:k]) + (" (+%d)" % (len(files) - k) if len(files) > k else "")
         return s
 
-    def render(levels, keep):
-        out = [head] + [line(it, lv) for it, lv in zip(items[:keep], levels)]
-        if keep < len(items):
-            out.append("… %d개 더 — %s 요약표" % (len(items) - keep, path))
-        return "\n".join(out) + "\n"
+    def more(n):
+        return "… %d개 더 — %s 요약표" % (n, path)
 
-    levels = [0] * len(items)
+    # 줄은 개념마다 세 단계를 미리 만들어 두고 길이 합만 고쳐 간다 — 개념 수에 비례(O(n)). 줄마다 끝 줄바꿈 1자
+    shown = items[:INDEX_MAX_CONCEPTS]
+    variants = [[line(it, lv) for lv in (0, 1, 2)] for it in shown]
+    levels = [0] * len(shown)
+    rest = len(items) - len(shown)
+    total = len(head) + 1 + sum(len(v[0]) + 1 for v in variants) + (len(more(rest)) + 1 if rest else 0)
     for lv in (1, 2):
-        for i in reversed(range(len(items))):
-            if len(render(levels, len(items))) <= max_chars:
-                return render(levels, len(items))
+        for i in reversed(range(len(shown))):
+            if total <= max_chars:
+                break
+            total += len(variants[i][lv]) - len(variants[i][levels[i]])
             levels[i] = lv
-    for keep in range(len(items), 0, -1):
-        if len(render(levels, keep)) <= max_chars:
-            return render(levels, keep)
-    return ""
+    keep = len(shown)
+    while keep and total > max_chars:  # 뒤쪽 개념을 빼고 '… N개 더'로 센다
+        total -= len(variants[keep - 1][levels[keep - 1]]) + 1
+        if rest:
+            total -= len(more(rest)) + 1
+        keep, rest = keep - 1, rest + 1
+        total += len(more(rest)) + 1
+    if not keep:
+        return ""
+    out = [head] + [variants[i][levels[i]] for i in range(keep)] + ([more(rest)] if rest else [])
+    return "\n".join(out) + "\n"
 
 
 def cmd_index(lines):

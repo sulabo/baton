@@ -83,6 +83,48 @@ class IndexQuirkTest(unittest.TestCase):
         self.assertEqual(concepts.index(text).splitlines()[1:], ["1. 하나"])
 
 
+class IndexReviewTest(unittest.TestCase):
+    """리뷰(11-22)가 잡은 것들."""
+
+    def test_backticked_path_with_comma_line_numbers_stays_whole(self):
+        self.assertEqual(concepts.meta_files("`lib/a.py:12,30`,`lib/b.py:1~3` · c.py, `d e.py`(설명)"),
+                         ["lib/a.py", "lib/b.py", "c.py", "d e.py"])
+
+    def test_home_paths_are_dropped_like_the_handoff_checker(self):
+        import handoff_check
+        home = [p for name, p in handoff_check.SECRETS if name == "홈 절대경로"][0]
+        for path, private in (("/Users/kim/x.py", True), ("/home/kim/x.py", True), ("/root/x.py", True),
+                              ("C:\\Users\\kim\\x.py", True), ("/Users/Shared/x.py", False), ("lib/x.py", False)):
+            self.assertEqual(bool(home.search(path)), private, path)  # 검사기와 같은 범위
+            self.assertEqual(concepts.meta_files("`%s`" % path), [] if private else [path], path)
+        self.assertEqual(concepts.meta_files("`~/notes/a.md`,`src/a.py`"), ["src/a.py"])
+
+    def test_nfd_text_is_normalized(self):
+        import unicodedata
+        nfd = unicodedata.normalize("NFD", "## 1. 저장 — 슬롯\n- **메타**: 상태=일치 · 파일=`a.py`\n")
+        self.assertIn("1. 저장 — 슬롯 · 파일: a.py", concepts.index(nfd))
+
+    def test_subtitle_needs_spaced_dash_and_retired_needs_first_word(self):
+        text = ("## 1. A—B\n- **메타**: 상태=일치\n\n## 2. 둘\n- **메타**: 상태=미결(폐기 검토 중)\n\n"
+                "## 3. 셋\n- **메타**: 상태=retired\n\n## 4. 넷\n- **메타**: 상태=폐기됨(2026-11-01, 합침)\n\n## 5. \n본문\n")
+        self.assertEqual(concepts.index(text).splitlines()[1:], ["1. A—B", "2. 둘"])  # 빈 제목 절도 뺀다
+
+    def test_huge_map_is_capped_and_fast(self):
+        import time
+        text = "\n".join("## %d. 개념%d — 설명\n- **메타**: 상태=일치 · 파일=`a%d.py`,`b.py`,`c.py`,`d.py`" % (i, i, i)
+                         for i in range(1, 5001))  # SECTION은 두 자리 번호만 읽는다 — 99개 + 나머지는 절이 아니다
+        text += "\n" + "\n".join("## 9%d. x\n" % (i % 10) for i in range(3000))
+        t = time.monotonic()
+        out = concepts.index(text)
+        self.assertLess(time.monotonic() - t, 2.0)
+        self.assertLessEqual(len(out), concepts.INDEX_LIMIT_CHARS)
+        self.assertRegex(out.splitlines()[-1], r"^… \d+개 더 — CONCEPTS.md 요약표$")
+        n_items = len(list(concepts.walk(text.splitlines())))
+        shown = len(out.splitlines()) - 2
+        self.assertEqual(int(out.splitlines()[-1].split()[1][:-1]), n_items - shown)  # 상한 밖 개념도 센다
+        self.assertGreater(n_items, concepts.INDEX_MAX_CONCEPTS)
+
+
 class IndexBudgetTest(unittest.TestCase):
     def big_map(self, n):
         parts = []

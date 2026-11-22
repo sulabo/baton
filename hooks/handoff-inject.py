@@ -29,9 +29,15 @@
 # 개념 색인: 저장소에 CONCEPTS.md가 있으면 세션의 첫 사람 프롬프트에 한 번 개념 색인(lib/concepts.py index — 개념마다
 # 이름·제목의 "—" 뒤 한 줄·주요 파일 한 줄, 최대 concepts.INDEX_LIMIT_CHARS자)을 인계서 뒤에 넣는다. 에이전트가 스스로 고른다(북극성 3절 기준선 ②).
 # 같은 세션 기억 파일에 index_offset으로 따로 적어, 인계서와 색인이 각자 한 번씩 들어간다. 압축 뒤에는 인계서처럼 다시 넣는다.
-# 예산: 색인 몫을 먼저 잡고 인계서 본문 예산을 그만큼 줄이되, HANDOFF_KEEP(8,700자 인계서 + 끝 줄바꿈) 밑으로는 줄이지 않는다.
-# 둘 다 안 들어가면 색인을 줄인다(인계서를 줄이지 않는다). 끄기: BATON_CONCEPT_INDEX=off. 무엇이 터져도 색인만 빠진다(fail-open).
-# 세션 id가 없으면 기억을 못 해 프롬프트마다 넣는다(인계서와 같은 쪽 — Claude Code·Codex는 늘 세션 id를 준다).
+# 예산: 색인 몫을 먼저 잡고 인계서 본문 예산을 그만큼 줄이되, HANDOFF_KEEP(검사기 상한 + 끝 줄바꿈) 밑으로는 줄이지 않는다 —
+# 검사기를 통과한 인계서는 색인 때문에 더 잘리지 않는다. 둘 다 안 들어가면 색인을 줄이고, 그래도 안 되면 색인을 빼고 인계서를
+# 예산을 덜지 않은 판으로 되돌린다(빠질 색인 때문에 인계서를 자르지 않는다). 끄기: BATON_CONCEPT_INDEX=off.
+# 무엇이 터져도 색인만 빠진다(fail-open). 세션 기억을 쓸 수 없으면(세션 id 없음·캐시 폴더에 못 씀) 색인을 넣지 않는다 —
+# 매 프롬프트 1,500자가 쌓이는 것보다 한 세션 색인을 잃는 쪽이 싸다(인계서는 예전처럼 매번 넣는다).
+# ponytail: 같은 세션의 훅 둘이 동시에 기억을 읽고 쓰면 나중 쓴 쪽만 남아 다른 쪽 기억(sha 또는 index_offset)을 잃는다 — 그 내용이
+# 한 번 더 들어갈 뿐이다. 잠금(fcntl)으로 올릴 수 있다.
+# ponytail: 색인을 넣은 뒤에는 사람 프롬프트마다 세션 기록을 index_offset부터 끝까지 다시 훑어 압축을 찾는다(최대 SEEN_SCAN_MAX,
+# 43MB 실측 30~112ms). 넘치면 다시 넣고 offset이 새로 잡힌다. 훑은 끝 위치를 기억해 이어 읽는 쪽으로 올릴 수 있다.
 # 실험: BATON_CONCEPT_INJECT=on 이면 프롬프트가 개념 제목을 가리킬 때 CONCEPTS.md의 해당 절만 넣는다.
 #
 # 관찰(북극성 길 단계 1): 프롬프트마다 규칙 판단(lib/rules.py)과 실제로 넣은 것을 판단 로그에 한 줄 남긴다.
@@ -40,13 +46,14 @@
 import hashlib, json, os, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
-import concepts, config, rules, runlog
+import concepts, config, handoff_check, rules, runlog
 
 LIMIT = 200
 LIMIT_CHARS = 9600  # 훅 출력 전체(문서 상한 10,000자 − 여유 400)
 TAIL_RESERVE = 200  # 잘렸을 때 붙이는 꼬리 안내 몫
 CONCEPT_LIMIT_CHARS = 2000
-HANDOFF_KEEP = 8701  # 색인 몫 때문에 인계서 본문 예산을 이 밑으로 줄이지 않는다 — 검사기 상한 8,700자(PR #14) + 끝 줄바꿈
+HANDOFF_KEEP = handoff_check.MAX_CHARS + 1  # 색인 몫 때문에 인계서 본문 예산을 이 밑으로 줄이지 않는다 — 검사기 상한 + 끝 줄바꿈
+# (이 브랜치 9,000자 → 9,001, PR #14 뒤 8,700자 → 8,701. 상수를 따로 두면 검사기와 갈라진다 — 리뷰 MEDIUM-1)
 TRIGGER = rules.TRIGGER
 SEEN_SCAN_MAX = 64 * 1024 * 1024  # 넣은 뒤 세션 기록이 이보다 많이 자랐으면 읽지 않고 다시 넣는다(43MB 세션 기록 실측, 11-18)
 SEEN_KEEP_DAYS = 7
@@ -159,6 +166,19 @@ def index_injected(data):
         return False
 
 
+def memory_writable(data):
+    """이 세션의 기억 파일을 쓸 수 있나. 세션 id가 없거나 캐시 폴더를 만들거나 쓸 수 없으면 False."""
+    p = seen_path(data.get("session_id"))
+    if not p:
+        return False
+    try:
+        d = os.path.dirname(p)
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        return os.access(d, os.W_OK) and (not os.path.exists(p) or os.access(p, os.W_OK))
+    except OSError:
+        return False
+
+
 def remember_injected(data, sha=None, index=False):
     """넣은 인계서의 해시와 그때의 세션 기록 크기(offset), 색인을 넣었으면 그때의 크기(index_offset)를 남긴다.
     한 파일에 둘을 같이 두고 안 넣은 쪽 기억은 그대로 둔다. 실패는 조용히 넘긴다(다음에 또 넣을 뿐)."""
@@ -194,7 +214,8 @@ def remember_injected(data, sha=None, index=False):
 def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None, reserve=0):
     """(넣을 텍스트, 넣은 것 dict, 건너뛴 이유). 조건이 안 맞으면 ("", None, None).
     넣을 조건인데 건너뛰면 이유를 남긴다: machine(사람이 친 프롬프트가 아님) · already(이 세션에 같은 내용을 이미 넣음).
-    reserve는 같은 출력에 뒤따를 개념 색인 몫 — 본문 예산을 그만큼 줄이되 HANDOFF_KEEP 밑으로는 줄이지 않는다."""
+    reserve는 같은 출력에 뒤따를 개념 색인 몫 — 본문 예산을 그만큼 줄이되 HANDOFF_KEEP 밑으로는 줄이지 않는다.
+    reserve 때문에 더 잘렸으면 넣은 것 dict의 "unreserved"에 예산을 덜지 않은 판 (텍스트, 줄 수)를 둔다 — 색인이 결국 빠지면 그것으로 되돌린다."""
     if off("BATON_HANDOFF_INJECT", repo):
         return "", None, None
     if not rules.trigger_words(repo, prompt):
@@ -214,21 +235,29 @@ def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None, reserv
     fresh = rules.safe_freshness(repo, text, deadline)
     head = HEAD + "\n" + rules.freshness_line(fresh)
     full = LIMIT_CHARS - len(head) - TAIL_RESERVE  # 신선도 한 줄을 먼저 만들고 실제 길이를 뺀다
-    budget = max(min(full, HANDOFF_KEEP), full - reserve)
-    keep, used = 0, 0
-    for ln in lines[:LIMIT]:
-        if used + len(ln) + 1 > budget: break
-        keep += 1; used += len(ln) + 1
-    out = head + "\n\n" + "\n".join(lines[:keep]) + "\n"
-    if keep < len(lines):
-        out += (f"\n[baton] 인계서가 {len(lines)}줄이라 {keep}줄까지만 넣었다(상한 {LIMIT}줄·{LIMIT_CHARS}자). "
-                f"나머지는 HANDOFF.md {keep + 1}줄부터 — 필요하면 그 부분만 읽는다. 인계서는 짧게 유지한다.\n")
-    return out, {"lines": keep, "total": len(lines), "sha": sha,
-                 "days": fresh["days"], "commits_after": fresh["commits_after"]}, None
+
+    def cut(budget):
+        keep, used = 0, 0
+        for ln in lines[:LIMIT]:
+            if used + len(ln) + 1 > budget: break
+            keep += 1; used += len(ln) + 1
+        out = head + "\n\n" + "\n".join(lines[:keep]) + "\n"
+        if keep < len(lines):
+            out += (f"\n[baton] 인계서가 {len(lines)}줄이라 {keep}줄까지만 넣었다(상한 {LIMIT}줄·{LIMIT_CHARS}자). "
+                    f"나머지는 HANDOFF.md {keep + 1}줄부터 — 필요하면 그 부분만 읽는다. 인계서는 짧게 유지한다.\n")
+        return out, keep
+
+    out, keep = cut(max(min(full, HANDOFF_KEEP), full - reserve))
+    h = {"lines": keep, "total": len(lines), "sha": sha, "days": fresh["days"], "commits_after": fresh["commits_after"]}
+    if reserve:
+        whole = cut(full)
+        if whole[1] != keep:
+            h["unreserved"] = whole
+    return out, h, None
 
 
 def concept_index(repo, data, machine):
-    """(CONCEPTS.md 본문, 상대 경로, 건너뛴 이유). 넣을 조건이면 이유 None. 이유: off · no_map · machine · already."""
+    """(CONCEPTS.md 본문, 상대 경로, 건너뛴 이유). 넣을 조건이면 이유 None. 이유: off · no_map · machine · already · no_memory."""
     if off("BATON_CONCEPT_INDEX", repo):
         return "", "", "off"
     path, rel = rules.concept_path(repo)
@@ -238,8 +267,9 @@ def concept_index(repo, data, machine):
         return "", "", "machine"
     if index_injected(data):
         return "", "", "already"
-    with open(path, encoding="utf-8", errors="replace") as f:
-        return f.read(), rel, None
+    if not memory_writable(data):
+        return "", "", "no_memory"
+    return concepts.read_text(path), rel, None
 
 
 def observe(repo, prompt, data, handoff, concept, skip=None, index_chars=None, index_skip=None):
@@ -278,6 +308,7 @@ def main():
         mtext, itext, iskip = "", "", "error"
     htext, handoff, skip = inject_handoff(repo, prompt, data, machine, t0 + HOOK_DEADLINE,
                                           len(itext) + 1 if itext else 0)
+    unreserved = handoff.pop("unreserved", None) if handoff else None
     ctext, concept = ("", None) if machine else inject_concept(repo, prompt)
     if itext:
         try:  # 인계서·개념 절 뒤에 남은 자리만 쓴다. 안 맞으면 색인을 줄이고, 그래도 안 되면 뺀다
@@ -288,6 +319,8 @@ def main():
                 iskip = None if itext else "budget"
         except Exception:
             itext, iskip = "", "error"
+    if unreserved and not itext:  # 색인이 빠졌다 — 색인 몫 때문에 더 자른 인계서를 되돌린다
+        htext, handoff["lines"] = unreserved
     if htext or itext or ctext:
         # 일반 stdout은 Claude Code만 맥락에 넣는다. Codex는 additionalContext만 받는다(10-01 실제 Codex 세션 확인) — 둘 다 받는 JSON으로 낸다
         ctx = "\n".join(x for x in (htext, itext, ctext) if x)
