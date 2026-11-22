@@ -11,6 +11,19 @@
 <link rel="alternate" hreflang="en" href="https://sulabo.github.io/baton/">
 <link rel="alternate" hreflang="ko" href="https://sulabo.github.io/baton/ko/">
 <link rel="alternate" hreflang="x-default" href="https://sulabo.github.io/baton/">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="baton">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:url" content="https://sulabo.github.io/baton/ko/">
+<meta property="og:title" content="baton — AI가 새 대화마다 프로젝트를 다시 읽지 않게">
+<meta property="og:description" content="Claude Code와 Codex에서 쓰는 플러그인이에요. 새 대화는 한 장짜리 인계서로 이어받고, 필요한 파일은 개념 지도로 찾아요.">
+<meta property="og:image" content="https://sulabo.github.io/baton/og.png">
+<meta property="og:image:width" content="2576">
+<meta property="og:image:height" content="632">
+<meta property="og:image:alt" content="baton 로고와 문구: Stop your AI agent from re-reading your project every new session.(새 대화마다 AI가 프로젝트를 다시 읽지 않게)">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@400;600&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -24,6 +37,10 @@
  * studied: yes · DNA-source: url + browser capture · pre-emit critique: P4 H4 E4 S5 R4 V4
  */
 /* Layout: one message per screen; asymmetric hero, sticky three-step story, dark measured band, centred install, FAQ, statement footer. */
+/* 웹 글꼴이 오기 전 대체 글꼴의 폭을 맞춘다 — 글꼴이 바뀔 때 제목 줄바꿈이 달라져 히어로 카드가 밀리던 것(CLS 0.22, Lighthouse 원인 "Web font loaded").
+ * 값은 같은 본문 4,000자를 두 글꼴로 잰 폭 비율(2026-11-23, Chrome). 최종 화면은 그대로다. */
+@font-face { font-family: "Zilla Slab Fallback"; src: local("Georgia"); size-adjust: 96.79%; ascent-override: 97.12%; descent-override: 26.86%; line-gap-override: 0%; }
+@font-face { font-family: "JetBrains Mono Fallback"; src: local("Menlo"), local("Courier New"); size-adjust: 99.7%; ascent-override: 102.35%; descent-override: 30.1%; line-gap-override: 0%; }
 :root {
   color-scheme: light;
   --paper: oklch(0.992 0.002 255);
@@ -49,9 +66,9 @@
   --ok: oklch(0.5 0.12 155);
   --shadow: 0 1px 2px oklch(0.25 0.025 265 / 0.06), 0 16px 40px -16px oklch(0.25 0.025 265 / 0.22);
 
-  --font-display: "Zilla Slab", "Pretendard Variable", Pretendard, Rockwell, Georgia, serif;
+  --font-display: "Zilla Slab", "Zilla Slab Fallback", "Pretendard Variable", Pretendard, Rockwell, Georgia, serif;
   --font-ui: "Hanken Grotesk", "Pretendard Variable", Pretendard, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Pretendard Variable", Pretendard, ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-mono: "JetBrains Mono", "JetBrains Mono Fallback", "Pretendard Variable", Pretendard, ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.125rem;
   --text-h3: clamp(1.375rem, 1.1rem + 0.9vw, 1.75rem);
@@ -270,12 +287,13 @@ html.lenis, html.lenis body { height: auto; }
 .foot-links a:hover { color: var(--accent); }
 
 /* ---------- motion ---------- */
-@keyframes rise { from { opacity: 0; transform: translateY(28px); filter: blur(12px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes rise { from { opacity: 0.01; transform: translateY(28px); filter: blur(12px); } to { opacity: 1; transform: none; filter: none; } } /* 0이 아니라 0.01: 크롬은 불투명도 0인 글을 LCP 후보로 세지 않는다 */
 @keyframes draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 .js .enter { animation: rise var(--dur-slow) var(--ease-out) both; }
 .js .enter.d1 { animation-delay: 120ms; } .js .enter.d2 { animation-delay: 220ms; } .js .enter.d3 { animation-delay: 320ms; } .js .enter.d4 { animation-delay: 470ms; }
 .js .relay { animation: draw 1200ms 650ms var(--ease-out) both; }
 
+@media (max-width: 359px) { .nav-links li.hide-xs { display: none; } } /* 언어 링크와 설치 버튼이 들어갈 자리 */
 @media (max-width: 899px) {
   .hero-grid, .problem-inner, .story-grid, .map-grid, .diff-grid { grid-template-columns: minmax(0, 1fr); }
   .nav-links li.hide-sm { display: none; }
@@ -304,8 +322,8 @@ body { word-break: keep-all; }
     <ul class="nav-links">
       <li class="hide-sm"><a href="#how">작동 방식</a></li>
       <li class="hide-sm"><a href="#measured">잰 것</a></li>
-      <li class="hide-sm"><a href="../" hreflang="en" lang="en">English</a></li>
-      <li><a href="https://github.com/sulabo/baton">GitHub</a></li>
+      <li><a href="../" hreflang="en" lang="en">English</a></li>
+      <li class="hide-xs"><a href="https://github.com/sulabo/baton">GitHub</a></li>
       <li><a class="nav-cta" href="#install" tabindex="-1" id="navcta">설치</a></li>
     </ul>
   </div>
@@ -344,7 +362,7 @@ body { word-break: keep-all; }
       <div style="display:grid;gap:var(--space-4)">
         <p class="label">문제</p>
         <h2 id="problem-title">새 대화는 읽는 일부터 시작해요.</h2>
-        <p class="muted">만든 사람의 기록을 보면, "어디까지 했지?"로 시작한 대화 42개 중 41개에서 AI가 첫 5번 호출 안에 <code>HANDOFF.md</code>를 다시 읽었어요. 읽은 내용은 대화가 끝날 때까지 맥락에 남아, AI를 부를 때마다 다시 보내져요. 오래된 메모는 지금 코드와 어긋나 있을 수도 있어요.</p>
+        <p class="muted">만든 사람의 기록을 보면, "어디까지 했지?" 같은 진행 질문으로 시작한 대화 42개 중 41개에서 AI가 첫 5번 호출(AI가 모델에 한 번 요청하는 것) 안에 <code>HANDOFF.md</code>를 다시 읽었어요. 읽은 내용은 대화가 끝날 때까지 맥락에 남아요. 맥락은 AI를 부를 때마다 다시 보내는 대화 내용이에요. 오래된 메모는 지금 코드와 어긋나 있을 수도 있어요.</p>
       </div>
     </div>
   </section>
@@ -382,7 +400,7 @@ body { word-break: keep-all; }
             </li>
             <li class="step">
               <span class="step-num">2 · 다음 대화</span>
-              <h3>"어디까지 했지?"라고 물어요. 인계서가 작성 시점과 함께 한 번 들어가요.</h3>
+              <h3>"어디까지 했지?"라고 물어보세요. 인계서가 작성 시점과 함께 한 번 들어가요.</h3>
               <p>훅이 인계서를 맥락에 넣으면서, 언제 썼는지와 그 뒤 커밋이 몇 개인지 알려 주는 한 줄을 붙여요. 한 대화에 한 번만 넣고, 보조 AI(서브에이전트)가 보낸 메시지에는 넣지 않아요.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
@@ -425,7 +443,7 @@ body { word-break: keep-all; }
       <div class="map-copy" data-rise="80">
         <p class="label">개념 지도</p>
         <h2 id="map-title">셀 수 없으면, 셀 수 없다고 말해요.</h2>
-        <p class="muted">한 번도 확인하지 않은 개념은 기준이 없어요. 그래서 신선하다고 세지 않고 따로 표시해요. 판정은 모두 커밋 수이거나, 이름이 붙은 이유예요.</p>
+        <p class="muted">한 번도 확인하지 않은 개념은 기준이 없어요. 그래서 신선한 것으로 세지 않고 따로 표시해요. 판정은 늘 커밋 수이거나, 셀 수 없는 까닭(예: 기준 없음)이에요.</p>
         <ul class="facts">
           <li><b>신선</b><span>확인한 뒤로 커밋이 없어요. 다시 읽을 게 없어요.</span></li>
           <li><b>커밋 N건</b><span>확인한 커밋 뒤에 이 개념의 파일이 바뀌었어요.</span></li>
@@ -450,13 +468,13 @@ body { word-break: keep-all; }
       <div class="measured-head" data-rise="80">
         <p class="label">지금까지 잰 것</p>
         <h2 id="measured-title">잰 것과, 아직 못 잰 것.</h2>
-        <p>숫자는 모두 만든 사람 한 명이 자기 저장소에서 쓴 기록이에요. 숫자마다 기간과 범위가 달라요. 명령과 출처는 <a href="https://github.com/sulabo/baton/blob/main/CHANGELOG.md">변경 기록</a>에 있어요.</p>
+        <p>숫자는 모두 만든 사람 한 명이 자기 저장소에서 쓴 기록에서 나왔어요. 숫자마다 기간과 범위가 달라요. 명령과 출처는 <a href="https://github.com/sulabo/baton/blob/main/CHANGELOG.md">변경 기록</a>에 있어요.</p>
       </div>
       <div class="stats" data-rise="160">
-        <div class="stat"><div class="n">41/42 → 3/11</div><p>AI가 첫 5번 호출 안에 <code>HANDOFF.md</code>를 다시 읽은 대화예요. 설치 전과 설치 후를 비교했어요.</p><p class="scope">설치 전 08-31~10-04, 설치 후 10-19~11-20. 설치 후 대화가 11개라, 효과의 크기보다 방향을 보여 줘요.</p></div>
-        <div class="stat"><div class="n">40–54%</div><p>진행 상황을 물을 때 인계서를 넣어서 줄어든 입력 토큰이에요. 같은 저장소 상태에서 되풀이한 실험(스냅숏) 결과예요.</p><p class="scope">저장소 3곳, 조건마다 3~5번. 관련 없는 작업에 인계서를 넣으면 약 11% 더 썼어요.</p></div>
-        <div class="stat"><div class="n">아직</div><p>실제 사용에서는 아직 토큰이 줄지 않았어요. 같은 인계서가 대화 39개에서 269번 들어갔어요. 대화마다 한 번만 넣도록 고쳤고, 그 효과는 아직 재지 못했어요.</p><p class="scope">10-04~11-19. 같은 기간에 다른 플러그인이 처음부터 차지하는 맥락도 커졌어요.</p></div>
-        <div class="stat"><div class="n">85%</div><p>맥락이 첫 호출의 2배를 넘은 뒤에 나간 비용이에요. 그래서 baton은 2배와 3배일 때 인계서를 쓰자고 알려요.</p><p class="scope">AI 호출이 20번 이상인 대화 60개, API 가격 기준.</p></div>
+        <div class="stat"><div class="n">41/42 → 3/11</div><p>AI가 첫 5번 호출 안에 <code>HANDOFF.md</code>를 다시 읽은 대화예요. 설치 전과 설치 후를 비교했어요.</p><p class="scope">설치 전 08-31~10-04, 설치 후 10-19~11-20. 설치 후 대화가 11개뿐이라, 효과의 크기가 아니라 방향만 보여 줘요.</p></div>
+        <div class="stat"><div class="n">40–54%</div><p>진행 상황을 물을 때 인계서를 넣었더니 입력 토큰(AI에게 보내는 글의 양)이 이만큼 줄었어요. 같은 저장소 상태에서 되풀이한 실험(스냅숏) 결과예요.</p><p class="scope">저장소 3곳, 조건마다 3~5번. 관련 없는 작업에 인계서를 넣었을 때는 입력 토큰을 약 11% 더 썼어요(저장소 1곳, 5번).</p></div>
+        <div class="stat"><div class="n">아직</div><p>실제 사용에서는 아직 토큰이 줄지 않았어요. 같은 인계서가 대화 39개에서 269번 들어갔어요. 대화마다 한 번만 넣도록 고쳤어요. 그 효과는 아직 재지 못했어요.</p><p class="scope">10-04~11-19. 같은 기간에 다른 플러그인이 처음부터 차지하는 맥락도 커졌어요.</p></div>
+        <div class="stat"><div class="n">85%</div><p>전체 비용 중, 맥락이 첫 호출 때 크기의 2배를 넘은 뒤에 나간 몫이에요. 그래서 baton은 2배와 3배일 때 인계서를 쓰자고 알려요.</p><p class="scope">AI 호출이 20번 이상인 대화 60개, API 가격 기준.</p></div>
       </div>
     </div>
   </section>
@@ -470,7 +488,7 @@ body { word-break: keep-all; }
       <div>
         <ol>
           <li><h3>이어서 하자고 할 때만 인계서를 넣어요</h3><p>한 대화에 한 번만 넣고, 보조 AI나 다른 대화가 보낸 메시지에는 넣지 않아요.</p></li>
-          <li><h3>저장할 때 인계서를 검사해요</h3><p>길이, 꼭 있어야 하는 항목, 비밀값, 홈 폴더 경로, 직접 고른 비공개 단어를 봐요.</p></li>
+          <li><h3>저장할 때 인계서를 검사해요</h3><p>길이, 꼭 있어야 하는 항목, 비밀값, 홈 폴더 경로, 직접 정해 둔 비공개 단어를 봐요.</p></li>
           <li><h3>개념마다 마지막으로 확인한 커밋을 적어 둬요</h3><p>바뀌지 않은 개념은 다시 읽지 않아요. 결정 기록, 코드, 문서가 서로 다른 말을 하는 곳도 표시해요.</p></li>
         </ol>
         <p class="aside">2026-11-21과 11-22에 살펴본 도구 중, 이 세 가지를 문서에 적어 둔 곳은 없었어요. <code>/compact</code>와 <code>/resume</code>은 대화 하나를 계속 이어 가요. baton은 새 대화에 짧은 인계서를 건네요. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.ko.md#다른-도구와-비교">전체 비교 보기</a></p>
@@ -489,7 +507,7 @@ body { word-break: keep-all; }
       <div class="tabpanel" role="tabpanel" id="panel-claude" aria-labelledby="tab-claude">
         <div class="cmd"><code>/plugin marketplace add sulabo/baton</code><button class="copy" type="button" id="copy-c1" data-copy="/plugin marketplace add sulabo/baton">복사</button></div>
         <div class="cmd"><code>/plugin install baton@baton</code><button class="copy" type="button" id="copy-c2" data-copy="/plugin install baton@baton">복사</button></div>
-        <p class="note">Claude Code 안에서 실행하세요. 그다음 새 대화를 열고 <code>/baton-doctor</code>를 실행해요.</p>
+        <p class="note">Claude Code 안에서 실행하세요. 그다음 새 대화를 열고 <code>/baton-doctor</code>를 실행하세요.</p>
       </div>
       <div class="tabpanel" role="tabpanel" id="panel-codex" aria-labelledby="tab-codex" hidden>
         <div class="cmd"><code>codex plugin marketplace add sulabo/baton</code><button class="copy" type="button" id="copy-x1" data-copy="codex plugin marketplace add sulabo/baton">복사</button></div>
@@ -505,9 +523,9 @@ body { word-break: keep-all; }
       <div>
         <details open><summary>baton이 인터넷으로 무언가를 보내나요?</summary><p>아니요. 훅은 git 기록과 내 컴퓨터의 파일만 읽고, <code>~/.cache/baton/</code> 아래에만 써요.</p></details>
         <details><summary>토큰이 줄어드나요?</summary><p>스냅숏 실험에서는 진행 상황을 물을 때 줄었어요. 실제 사용에서는 아직 줄어든 걸 보여 주지 못했어요. 숫자와 범위는 위의 "지금까지 잰 것"에 있어요.</p></details>
-        <details><summary>/compact나 /resume과 뭐가 달라요?</summary><p>그 둘은 대화 하나를 요약과 그 뒤 메시지로 계속 이어 가요. baton은 새 대화를 시작할 때 써요. 직접 읽고 고칠 수 있는 짧은 인계서를 AI에게 건네고, 그 인계서가 얼마나 오래됐는지도 알려 줘요. 둘을 같이 써도 돼요.</p></details>
-        <details><summary>어떤 말을 하면 인계서가 들어가나요?</summary><p>"이어서", "어디까지", "인계", "handoff" 같은 말이 프롬프트에 있으면 들어가요. 그런 말이 없으면 넣지 않아요. 말은 <code>/baton-setup</code>으로 더 넣을 수 있어요.</p></details>
-        <details><summary>DECISIONS.md가 꼭 있어야 하나요?</summary><p>아니요. 파일 신선도는 git 기록만으로 돼요. 결정 기록이 없으면 "정했는데 아직 안 만든 것"은 잡지 못하고, 파일이 없는 개념은 추적하지 않아요.</p></details>
+        <details><summary>/compact나 /resume과 뭐가 달라요?</summary><p>그 둘은 대화 하나를 요약과 그 뒤 메시지로 계속 이어 가요. baton은 새 대화를 시작할 때 써요. 직접 읽고 고칠 수 있는 짧은 인계서를 AI에게 건네고, 그 인계서가 얼마나 오래됐는지도 알려 줘요. baton과 그 둘을 함께 써도 돼요.</p></details>
+        <details><summary>어떤 말을 하면 인계서가 들어가나요?</summary><p>"이어서", "어디까지", "인계", "handoff" 같은 말이 프롬프트에 있으면 들어가요(한 대화에 한 번). 그런 말이 없으면 넣지 않아요. 이런 말은 <code>/baton-setup</code>에서 더 추가할 수 있어요.</p></details>
+        <details><summary>DECISIONS.md가 꼭 있어야 하나요?</summary><p>아니요. 파일 신선도는 git 기록만으로 계산해요. 결정 기록이 없으면 "정했는데 아직 안 만든 것"은 잡지 못하고, 파일이 없는 개념은 추적하지 않아요.</p></details>
         <details><summary>내 파일을 바꾸나요?</summary><p>훅은 알림을 보여 주고 문제를 AI에게 돌려줄 뿐이에요. <code>CONCEPTS.md</code>와 <code>HANDOFF.md</code>는 요청할 때 AI가 써요.</p></details>
       </div>
     </div>

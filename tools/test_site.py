@@ -42,6 +42,15 @@ class SitePagesTest(unittest.TestCase):
         for page in (self.en, self.ko):
             self.assertIn('hreflang="ko" href="https://sulabo.github.io/baton/ko/"', page)
 
+    def test_share_preview_meta(self):
+        meta = lambda p, k: re.search(r'<meta (?:property|name)="%s" content="([^"]*)">' % re.escape(k), p).group(1)
+        canon = lambda p: re.search(r'<link rel="canonical" href="([^"]+)">', p).group(1)
+        self.assertEqual(meta(self.en, "og:image"), meta(self.ko, "og:image"))
+        self.assertTrue(os.path.isfile(os.path.join(SITE, meta(self.en, "og:image").rsplit("/", 1)[1])))
+        for page in (self.en, self.ko):
+            self.assertEqual(meta(page, "og:url"), canon(page))
+            self.assertEqual(meta(page, "twitter:card"), "summary_large_image")
+
 
 if __name__ == "__main__":
     unittest.main()

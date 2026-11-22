@@ -9,6 +9,19 @@
 <link rel="alternate" hreflang="en" href="https://sulabo.github.io/baton/">
 <link rel="alternate" hreflang="ko" href="https://sulabo.github.io/baton/ko/">
 <link rel="alternate" hreflang="x-default" href="https://sulabo.github.io/baton/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="baton">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ko_KR">
+<meta property="og:url" content="https://sulabo.github.io/baton/">
+<meta property="og:title" content="baton — stop your AI agent from re-reading your project">
+<meta property="og:description" content="A one-page handoff and a concept map for Claude Code and Codex, so a new session starts from where you left off.">
+<meta property="og:image" content="https://sulabo.github.io/baton/og.png">
+<meta property="og:image:width" content="2576">
+<meta property="og:image:height" content="632">
+<meta property="og:image:alt" content="baton logo and the line: Stop your AI agent from re-reading your project every new session.">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@400;600&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -21,6 +34,10 @@
  * studied: yes · DNA-source: url + browser capture · pre-emit critique: P4 H4 E4 S5 R4 V4
  */
 /* Layout: one message per screen; asymmetric hero, sticky three-step story, dark measured band, centred install, FAQ, statement footer. */
+/* 웹 글꼴이 오기 전 대체 글꼴의 폭을 맞춘다 — 글꼴이 바뀔 때 제목 줄바꿈이 달라져 히어로 카드가 밀리던 것(CLS 0.22, Lighthouse 원인 "Web font loaded").
+ * 값은 같은 본문 4,000자를 두 글꼴로 잰 폭 비율(2026-11-23, Chrome). 최종 화면은 그대로다. */
+@font-face { font-family: "Zilla Slab Fallback"; src: local("Georgia"); size-adjust: 96.79%; ascent-override: 97.12%; descent-override: 26.86%; line-gap-override: 0%; }
+@font-face { font-family: "JetBrains Mono Fallback"; src: local("Menlo"), local("Courier New"); size-adjust: 99.7%; ascent-override: 102.35%; descent-override: 30.1%; line-gap-override: 0%; }
 :root {
   color-scheme: light;
   --paper: oklch(0.992 0.002 255);
@@ -46,9 +63,9 @@
   --ok: oklch(0.5 0.12 155);
   --shadow: 0 1px 2px oklch(0.25 0.025 265 / 0.06), 0 16px 40px -16px oklch(0.25 0.025 265 / 0.22);
 
-  --font-display: "Zilla Slab", Rockwell, Georgia, serif;
+  --font-display: "Zilla Slab", "Zilla Slab Fallback", Rockwell, Georgia, serif;
   --font-ui: "Hanken Grotesk", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-mono: "JetBrains Mono", "JetBrains Mono Fallback", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.125rem;
   --text-h3: clamp(1.375rem, 1.1rem + 0.9vw, 1.75rem);
@@ -267,12 +284,13 @@ html.lenis, html.lenis body { height: auto; }
 .foot-links a:hover { color: var(--accent); }
 
 /* ---------- motion ---------- */
-@keyframes rise { from { opacity: 0; transform: translateY(28px); filter: blur(12px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes rise { from { opacity: 0.01; transform: translateY(28px); filter: blur(12px); } to { opacity: 1; transform: none; filter: none; } } /* 0이 아니라 0.01: 크롬은 불투명도 0인 글을 LCP 후보로 세지 않는다 */
 @keyframes draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 .js .enter { animation: rise var(--dur-slow) var(--ease-out) both; }
 .js .enter.d1 { animation-delay: 120ms; } .js .enter.d2 { animation-delay: 220ms; } .js .enter.d3 { animation-delay: 320ms; } .js .enter.d4 { animation-delay: 470ms; }
 .js .relay { animation: draw 1200ms 650ms var(--ease-out) both; }
 
+@media (max-width: 359px) { .nav-links li.hide-xs { display: none; } } /* 언어 링크와 설치 버튼이 들어갈 자리 */
 @media (max-width: 899px) {
   .hero-grid, .problem-inner, .story-grid, .map-grid, .diff-grid { grid-template-columns: minmax(0, 1fr); }
   .nav-links li.hide-sm { display: none; }
@@ -298,8 +316,8 @@ html.lenis, html.lenis body { height: auto; }
     <ul class="nav-links">
       <li class="hide-sm"><a href="#how">How it works</a></li>
       <li class="hide-sm"><a href="#measured">Measured</a></li>
-      <li class="hide-sm"><a href="ko/" hreflang="ko" lang="ko">한국어</a></li>
-      <li><a href="https://github.com/sulabo/baton">GitHub</a></li>
+      <li><a href="ko/" hreflang="ko" lang="ko">한국어</a></li>
+      <li class="hide-xs"><a href="https://github.com/sulabo/baton">GitHub</a></li>
       <li><a class="nav-cta" href="#install" tabindex="-1" id="navcta">Install</a></li>
     </ul>
   </div>
@@ -338,7 +356,7 @@ html.lenis, html.lenis body { height: auto; }
       <div style="display:grid;gap:var(--space-4)">
         <p class="label">The problem</p>
         <h2 id="problem-title">A new session starts by reading.</h2>
-        <p class="muted">In the author's logs, 41 of 42 sessions that opened with "how far did we get?" had the agent re-read <code>HANDOFF.md</code> within its first five model calls. What it reads stays in context for the rest of the session, and old notes can no longer match the code.</p>
+        <p class="muted">In the author's logs, 41 of 42 sessions that opened with a progress question such as "how far did we get?" had the agent re-read <code>HANDOFF.md</code> within its first five model calls. What it reads stays in context for the rest of the session, and old notes can no longer match the code.</p>
       </div>
     </div>
   </section>
@@ -447,7 +465,7 @@ html.lenis, html.lenis body { height: auto; }
       </div>
       <div class="stats" data-rise="160">
         <div class="stat"><div class="n">41/42 → 3/11</div><p>Sessions where the agent re-read <code>HANDOFF.md</code> within its first 5 model calls, before and after install.</p><p class="scope">08-31 to 10-04, then 10-19 to 11-20. Eleven sessions show a direction, not a size.</p></div>
-        <div class="stat"><div class="n">40–54%</div><p>Fewer input tokens on progress questions with the handoff injected, in snapshot runs.</p><p class="scope">3 repos, 3–5 runs per condition. An unrelated task with the handoff loaded used about 11% more.</p></div>
+        <div class="stat"><div class="n">40–54%</div><p>Fewer input tokens on progress questions with the handoff injected, in snapshot runs.</p><p class="scope">3 repos, 3–5 runs per condition. An unrelated task with the handoff loaded used about 11% more input tokens (1 repo, 5 runs).</p></div>
         <div class="stat"><div class="n">Not yet</div><p>Tokens did not go down in real use so far. The same handoff went in 269 times in 39 sessions; once per session is the fix, and its effect isn't measured yet.</p><p class="scope">10-04 to 11-19. Fixed context from other plugins also grew in that period.</p></div>
         <div class="stat"><div class="n">85%</div><p>Of the cost came from calls made after the context grew past 2× its size at the first call. So baton suggests a handoff at 2× and 3×.</p><p class="scope">60 sessions with 20+ model calls, weighted by API prices.</p></div>
       </div>
