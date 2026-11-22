@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """인계서 검사기 — 북극성 길 단계 3 "Handoff Validator". HANDOFF.md가 다음 세션이 받기 좋은 모양인지 규칙으로 본다.
 
-보는 것: 필수 8절(스킬 템플릿) · 200줄(소유자 결정 09-22) · 9,000자(넘치면 Claude Code가 훅 출력을 파일로 뺀다) ·
+보는 것: 필수 8절(스킬 템플릿) · 200줄(소유자 결정 09-22) · 8,700자(주입 훅이 머리말·신선도 한 줄·개념 색인을 붙이고도 전문을 넣는 양) ·
 긴 코드 블록 · 전체 diff · 비밀값 · 홈 절대경로(10-01 공개 사고에서 새어 나간 종류) ·
 개인 자료 목록(/baton-setup에서 사용자가 고른 이름·이메일 등, 설정 파일의 private_terms).
 찾은 값 자체는 출력하지 않는다 — 줄 번호와 종류만. 비밀값을 로그·맥락에 다시 옮기지 않으려고.
@@ -16,7 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config, rules
 
 MAX_LINES = 200
-MAX_CHARS = 9000
+MAX_CHARS = 8700  # 주입 훅 본문 예산보다 작아야 한다. 지금 예산 = LIMIT_CHARS 9,600 − 머리말 − 신선도 한 줄(최대 rules.FRESHNESS_MAX)
+#   − 꼬리 안내 몫 200 ≥ 8,739자, 개념 색인과 같이 들어가면 HANDOFF_KEEP(이 값 + 1). 처음 정할 때는 훅 출력이 9,000자라 예산이
+#   8,708자였고, 9,000자 검사기로는 8,709~9,000자 인계서가 검사는 통과하고 주입에서 잘렸다(11-21 로그: 주입 285번 중 163번 잘림).
+#   두 값은 lib/test_handoff_check.py InjectBudgetTest가 묶는다 — 한쪽만 바꾸면 테스트가 깨진다.
 MAX_CODE_LINES = 20  # ponytail: 정본 26절의 "긴 코드 블록" 수치가 저장소에 없어 정한 기본값. 실사용에서 걸리는 분포를 보고 조정
 
 # (절 제목이 이 말 중 하나로 시작하면 그 절이 있다고 본다, 보고할 절 이름). "## E. 실패한 접근법"처럼 번호가 붙어도 받는다.
@@ -113,7 +116,7 @@ def check(text, strict=True, private_terms=()):
     if len(lines) > MAX_LINES:
         out.append(f"{len(lines)}줄 — 상한 {MAX_LINES}줄을 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)")
     if len(text) > MAX_CHARS:
-        out.append(f"{len(text):,}자 — 상한 {MAX_CHARS:,}자를 넘는다(넘치면 주입이 파일로 빠진다)")
+        out.append(f"{len(text):,}자 — 상한 {MAX_CHARS:,}자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)")
     if diff_lines:
         out.append(f"전체 diff로 보이는 줄 {len(diff_lines)}개(첫 줄 {diff_lines[0]}) — 바뀐 파일과 동작 변화만 적는다")
     return out

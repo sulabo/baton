@@ -4,7 +4,7 @@
 # PostToolUse(Write|Edit|MultiEdit): 고친 파일이 HANDOFF.md면 lib/handoff_check.py로 검사하고,
 #   문제가 있으면 모델에게 돌려준다(decision: block — 쓰기는 이미 됐고, 이유를 보고 고치게 한다).
 #   경고만 있으면(확인 표시 [V]·[?] 빠짐) 막지 않고 additionalContext로 알리기만 한다.
-# Stop: 이 세션이 마지막으로 HANDOFF.md를 쓴 뒤 다른 파일을 N개(기본 3) 이상 고쳤으면, 세션에 한 번 사용자에게 인계서를 제안한다.
+# Stop: 이 세션이 마지막으로 인계서(HANDOFF.md 또는 HANDOFF_*.md)를 쓴 뒤 다른 파일을 N개(기본 3) 이상 고쳤으면, 세션에 한 번 사용자에게 인계서를 제안한다.
 #   쓰기는 사람이 정한다. 문턱 3은 로컬 세션 94개 실측(2026-10-01): 1~2개 고친 세션은 인계서를 16% 썼고 3개 이상은 67% 썼다.
 #
 # 끄기: BATON_HANDOFF_CHECK=off(검사) · BATON_HANDOFF_NUDGE=off(제안) · 문턱: BATON_HANDOFF_NUDGE_FILES=3
@@ -22,8 +22,19 @@ def off(name, repo):
     return config.get(name, repo).strip().lower() in ("off", "0", "false", "no")
 
 
+NAMED = re.compile(r"(?i)handoff[_-].+\.md")  # 이름 붙은 인계서(HANDOFF_트랙.md). 주입·검사는 HANDOFF.md만 한다
+
+
 def is_handoff(path):
+    """주입 훅이 읽고 검사기가 보는 인계서."""
     return isinstance(path, str) and os.path.basename(path) == "HANDOFF.md"
+
+
+def wrote_handoff(path):
+    """인계서를 쓴 편집 — HANDOFF.md와 이름 붙은 인계서 둘 다. 제안 문턱과 /baton-setup 분포는 이것으로 센다.
+    HANDOFF.md만 세면 트랙마다 HANDOFF_*.md를 쓰는 사람은 인계서를 쓴 뒤에도 '안 썼다'로 잡힌다
+    (11-21 로그: 제안을 무시한 것으로 보인 13번 중 5번은 제안 뒤에 이름 붙은 인계서를 썼다)."""
+    return is_handoff(path) or (isinstance(path, str) and bool(NAMED.fullmatch(os.path.basename(path))))
 
 
 def repo_of(start):
@@ -35,6 +46,9 @@ def on_edit(data):
     ti = data.get("tool_input")
     path = ti.get("file_path") if isinstance(ti, dict) else None
     if not is_handoff(path):
+        if wrote_handoff(path):  # 검사는 안 하지만 썼다는 것은 남긴다 — 제안 효과를 셀 때 빠지지 않게
+            runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_write",
+                           "session_id": data.get("session_id"), "named": True})
         return
     if not os.path.isabs(path) and isinstance(data.get("cwd"), str):
         path = os.path.join(data["cwd"], path)
@@ -86,10 +100,10 @@ def edit_paths(path):
 
 
 def edited_since_handoff(path):
-    """이 세션이 마지막으로 HANDOFF.md를 쓴 뒤 고친 다른 파일들."""
+    """이 세션이 마지막으로 인계서(HANDOFF.md 또는 이름 붙은 인계서)를 쓴 뒤 고친 다른 파일들."""
     files = set()
     for fp in edit_paths(path):
-        if is_handoff(fp):
+        if wrote_handoff(fp):
             files.clear()
         else:
             files.add(os.path.normpath(fp))
@@ -121,7 +135,7 @@ def on_stop(data):
         open(state, "w").close()
     except OSError:
         return  # 한 번만 알린다는 약속을 못 지키면 아예 알리지 않는다
-    msg = (f"[baton] 이 세션에서 파일 {len(files)}개를 고쳤는데 HANDOFF.md는 그 뒤로 안 바뀌었다. "
+    msg = (f"[baton] 이 세션에서 파일 {len(files)}개를 고쳤는데 인계서(HANDOFF.md·HANDOFF_*.md)는 그 뒤로 안 바뀌었다. "
            f"작업 덩어리가 끝났다면 '핸드오프 작성해줘'로 인계서를 남겨 두면 다음 세션이 처음부터 다시 찾지 않는다. "
            f"쓸지는 정하면 된다 — 이 제안은 세션에 한 번만 나온다.")
     print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
