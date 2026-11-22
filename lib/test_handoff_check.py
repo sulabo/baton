@@ -297,7 +297,9 @@ class InjectBudgetTest(unittest.TestCase):
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
         self.assertEqual(handoff_check.MAX_LINES, hook.LIMIT)
-        self.assertLessEqual(handoff_check.MAX_CHARS + 1, hook.LIMIT_CHARS - len(hook.HEAD) - 200)
+        # 신선도 한 줄이 가장 길 때의 본문 예산(머리말 + 줄바꿈 + 신선도 + 꼬리 안내 몫을 뺀 것)에 검사기 상한 + 끝 줄바꿈이 들어간다
+        self.assertLessEqual(handoff_check.MAX_CHARS + 1,
+                             hook.LIMIT_CHARS - len(hook.HEAD) - 1 - hook.rules.FRESHNESS_MAX - hook.TAIL_RESERVE)
 
     def test_largest_passing_handoff_is_injected_whole(self):
         with tempfile.TemporaryDirectory() as root:
