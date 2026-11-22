@@ -6,13 +6,25 @@
 #  - 인계와 무관한 작업에 넣으면 +11%. 넣은 것이 매 턴 컨텍스트에 남기 때문이다.
 #  - 세션 시작 훅은 프롬프트를 못 본다. 그래서 프롬프트 제출 시점에 가린다.
 #
-# 200줄·9,000자 중 먼저 닿는 곳까지만 넣는다. 줄 상한은 소유자 결정(09-22). 글자 상한은 실측(루프 2):
-# 훅 출력이 8,995자일 때는 컨텍스트에 들어갔고 20,826자일 때는 Claude Code가 파일로 빼 두고
-# 에이전트가 그 파일을 다시 cat했다 — 넣은 것이 아니라 가리킨 것이 됐다. 정확한 문턱은 확인 못 함.
+# 200줄과 LIMIT_CHARS(훅 출력 전체) 중 먼저 닿는 곳까지만 넣는다. 줄 상한은 소유자 결정(09-22).
+# 글자 상한은 Claude Code 문서의 훅 출력 상한에 여유를 둔 값이다. https://code.claude.com/docs/en/hooks "JSON output"(2026-11-21 확인):
+# "A hook's additionalContext, systemMessage, and initialUserMessage strings, and its plain stdout, are capped at 10,000
+# characters" — 넘으면 세션 폴더의 파일로 저장하고 경로와 앞 2,000자 미리보기만 넘긴다. "this cap has no setting or environment
+# variable to raise it". 실측(루프 2)도 같다: 8,995자는 그대로 들어갔고, 20,826자는 파일로 빠져 에이전트가 그 파일을 다시 cat했다.
+# ponytail: 여유 400자. 문서의 "characters"가 UTF-16 단위인지는 확인 못 함 — 그렇다면 이모지처럼 BMP 밖 글자는 둘로 센다.
+# 인계서 본문 예산은 머리말·신선도 한 줄(최대 rules.FRESHNESS_MAX)·꼬리 안내 몫을 뺀 나머지다 — 최소 8,739자로
+# 검사기 상한 8,700자(PR #14)를 늘 넘는다. hooks/test_handoff_inject.py HookOutputBudgetTest가 이 셈을 묶는다.
 # 넘치면 잘랐다는 것을 한 줄로 말한다 — 조용히 자르면 뒤쪽에 있는 다음 행동을 "없음"으로 읽는다.
 # 한 세션에 같은 인계서는 한 번만 넣는다 — 파일이 바뀌었거나 그 뒤 세션이 압축됐을 때만 다시 넣는다. 사람이 친 프롬프트가 아닌 것
 # (다른 세션의 <agent-message>, <task-notification>)에는 넣지 않는다. 11-18 실사용 로그: 주입 263번 중 226번이 같은 세션의 재주입,
 # 세션 기록과 대조하니 최소 152번은 다른 세션 메시지가 계기였다(한 세션에 41번, 매번 8~9천 자).
+# 머리말 바로 뒤에 신선도 한 줄(작성일·며칠 전·그 뒤 커밋 수, lib/rules.py handoff_freshness)을 붙인다 — 인계서는 가설이다.
+# "다시 열 필요 없다"는 그대로 둔다(재독 5/5→0/5, 루프 2). 2026-11-08 낡은 백업 폴더의 38일 된 인계서가
+# "그대로 이어서 진행한다"와 함께 주입된 일로 그 뒷문장만 "주장 한두 개를 확인한 뒤 진행"으로 바꿨다(재독 영향 미측정).
+# 신선도는 실제로 넣을 때만 센다(git 합계 rules.GIT_BUDGET 3초) — machine·already로 건너뛸 때는 git을 부르지 않는다.
+# 훅 시한은 10초(hooks.json)다. 신선도는 훅 시작 + HOOK_DEADLINE(8.5초)을 넘겨 쓰지 않고, 시간이 없으면 못 셌다고 적고 넣는다.
+# 그 앞의 repo_root(Codex만)·config.repo_key(설정에 저장소 절이 있을 때)는 git이 멈추면 각 5초 — 그 둘만으로 10초에 닿을 수
+# 있다(이 기능 전부터, PR #16 기준 Codex+설정 10.1초 실측). 그때 훅이 죽으면 인계서는 조용히 안 들어간다 — 이 PR에서 안 고친다.
 # 끄기: BATON_HANDOFF_INJECT=off. 이 스위치들과 추가 트리거 말은 환경변수 또는 설정 파일에서 읽는다(lib/config.py, /baton-setup).
 # 실험: BATON_CONCEPT_INJECT=on 이면 프롬프트가 개념 제목을 가리킬 때 CONCEPTS.md의 해당 절만 넣는다.
 #
@@ -25,18 +37,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import config, rules, runlog
 
 LIMIT = 200
-LIMIT_CHARS = 9000
+LIMIT_CHARS = 9600  # 훅 출력 전체(문서 상한 10,000자 − 여유 400)
+TAIL_RESERVE = 200  # 잘렸을 때 붙이는 꼬리 안내 몫
 CONCEPT_LIMIT_CHARS = 2000
 TRIGGER = rules.TRIGGER
 SEEN_SCAN_MAX = 64 * 1024 * 1024  # 넣은 뒤 세션 기록이 이보다 많이 자랐으면 읽지 않고 다시 넣는다(43MB 세션 기록 실측, 11-18)
 SEEN_KEEP_DAYS = 7
+HOOK_DEADLINE = 8.5  # 훅 시작부터 이 초 뒤에는 신선도 git을 부르지 않는다(훅 시한 10초 — 출력·로그 몫을 남긴다)
 # 세션 기록의 압축 경계 줄 — Claude Code `"subtype":"compact_boundary"`(11-18 실제 기록 27개 파일 84건),
 # Codex `"type":"compacted"`(~/.codex/sessions 실제 기록 확인). 본문 속 같은 글자는 JSON 이스케이프(\")라 걸리지 않는다.
 # ponytail: /rewind·다른 훅의 block으로 넣은 맥락이 빠져도 기록 크기는 그대로라 알아채지 못한다 — 다음 "이어서"에서 안 넣는다.
 # 그때는 에이전트가 파일을 직접 읽는다(baton 전 동작). 넣은 줄(hook_additional_context)이 실제로 기록됐는지 보는 쪽으로 올릴 수 있다
 COMPACT_MARKS = (b'"subtype":"compact_boundary"', b'"type":"compacted"')
 HEAD = ("[baton] 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). "
-        "파일을 다시 열 필요 없다. 그대로 이어서 진행한다.")
+        "파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, "
+        "다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다.")
 CONCEPT_HEAD = ("[baton] 아래는 이 저장소 {path}에서 프롬프트와 맞은 개념 한 절이다"
                 "(실험 기능 BATON_CONCEPT_INJECT=on). 개념은 탐색 앵커다. 실제 동작은 필요한 경우 코드로 확인한다.")
 
@@ -142,7 +157,7 @@ def remember_injected(data, sha):
         pass
 
 
-def inject_handoff(repo, prompt, data, machine=False):
+def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None):
     """(넣을 텍스트, 넣은 것 dict, 건너뛴 이유). 조건이 안 맞으면 ("", None, None).
     넣을 조건인데 건너뛰면 이유를 남긴다: machine(사람이 친 프롬프트가 아님) · already(이 세션에 같은 내용을 이미 넣음)."""
     if off("BATON_HANDOFF_INJECT", repo):
@@ -160,16 +175,20 @@ def inject_handoff(repo, prompt, data, machine=False):
     if already_injected(data, sha):
         return "", None, "already"
     lines = text.splitlines()
-    budget = LIMIT_CHARS - len(HEAD) - 200  # 머리말·꼬리 안내 몫
+    deadline = None if hook_deadline is None else min(time.monotonic() + rules.GIT_BUDGET, hook_deadline)
+    fresh = rules.safe_freshness(repo, text, deadline)
+    head = HEAD + "\n" + rules.freshness_line(fresh)
+    budget = LIMIT_CHARS - len(head) - TAIL_RESERVE  # 신선도 한 줄을 먼저 만들고 실제 길이를 뺀다
     keep, used = 0, 0
     for ln in lines[:LIMIT]:
         if used + len(ln) + 1 > budget: break
         keep += 1; used += len(ln) + 1
-    out = HEAD + "\n\n" + "\n".join(lines[:keep]) + "\n"
+    out = head + "\n\n" + "\n".join(lines[:keep]) + "\n"
     if keep < len(lines):
         out += (f"\n[baton] 인계서가 {len(lines)}줄이라 {keep}줄까지만 넣었다(상한 {LIMIT}줄·{LIMIT_CHARS}자). "
                 f"나머지는 HANDOFF.md {keep + 1}줄부터 — 필요하면 그 부분만 읽는다. 인계서는 짧게 유지한다.\n")
-    return out, {"lines": keep, "total": len(lines), "sha": sha}, None
+    return out, {"lines": keep, "total": len(lines), "sha": sha,
+                 "days": fresh["days"], "commits_after": fresh["commits_after"]}, None
 
 
 def observe(repo, prompt, data, handoff, concept, skip=None):
@@ -180,6 +199,7 @@ def observe(repo, prompt, data, handoff, concept, skip=None):
             "repo": repo, "prompt_sha1": hashlib.sha1(prompt.encode("utf-8", "surrogatepass")).hexdigest()[:12],
             "prompt_chars": len(prompt), "decision": rules.decide(repo, prompt),
             "acted": {"handoff_lines": h.get("lines", 0), "handoff_total": h.get("total"),
+                      "handoff_days": h.get("days"), "handoff_commits_after": h.get("commits_after"),
                       "handoff_skip": skip, "concept": concept},
         })
     except Exception:
@@ -187,6 +207,7 @@ def observe(repo, prompt, data, handoff, concept, skip=None):
 
 
 def main():
+    t0 = time.monotonic()
     data = read_input()
     prompt = data.get("prompt", "")
     if not isinstance(prompt, str) or not prompt:
@@ -194,7 +215,7 @@ def main():
     repo = rules.repo_root()  # HEAD와 같이 프로세스 cwd 기준(Claude Code는 CLAUDE_PROJECT_DIR, Codex는 세션 cwd에서 훅을 돌린다)
     # 다른 세션·작업 알림이 보낸 메시지에는 인계서도 개념도 넣지 않는다 — 사람이 부른 것이 아니다
     machine = rules.machine_prompt(prompt)
-    htext, handoff, skip = inject_handoff(repo, prompt, data, machine)
+    htext, handoff, skip = inject_handoff(repo, prompt, data, machine, t0 + HOOK_DEADLINE)
     ctext, concept = ("", None) if machine else inject_concept(repo, prompt)
     if htext or ctext:
         # 일반 stdout은 Claude Code만 맥락에 넣는다. Codex는 additionalContext만 받는다(10-01 실제 Codex 세션 확인) — 둘 다 받는 JSON으로 낸다

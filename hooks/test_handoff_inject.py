@@ -135,6 +135,82 @@ class HandoffInjectTest(unittest.TestCase):
                 self.write(root, os.path.join(".cache/baton/injected", name), "{깨진")
             self.assertIn("다음 행동", self.run_hook(root, "이어서", session_id="s1").stdout)
 
+    def test_freshness_only_when_injected(self):
+        # 신선도는 git을 최대 3초 부른다 — machine·already로 건너뛸 때는 세지 않고, 로그도 null
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "HANDOFF.md", "# Session Handoff (작성: 2020-01-01)\n다음 행동\n")
+            first = self.run_hook(root, "이어서", session_id="s1")
+            self.assertIn("2020-01-01(", first.stdout.splitlines()[1])
+            acted = self.last_acted(root)
+            self.assertGreater(acted["handoff_days"], 2000)
+            self.assertIsNone(acted["handoff_commits_after"])  # git 저장소가 아니다 — 못 셈
+            for p in ("이어서", '<agent-message from="a">이어서'):
+                self.assertEqual(self.run_hook(root, p, session_id="s1").stdout, "")
+                acted = self.last_acted(root)
+                self.assertIn(acted["handoff_skip"], ("already", "machine"))
+                self.assertEqual((acted["handoff_days"], acted["handoff_commits_after"]), (None, None))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "HANDOFF.md", "다음 행동\n")
+            with mock.patch.object(hook.rules, "safe_freshness", side_effect=AssertionError("건너뛰는데 셌다")):
+                self.assertEqual(hook.inject_handoff(root, "이어서", {}, machine=True), ("", None, "machine"))
+                with mock.patch.object(hook, "already_injected", return_value=True):
+                    self.assertEqual(hook.inject_handoff(root, "이어서", {}), ("", None, "already"))
+
+    def slow_git_repo(self, root, sleep):
+        """HANDOFF.md를 커밋한 저장소와, 부를 때마다 sleep초 쉬고 진짜 git을 부르는 가짜 git 폴더."""
+        import shutil
+        real = shutil.which("git")
+        if not real or not shutil.which("bash"):
+            self.skipTest("git·bash 필요")
+        repo = os.path.join(root, "repo")
+        self.write(repo, "HANDOFF.md", "# Session Handoff (작성: 2020-01-01)\n다음 행동\n")
+        for args in (["init", "-q"], ["add", "HANDOFF.md"], ["commit", "-qm", "h"]):
+            subprocess.run([real, "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", *args], check=True)
+        self.write(root, "bin/git", f'#!/bin/bash\nsleep {sleep}\nexec "{real}" "$@"\n')
+        os.chmod(os.path.join(root, "bin", "git"), 0o755)
+        return repo, os.path.join(root, "bin")
+
+    def test_freshness_stops_at_hook_deadline(self):
+        # 훅 시한(시작 + HOOK_DEADLINE)이 거의 다 됐으면 신선도는 남은 만큼만 쓰고, 못 셌다고 적고 인계서는 넣는다
+        import importlib.util, time
+        spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as root:
+            repo, bin_dir = self.slow_git_repo(root, 5)
+            with mock.patch.dict(os.environ, {"PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}):
+                t = time.monotonic()
+                out, h, skip = hook.inject_handoff(repo, "이어서", {}, hook_deadline=time.monotonic() + 0.4)
+                took = time.monotonic() - t
+        self.assertLess(took, 1.5)  # 시한이 없으면 git 하나에 5초를 기다렸다
+        self.assertIsNone(skip)
+        self.assertIn("다음 행동", out)
+        self.assertIn("못 셌다", out.splitlines()[1])
+        self.assertIsNone(h["commits_after"])
+
+    def test_slow_git_hook_stays_under_timeout(self):
+        # Codex(CLAUDE_PROJECT_DIR 없음)·설정에 저장소 절 — repo_root·repo_key·신선도가 모두 git을 부르는 가장 긴 길
+        import time
+        with tempfile.TemporaryDirectory() as root:
+            repo, bin_dir = self.slow_git_repo(root, 1)
+            self.write(root, "cfg/baton/config.json", json.dumps({"repos": {"/elsewhere": {}}}))
+            env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+            env.update(PATH=bin_dir + os.pathsep + os.environ.get("PATH", ""), XDG_CONFIG_HOME=os.path.join(root, "cfg"),
+                       XDG_CACHE_HOME=os.path.join(root, "cache"), BATON_LOG=os.path.join(root, "runs.jsonl"))
+            t = time.monotonic()
+            r = subprocess.run([sys.executable, HOOK], input=json.dumps({"prompt": "이어서", "session_id": "s1"}),
+                               capture_output=True, text=True, cwd=repo, env=env)
+            took = time.monotonic() - t
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertLess(took, 9.5)
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("다음 행동", ctx)
+        self.assertIn("2020-01-01(", ctx.splitlines()[1])
+
     def test_compacted_since_edges(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)
@@ -219,6 +295,77 @@ class HandoffInjectTest(unittest.TestCase):
         self.assertEqual(bad.stdout, "")
         self.assertEqual(non_string.returncode, 0)
         self.assertEqual(non_string.stdout, "")
+
+
+class HookOutputBudgetTest(unittest.TestCase):
+    """훅 출력은 Claude Code 문서 상한 10,000자 안이고, 신선도 한 줄이 가장 길어도 검사기를 통과한 인계서(8,700자)는 전부 들어간다."""
+    DOC_CAP, MARGIN = 10000, 400  # https://code.claude.com/docs/en/hooks "JSON output"
+    CHECKER_MAX = 8700  # PR #14가 정하는 lib/handoff_check.MAX_CHARS
+
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_inject", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        return hook
+
+    def test_longest_freshness_line_is_bounded(self):
+        hook = self.load()
+        rules = hook.rules
+        reasons = ["첫 줄 날짜(2026-13-45)가 잘못됐다", "얕은 복제라 그 뒤 커밋 수를 못 셌다", "그 뒤 커밋 수를 못 셌다(git 시한 초과 또는 오류)",
+                   "HANDOFF.md가 커밋된 적 없어 그 뒤 커밋 수를 못 셌다", "그 뒤 커밋 수를 못 셌다(git 저장소가 아니거나 시한 초과·오류)",
+                   "첫 줄에 작성일이 없고 HANDOFF.md가 커밋된 적 없다", "첫 줄에 작성일이 없고 git 기록도 못 읽었다",
+                   "첫 줄에 작성일이 없고 그 뒤 커밋 수를 못 셌다(훅 시한)", "신선도 계산 실패(UnicodeDecodeError)"]
+        # 실제로는 함께 나올 수 없는 것까지 전부 붙인 과대 추정 — 묵은 경고·커밋 안내·까닭 모두
+        worst = {"written": "2026-01-01", "source": "commit", "days": 9999999, "dirty": False, "commits_after": 9999999,
+                 "unknown": reasons}
+        line = rules.freshness_line(worst)
+        self.assertLessEqual(len(line), rules.FRESHNESS_MAX)
+        self.assertFalse(line.endswith("…"), len(line))  # 과대 추정도 자르지 않는다 — 실제 줄은 잘리지 않는다
+        for part in ("9999999일 지났다", "`git log --oneline -20 -- .`", reasons[-1]):
+            self.assertIn(part, line)
+        huge = dict(worst, unknown=["x" * 5000])  # 그래도 넘으면 잘라서 상한을 지킨다
+        self.assertEqual(len(rules.freshness_line(huge)), rules.FRESHNESS_MAX)
+        self.assertLessEqual(len(rules.freshness_line(dict(worst, written=None, unknown=["x" * 5000]))), rules.FRESHNESS_MAX)
+
+    def test_budget_arithmetic(self):
+        hook = self.load()
+        head_max = len(hook.HEAD) + 1 + hook.rules.FRESHNESS_MAX
+        self.assertLessEqual(head_max + (self.CHECKER_MAX + 1) + hook.TAIL_RESERVE, hook.LIMIT_CHARS)
+        self.assertLessEqual(hook.LIMIT_CHARS, self.DOC_CAP - self.MARGIN)
+        self.assertEqual(hook.LIMIT, 200)  # 줄 상한은 그대로(소유자 결정 09-22)
+
+    def write_handoff(self, root, chars):
+        last = "- 마지막 줄: 다음 행동\n"
+        room = chars - len(last)
+        text = ("가" * 79 + "\n") * (room // 80) + "나" * (room % 80 - 1) + "\n" + last if room % 80 else ("가" * 79 + "\n") * (room // 80) + last
+        self.assertEqual(len(text), chars)
+        with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write(text)
+        return text, last
+
+    def test_largest_handoff_goes_in_whole_with_longest_freshness_line(self):
+        hook = self.load()
+        with tempfile.TemporaryDirectory() as root:
+            text, last = self.write_handoff(root, self.CHECKER_MAX)
+            self.assertLessEqual(text.count("\n"), hook.LIMIT)
+            longest = "F" * hook.rules.FRESHNESS_MAX
+            with mock.patch.object(hook.rules, "freshness_line", return_value=longest):
+                out, h, _ = hook.inject_handoff(root, "이어서", {})
+            self.assertIn(longest + "\n\n" + text, out)
+            self.assertNotIn("까지만 넣었다", out)
+            self.assertEqual(h["lines"], h["total"])
+            self.assertLessEqual(len(out), hook.LIMIT_CHARS)
+
+    def test_cut_handoff_output_stays_under_limit(self):
+        hook = self.load()
+        with tempfile.TemporaryDirectory() as root:
+            self.write_handoff(root, 30000)  # 200줄도 넘는다 — 글자 예산에서 먼저 잘린다
+            with mock.patch.object(hook.rules, "freshness_line", return_value="F" * hook.rules.FRESHNESS_MAX):
+                out, h, _ = hook.inject_handoff(root, "이어서", {})
+            self.assertIn("까지만 넣었다", out)
+            self.assertLessEqual(len(out), hook.LIMIT_CHARS)
+            self.assertLess(h["lines"], h["total"])
 
 
 if __name__ == "__main__":
