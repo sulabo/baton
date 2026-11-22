@@ -287,7 +287,7 @@ html.lenis, html.lenis body { height: auto; }
 .foot-links a:hover { color: var(--accent); }
 
 /* ---------- motion ---------- */
-@keyframes rise { from { opacity: 0.01; transform: translateY(28px); filter: blur(12px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes rise { from { opacity: 0.01; transform: translateY(28px); filter: blur(12px); } to { opacity: 1; transform: none; filter: none; } } /* 0이 아니라 0.01: 크롬은 불투명도 0인 글을 LCP 후보로 세지 않는다 */
 @keyframes draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 .js .enter { animation: rise var(--dur-slow) var(--ease-out) both; }
 .js .enter.d1 { animation-delay: 120ms; } .js .enter.d2 { animation-delay: 220ms; } .js .enter.d3 { animation-delay: 320ms; } .js .enter.d4 { animation-delay: 470ms; }
