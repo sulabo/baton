@@ -71,7 +71,7 @@ When a saved handoff has a problem, the agent gets it back to fix (translated; t
 How it works:
 
 - **Checked on save.** The checker looks at the length (200 lines, 8,700 characters), the eight required sections, code blocks over 20 lines, full diffs, secrets, home-directory paths, and the private words you picked in `/baton-setup`. It hands the problems back to the agent. It also warns, without blocking, when an item under "확인된 사실과 결정" (confirmed facts and decisions) is missing `[V]` (checked directly) or `[?]` (from memory or a guess). Run it by hand with `python3 lib/handoff_check.py HANDOFF.md`.
-- **Loaded only when you ask.** The hook looks for words about continuing: by default Korean words such as "이어서" (continue), "어디까지" (how far), "인계" (handoff), the word "handoff", and English phrases such as "where were we", "pick up where we left off", "catch me up", and "how far did we get". Other prompts get nothing. Single English words like "continue" or "status" are left out on purpose: in our own prompt log every extra match they would add came from pasted instructions, tool output, or SQL. A word only has to appear somewhere in the prompt, so a work request that merely mentions "handoff" gets the handoff too.
+- **Loaded only when you ask.** The hook looks for words about continuing: by default Korean words such as "이어서" (continue), "어디까지" (how far), "인계" (handoff), the word "handoff", and English phrases such as "where were we", "pick up where we left off", "catch me up", and "how far did we get". Other prompts get no handoff. Single English words like "continue" or "status" are left out on purpose: in our own prompt log every extra match they would add came from pasted instructions, tool output, or SQL. A word only has to appear somewhere in the prompt, so a work request that merely mentions "handoff" gets the handoff too.
 - **Fits in one piece.** A handoff that passes the check goes in whole. Everything the hook adds, header and freshness line included, stays under Claude Code's 10,000-character cap for hook output. Past that cap, Claude Code would save the text to a file and pass on only a preview.
 - **Once per session.** The same handoff goes into a session once. It goes in again only if `HANDOFF.md` changed or the session was compacted since (compaction is when a long conversation is replaced by a summary). Messages from other sessions or subagents (`<agent-message>`, `<cross-session-message>`) and task notifications (`<task-notification>`) get nothing, because no person asked.
 - **A freshness line.** The date comes from the handoff's first 3 lines, or else from the last commit of `HANDOFF.md`. The commit count is the number of commits that touched this folder since `HANDOFF.md` was last committed. After 7 days, the line also says to check the next step first. When baton can't count (uncommitted edits to the handoff, a shallow clone, or git taking more than 3 seconds), it says so instead of printing "no commits".
@@ -81,6 +81,34 @@ How it works:
 ### 2. Concept map: which parts of the project changed
 
 Ask "Build a concept map for this repo". The `driftmap` skill picks the 8–12 ideas that matter, such as a game's scoring rule or your login flow, and writes `CONCEPTS.md`. Each concept is tied to its decision, its code files and its docs, plus the commit it was last checked at. After that, only concepts whose files changed get a second look, and the map records where the decision log, the code, and the docs disagree.
+
+**Concept index, once per session.** If the repo has a `CONCEPTS.md`, the first prompt you type in a session also gets a short index of it, whether or not you asked to continue. It has one line per concept: the name, the subtitle after "—" in its heading if there is one, and up to three of its files. The agent picks from that list. Nothing matches your words against concept titles, because people rarely use the concepts' names.
+
+- **Cost.** At most 1,500 characters per session, and they stay in context on every turn after that. It is on by default; `BATON_CONCEPT_INDEX=off` turns it off.
+- **When.** Once per session, and again after a compaction. Never on messages from other sessions or task notifications. Not at all when the hook can't keep its per-session memory (no session id, or an unwritable cache).
+- **With the handoff.** When the handoff goes in on the same prompt, the index comes after it and gives way. A handoff that passes the check is never cut for it. If the index doesn't fit, the subtitles go first, then all but the first file, then the last concepts, and a closing line says how many were left out.
+- **Effect.** Still being measured. In 24 runs (4 everyday questions, 3 runs each, with and without the index), it helped on 2 questions and did worse on the other 2.
+
+The index from the same demo repo, on a first prompt that doesn't ask to continue (translated):
+
+```
+[baton] Index of this repo's concept map (CONCEPTS.md). Open the files of the concept that fits the task first. A concept is a navigation anchor — check actual behavior in the code. The evidence is in that section of CONCEPTS.md.
+1. lives — starting number of lives · files: src/lives.ts
+2. score — points per coin · files: src/score.ts
+3. levels — level list, still empty · files: src/levels.ts
+```
+
+<details>
+<summary>The same index as printed</summary>
+
+```
+[baton] 이 저장소 개념 지도(CONCEPTS.md) 색인이다. 작업에 맞는 개념의 파일부터 연다. 개념은 탐색 앵커다 — 실제 동작은 코드로 확인한다. 자세한 근거는 CONCEPTS.md의 그 절에.
+1. 목숨 — 시작할 때 목숨 수 · 파일: src/lives.ts
+2. 점수 — 코인 하나당 점수 · 파일: src/score.ts
+3. 레벨 — 레벨 목록, 아직 비어 있음 · 파일: src/levels.ts
+```
+
+</details>
 
 **What you see.** In the same demo repo, one commit changed `src/lives.ts`. The next session starts with one line, and `/drift` shows which concepts to revisit (translated):
 
@@ -100,7 +128,7 @@ Summary: re-check 2 · fresh 1 · rule concepts 0
 
 - Concept 1: a file it depends on changed after the commit it was checked at.
 - Concept 2: nothing changed, so it is marked fresh and needs no second look.
-- Concept 3 was never checked, so it has no baseline. baton flags it instead of counting it as fresh. A count that silently comes out as zero is treated as a bug, not as "nothing found".
+- Concept 3 was never checked, so it has no baseline. baton flags it instead of counting it as fresh. When baton can't count something, it says so instead of showing 0.
 - "Rule concepts" are concepts with no files, such as a rule that lives only in the decision log.
 
 <details>
@@ -212,7 +240,7 @@ Facts about other tools come from their own docs and READMEs, read on 2026-11-21
 |---|---|---|---|---|
 | Main job | Hand a short, checked handoff to the next session; flag which concepts changed | Remember what the agent did across sessions | Carry instructions and the conversation forward | A Markdown knowledge base the agent reads and writes |
 | Who writes the record | The agent drafts `HANDOFF.md` and `CONCEPTS.md` when you ask; decisions are written by a person | Hooks capture tool calls; a second agent writes observations and a session summary | You write `CLAUDE.md`; Claude saves its own notes to auto memory; `/compact` writes a summary | The agent, through MCP tools; the files are plain Markdown |
-| What a new session gets | Nothing until the prompt asks to continue; then the handoff, once, with a freshness line | A compact index of past work; details are searched on demand | `CLAUDE.md` every session; the first 200 lines or 25 KB of `MEMORY.md`; with `--resume`, the last compaction summary and the messages after it | Lookups through MCP (start-up behavior not reviewed) |
+| What a new session gets | First prompt: the concept index once (≤1,500 chars). When you ask to continue: the handoff once, with a freshness line | A compact index of past work; details are searched on demand | `CLAUDE.md` every session; the first 200 lines or 25 KB of `MEMORY.md`; with `--resume`, the last compaction summary and the messages after it | Lookups through MCP (start-up behavior not reviewed) |
 | Where it lives | Plain files in your repo, plus a local log | SQLite, FTS5 and Chroma under `~/.claude-mem` | Files in your project and under `~/.claude` | Markdown files with frontmatter and `[[wikilinks]]`, plus a SQLite index |
 | License | MIT | Apache-2.0 | Part of Claude Code | AGPL-3.0 |
 
@@ -226,6 +254,8 @@ The closest we found on staleness is [claude-handoff](https://github.com/willsel
 
 The tools do different jobs and can be used together. `/compact` and `/resume` keep one conversation going; baton gives a new session a short written handoff. Use claude-mem if you want automatic recall without writing anything.
 
+[^count]: The CHANGELOG's 270 injections in 40 sessions count through 11-20 and include automated sessions. This count covers 10-04 to 11-19 and leaves out automated sessions opened in the home folder.
+
 [^reviewed]: Tools whose docs or READMEs we read for this comparison: Claude Code (memory and sessions docs), Codex (`AGENTS.md` and memories docs), claude-mem, Basic Memory, Cline Memory Bank, Serena, Context7, codegraph, and claude-handoff (its README and `/handoff:resume` command, read 2026-11-22).
 
 ## Measured so far
@@ -234,12 +264,13 @@ All numbers come from one person's use (the author), on their own repositories. 
 
 - **Re-reading the handoff.** We took the sessions that opened with a progress question and checked whether the agent re-read `HANDOFF.md` within its first 5 model calls. Before install it did in **41 of 42** (2026-08-31 to 10-04; 3 of those 41 read only part of it). After install it did in **3 of 11** (10-19 to 11-20; 2 of those 3 read only part of it). Eleven sessions show a direction, not a size.
 - **Snapshot runs.** We ran 3 repos, 3–5 runs per condition, with the same prompt within each repo. Progress questions used **40–54% fewer input tokens** with the handoff injected. In one repo (5 runs), an unrelated task with the handoff loaded used about **11% more**. That is why the handoff goes in only when you ask.
-- **Tokens did not go down in real use so far.** The first calls of a session cost more after install. Over the same period the fixed context (other plugins and instructions) also grew, so the two effects can't be separated. One cause was ours. From 2026-10-04 to 11-19 the usage log shows **269 injections in 39 sessions, and only 32 of them on a session's first prompt**; the rest put the same handoff in again ([LOOP_PLAN](docs/research/LOOP_PLAN.md)). The once-per-session rule is meant to fix this. Its effect hasn't been measured yet.
+- **Tokens did not go down in real use so far.** The first calls of a session cost more after install. Over the same period the fixed context (other plugins and instructions) also grew, so the two effects can't be separated. One cause was ours. From 2026-10-04 to 11-19 the usage log shows **269 injections in 39 sessions, and only 32 of them on a session's first prompt**; the rest put the same handoff in again ([LOOP_PLAN](docs/research/LOOP_PLAN.md)).[^count] The once-per-session rule is meant to fix this. Its effect hasn't been measured yet.
+- **Concept index: cost and effect not established yet.** In 24 runs (4 everyday questions × 3 × with and without, isolated), the first tool call aimed at the right file was, on average, call number 1.50 with the index and 2.33 without, with 11% fewer input tokens and 6% lower cost. But the index was better on only 2 of the 4 questions, so the result is inconclusive. In this repo the index takes 1,118 characters per session.
 - **Where the cost goes.** We looked at 60 of the author's sessions with 20 or more model calls (2026-08-31 to 09-30, main thread only). **85% of the cost** (weighted by API prices) came from calls made after the context had grown past 2× its size at the first call. That is why baton nudges you at 2× and 3× to write a handoff and start fresh. How much starting fresh actually saves hasn't been measured yet.
 
 ## In development: the concept graph as Obsidian notes
 
-This part is in development. Some of the code exists, but none of it changes what the agent sees yet.
+The concept graph (Obsidian notes, the context compiler) doesn't change what the agent sees yet. Some of its code exists. The concept index above is shipped; the graph is not.
 
 The problem it targets is vocabulary. People ask for work in their own words, and those words rarely match concept titles. We tried matching prompt words to concept titles on the author's usage log (one person, one repo). When the matcher picked exactly one concept, it was the right one **0–1% of the time**, across nine variants. The right concept was among the candidates in only 6 of 54 cases. So the experimental concept injection (`BATON_CONCEPT_INJECT`) stays off.
 
@@ -276,7 +307,7 @@ Retrieval would match a prompt against aliases, go to that note, follow one hop 
 - The handoff and context-growth hooks append one line to `~/.cache/baton/runs.jsonl` for every prompt, every handoff check, and every notice. The folder is mode 700 and the file 600. Past 20 MB, the log is renamed to `runs.jsonl.1` (replacing the previous one) and a new log starts. A line holds the repo path, what the rules decided, and what was loaded. Prompt text is never stored: only a hash, the length, and the trigger words and concept titles that matched. Turn it off with `BATON_OBSERVE=off`.
 - To inject a handoff only once, baton keeps a small file per session under `~/.cache/baton/injected/` (a hash of the handoff and the session log size, mode 600, removed once older than 7 days). Other small cache and per-session state files go in the same folder.
 - `/baton-setup` reads more than the hooks do (other projects' folder names, your git author, untracked files), and its scan output can end up in the session log. See [Tune it to your history](#tune-it-to-your-history-optional-once) for what it reads and how to keep private words out of the session.
-- The handoff and context-growth hooks have off switches (`BATON_HANDOFF_INJECT=off`, `BATON_HANDOFF_CHECK=off`, `BATON_HANDOFF_NUDGE=off`, `BATON_SPLIT_NOTICE=off`), set as an environment variable or in the config file that `/baton-setup` writes. Two hooks have none, so disable the plugin to stop them: the session-start notice, and the zero-count reminder (a note that appears when one of baton's check scripts prints a zero, asking the agent to tell "really zero" from "couldn't count").
+- The handoff, concept-index and context-growth hooks have off switches (`BATON_HANDOFF_INJECT=off`, `BATON_CONCEPT_INDEX=off`, `BATON_HANDOFF_CHECK=off`, `BATON_HANDOFF_NUDGE=off`, `BATON_SPLIT_NOTICE=off`), set as an environment variable or in the config file that `/baton-setup` writes. Two hooks have none, so disable the plugin to stop them: the session-start notice, and the zero-count reminder (a note that appears when one of baton's check scripts prints a zero, asking the agent to tell "really zero" from "couldn't count").
 
 ## FAQ
 

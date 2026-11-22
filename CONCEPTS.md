@@ -33,7 +33,7 @@
   - 스킬 셋·명령 다섯·훅 스크립트 다섯이 매니페스트와 `hooks/hooks.json`에 실제로 등록돼 있다(`hooks/hooks.json:4`, `hooks/hooks.json:18`, `hooks/hooks.json:28`, `hooks/hooks.json:54`). Claude Code 매니페스트는 PR #3부터 `hooks` 키 없이 기본 위치를 쓰고, Codex 매니페스트는 그대로 적는다(`.codex-plugin/plugin.json:11`).
   - 2026-11-22: 매니페스트 세 곳의 `description`을 새 소개 문구("새 대화마다 프로젝트를 다시 읽지 않게")로 바꿨다(`681afff`). 버전·스킬·명령·훅 등록은 그대로다(`tools/check_versions.py` ok, `claude plugin validate .` 통과).
   - 스킬 frontmatter의 `name`은 `skills/driftmap/SKILL.md:2`가 `ontology`, `skills/baton/SKILL.md:2`가 `handoff`, `skills/baton-setup/SKILL.md:2`가 `baton-setup`.
-- **설명된 곳**: `README.md:83`·`README.md:203`·`README.md:246`, `README.ko.md:71`·`README.ko.md:214`는 개념 지도 스킬을 `driftmap`으로 부른다(PR #8 이후 README에는 인계서 스킬 이름이 따로 나오지 않는다). `commands/drift.md:7`도 "driftmap 스킬".
+- **설명된 곳**: `README.md:83`·`README.md:231`·`README.md:277`, `README.ko.md:71`·`README.ko.md:233`는 개념 지도 스킬을 `driftmap`으로 부른다(PR #8 이후 README에는 인계서 스킬 이름이 따로 나오지 않는다). `commands/drift.md:7`도 "driftmap 스킬".
 - **어긋남**: 한 스킬에 이름이 둘이다(폴더·README 쪽과 frontmatter 쪽). Claude Code 스킬 목록에는 `baton:driftmap (baton:ontology)`처럼 두 이름이 같이 뜬다. 사용자 수준에 `handoff`·`ontology`라는 이름의 스킬이 따로 있으면 이름이 겹친다 — 이 저장소 소유자 환경에서 실제로 둘이 나란히 목록에 뜬다. Codex에서는 스킬을 이름으로 부르라고 README가 안내하므로 어느 이름이 맞는지가 사용자에게 보이는 문제다. **어느 쪽이 정본인지 소유자가 정해야 한다.** 공개 인터페이스가 바뀌는 일이라 2026-11-21 수정에서는 고치지 않았다. 선택지:
   - 가(추천). frontmatter `name`을 폴더 이름(`driftmap`·`baton`)으로 맞춘다. README·명령 문서·홍보 문구가 이미 이 이름을 쓰고, 흔한 사용자 스킬 이름(`handoff`·`ontology`)과 겹치지 않는다. 대가: Codex에서 `ontology`·`handoff`로 부르던 사람은 이름이 바뀐다(공개 1주 안이라 사용자는 적다).
   - 나. 폴더와 README를 frontmatter 이름으로 맞춘다. README·CHANGELOG·명령 문서를 여러 곳 고쳐야 하고, 사용자 스킬과 계속 겹친다.
@@ -49,7 +49,7 @@
   - 검사 스크립트 자체는 못 센 경우를 따로 낸다 — 메타 줄 0개면 "계산할 수 없다"로 종료 코드 2(`lib/fresh.sh:88`), 결정 기록 형식을 못 알아보면 "형식 불명 — 0건이 아니라 못 셌다"(`lib/fresh.sh:208`).
   - 훅은 두 조건이 다 맞을 때만 울린다. 첫째, 따옴표를 먼저 푼 뒤 `&&`·`;`·`|`에서 나눈 조각 중 하나가 첫 실행 파일로 `check.sh`·`fresh.sh`·`promote.sh`를 돌린다(`hooks/zero-guard.sh:34`, `hooks/zero-guard.sh:52`). 이때 환경변수 대입과 감싸개(`timeout 60`·`sudo -u x`·`nice -n 5`·`env -u X`·`rtk`·`rtk proxy`·`bash -o pipefail`)는 옵션 값까지 건너뛰고 보고, `bash -c "…"`는 그 문자열 안을 다시 본다(`hooks/zero-guard.sh:60`, `hooks/zero-guard.sh:68`). 둘째, 그 출력에 0건 신호(`0건`·`없음`·`메타 줄 0개`·요약 줄의 `재확인 0`)가 있다(`hooks/zero-guard.sh:85`). 명령 문장 속의 "0건"이나 `10건`은 세지 않는다.
   - 테스트 `hooks/test_zero_guard.py` 14개 통과(2026-11-21 실행). 후속 PR에서 `. lib/fresh.sh`·`source lib/fresh.sh`와 xargs 세 형태를 더했다. xargs는 이미 잡히고 있었고 `.`·`source`는 그 전 코드에서 실패했다. 처음 고칠 때 넣은 넷(읽기 호출·출력에만 이름·명령 문장에만 "0건")은 그 전 코드에서 실패했다. PR #11 리뷰가 그 수정이 감싸개 실행을 놓친다는 회귀를 잡았고, 그 때문에 더한 셋(감싸개 8가지·감싼 읽기 명령·`재확인 0`)도 리뷰 전 코드에서 실패했다. 리뷰 전 코드는 `bash -c "grep -n x lib/check.sh"`에도 울렸다.
-- **설명된 곳**: 훅 머리말 `hooks/zero-guard.sh:2` "검사 스크립트가 0건을 냈을 때 … 상기시킨다". README는 PR #8부터 "zero-count reminder"·"0건 구분 가드"라는 이름과 끄는 변수가 없다는 사실만 적는다(`README.md:279`, `README.ko.md:247`). README 재작성(브랜치 `readme-read-less`)부터는 언제 울리는지도 한 줄로 적는다: 검사 스크립트가 0을 냈을 때, 진짜 없는 것인지 못 센 것인지 가려 말하라고 알린다 — 코드와 일치.
+- **설명된 곳**: 훅 머리말 `hooks/zero-guard.sh:2` "검사 스크립트가 0건을 냈을 때 … 상기시킨다". README는 PR #8부터 "zero-count reminder"·"0건 구분 가드"라는 이름과 끄는 변수가 없다는 사실만 적는다(`README.md:310`, `README.ko.md:266`). README 재작성(브랜치 `readme-read-less`)부터는 언제 울리는지도 한 줄로 적는다: 검사 스크립트가 0을 냈을 때, 진짜 없는 것인지 못 센 것인지 가려 말하라고 알린다 — 코드와 일치.
 - **어긋남**: 해소됨(2026-11-21, `6b51162`). 전에는 입력 문자열 어디든 스크립트 이름과 "없음"이 같이 있으면 울렸다. 그래서 `{"tool_input":{"command":"cat lib/fresh.sh"},"tool_response":{"stdout":"없음"}}`에도 알림이 났고, 이 지도를 만드는 세션의 읽기 호출 대부분에서 울렸다(거짓 양성). 소유자가 머리말의 뜻대로 코드를 좁히기로 정했다.
 
 ## 3. 규칙 판단과 관찰 로그
@@ -61,7 +61,7 @@
   - 판단은 MATCHED/AMBIGUOUS/NO_MATCH 셋(`lib/rules.py:58`), 판단 함수 `lib/rules.py:101`, 판정 버전 `rules-v1`(`lib/rules.py:16`). 인계 트리거 정규식의 정본도 여기다(`lib/rules.py:22`).
   - 훅이 프롬프트마다 판단을 `~/.cache/baton/runs.jsonl`에 남긴다. 프롬프트는 원문 대신 해시·길이만(`hooks/handoff-inject.py:99`). 파일 600, 20MB 넘으면 한 번 돌림(`lib/runlog.py:12`, `lib/runlog.py:26`, `lib/runlog.py:28`).
   - 테스트: `lib/test_rules.py` 12개 통과(2026-11-21, PR #10 머지 뒤 실행).
-- **설명된 곳**: `README.md:276`, `README.ko.md:244` — 코드와 일치. `docs/NORTH_STAR.md:70`·`docs/NORTH_STAR.md:71`(2절 표).
+- **설명된 곳**: `README.md:307`, `README.ko.md:263` — 코드와 일치. `docs/NORTH_STAR.md:70`·`docs/NORTH_STAR.md:71`(2절 표).
 - **어긋남**: 해소됨(2026-11-21, `6b51162` — 두 칸을 코드대로 고쳤다). 고치기 전 기록: 북극성 2절 표는 Decision Layer 칸에 "인터페이스·**3상태 판정**·Jev·Judge 없음", V0 Observe 칸에 "**없음**. 사후 집계기만"이라 적는다. 같은 문서 3절 단계 1과 코드는 둘 다 있다고 말한다. 2절 표가 10-01 구현을 반영하지 않은 것이다 — **낡은 문서**(코드가 앞서 있다). 같은 표의 다른 칸도 같은 원인으로 낡았다(Fallback 칸은 인계서 주입 절, 개념 지도 점검 칸은 '관련' 가리킴 절에 따로 적었다). 이 표 하나가 여러 개념에서 동시에 낡은 것은 개별 실수가 아니라 **갱신 경로의 구멍**이다 — 구현 커밋이 북극성 2절 표를 갱신 대상에 넣지 않았다.
 
 ## 4. 인계서 검사와 제안
@@ -98,15 +98,15 @@
   - 세션 시작 알림은 개념 수·메타 줄 수를 grep이 아니라 파서로 세고, 판정은 표의 글자 대신 그 요약 줄을 읽는다(`hooks/drift-notice.sh:61`, `hooks/drift-notice.sh:66`, `hooks/drift-notice.sh:67`). 캐시 키에 `fresh.sh`가 들어 있다(`hooks/drift-notice.sh:44`).
   - `check.sh`의 검사는 [1]~[6] 여섯 가지다(마지막 둘은 '파일' 항목의 지침 파일 섞임과 메타 줄 수).
   - 테스트 `lib/test_fresh.py` 32개(문서 항목 6·파서 2 추가, 리뷰 반영 8 추가, 후속 6 추가, 마지막 후속 2 추가 — 하나는 바꿈), `hooks/test_drift_notice.py` 7개 통과(2026-11-21 실행). 후속 6개(열린 펜스 경고 둘·제목 수 차이·규칙 개념 기준 소실·판정 문서 둘)와 알림 1개는 그 전 코드에서 실패했다. 처음 고칠 때 넣은 문서 항목 5개·파서 1개·이름 속 '신선' 1개는 그 전 코드에서 실패했다. 리뷰 반영으로 넣은 8개(이름 바뀐 문서·없는 문서 경로·일부 사라진 코드 경로·이력 밖 기준·공백 경로·글롭·규칙 개념의 문서 못 봄·펜스)도 리뷰 전 코드에서 모두 실패했다.
-- **설명된 곳**: `README.md:133`·`README.md:138`·`README.md:150`, `README.ko.md:102`·`README.ko.md:107`·`README.ko.md:119`, `skills/driftmap/SKILL.md:251`, `skills/driftmap/SKILL.md:259`, `skills/driftmap/SKILL.md:314`, `skills/driftmap/SKILL.md:167`.
+- **설명된 곳**: `README.md:161`·`README.md:166`·`README.md:178`, `README.ko.md:118`·`README.ko.md:123`·`README.ko.md:135`, `skills/driftmap/SKILL.md:251`, `skills/driftmap/SKILL.md:259`, `skills/driftmap/SKILL.md:314`, `skills/driftmap/SKILL.md:167`.
 - **어긋남** (모두 해소됨):
   - 해소됨(2026-11-21, `7954eef`) — **PR #11 독립 리뷰가 잡은 것들.** 처음 수정에서 생기거나 남은 것이다. 펜스 안 `# 주석`에서 개념 절이 닫혔다(그 수정이 만든 회귀). 문서 이름을 바꾸거나 지우면 `신선 (문서 경로 소실 N개)`로 끝나고 세션 시작 알림도 울리지 않았다. 다른 가지의 커밋을 기준으로 두면 신선으로 나왔다. 공백이 든 경로가 쪼개졌고, 글롭이 지금 폴더 기준으로 펼쳐졌다. 규칙 개념은 기준이 없을 때 문서를 못 본다는 말이 없었다. 리뷰의 재현 저장소 셋으로 다시 돌려 모두 맞게 나오는 것을 확인했다.
   - 해소됨(2026-11-21, `d0c3642`) — **후속 점검(PR #11 재검증)에서 남은 것.** 펜스가 열린 채 끝나면 그 뒤 개념이 경고 없이 사라졌다(재현 저장소 t4). README의 판정 설명은 "여섯 가지"였는데 스킬 문서는 "아홉 가지"였다 — 이제 README·README.ko·스킬 문서가 같은 아홉 가지를 적고, 테스트(`VerdictDocsTest`)가 `fresh.sh`의 판정 이름과 두 문서를 맞춰 본다. 규칙 개념의 기준 소실은 세션 알림이 안 울렸다.
   - 해소됨(2026-11-21, `7c71c9d`) — **마지막 후속(재현 저장소 t6).** 닫힌 펜스 안의 `## 2.` 예시가 제목 수 차이 경고를 냈다. 세션 알림도 grep으로 세어, 펜스 안 예시까지 개념으로 친 틀린 개수("메타 줄이 모자란다")를 매 세션 냈다. 경고는 열린 채 끝난 펜스에만 남겼고, 알림은 파서로 센다.
   - **관찰(낮음, 고치지 않음)**: 커밋 수는 `git log <확인>..HEAD -- <파일>` 그대로라서 merge commit도 한 건으로 센다. PR #10을 merge한 뒤 시험해 보니 #10과 그 merge가 둘 다 세어져 "문서 커밋 2건"이 됐다. 판정(재확인인지 아닌지)은 맞고 건수만 부푼다. `--no-merges`로 바꿀지는 merge 방식을 정한 뒤에 정한다.
-  - 해소됨(2026-11-21) — README 첫 화면의 데모 출력이 상태로 `구현됨`을 보여 줬다(닫힌 어휘 밖). README를 다시 쓰면서 스크래치 폴더의 임시 데모 저장소에서 `fresh.sh`를 실제로 다시 돌린 출력으로 바꿨다(`README.md:114`~`README.md:120`, `README.ko.md:80`~`README.ko.md:86`). 상태는 `일치`·`미구현`이고 요약 줄도 들어 있다. 영어판 표(`README.md:92`~`README.md:98`)는 그 출력의 번역이다.
-  - 해소됨(2026-11-21) — **README의 메타 줄 예시가 이 스킬의 규칙을 어긴다(중간).** `README.md:133`·`README.ko.md:102`의 예시는 `상태=구현됨`인데, `구현됨`은 닫힌 상태 어휘 여덟 개에 없다. 이 예시를 그대로 베낀 지도는 `check.sh` 검사 [4]에서 지적을 받는다. 같은 예시의 `파일=`에는 문서(`docs/guide.md`)가 들어 있어서, `파일`에는 실제 동작 근거만 둔다는 규칙과도 어긋난다. PR #3에서 들어왔고 PR #8 뒤에도 그대로다. 사용자가 가장 먼저 베끼는 줄이라 이 개념에서 가장 무거웠다. `상태=일치`, `문서=`docs/guide.md``로 고쳤다. 스킬 문서의 예시(`ROADMAP.md`를 `파일`에 넣음)도 같이 고쳤다.
-  - 해소됨(2026-11-21) — 판정 수: `skills/driftmap/SKILL.md:314`는 "여섯 가지"라 하는데 코드에는 규칙 개념 판정이 하나 더 있다. README는 PR #8부터 여섯 판정 뒤에 규칙 개념을 따로 설명한다(`README.md:150`, `README.ko.md:119`). 그래서 README 쪽은 코드와 맞고, 스킬 문서만 남아 있었다. 지금은 스킬 문서가 규칙 개념·문서 판정을 표에 더해 여덟 가지로 적는다.
+  - 해소됨(2026-11-21) — README 첫 화면의 데모 출력이 상태로 `구현됨`을 보여 줬다(닫힌 어휘 밖). README를 다시 쓰면서 스크래치 폴더의 임시 데모 저장소에서 `fresh.sh`를 실제로 다시 돌린 출력으로 바꿨다(`README.md:142`~`README.md:148`, `README.ko.md:96`~`README.ko.md:102`). 상태는 `일치`·`미구현`이고 요약 줄도 들어 있다. 영어판 표(`README.md:120`~`README.md:126`)는 그 출력의 번역이다.
+  - 해소됨(2026-11-21) — **README의 메타 줄 예시가 이 스킬의 규칙을 어긴다(중간).** `README.md:161`·`README.ko.md:118`의 예시는 `상태=구현됨`인데, `구현됨`은 닫힌 상태 어휘 여덟 개에 없다. 이 예시를 그대로 베낀 지도는 `check.sh` 검사 [4]에서 지적을 받는다. 같은 예시의 `파일=`에는 문서(`docs/guide.md`)가 들어 있어서, `파일`에는 실제 동작 근거만 둔다는 규칙과도 어긋난다. PR #3에서 들어왔고 PR #8 뒤에도 그대로다. 사용자가 가장 먼저 베끼는 줄이라 이 개념에서 가장 무거웠다. `상태=일치`, `문서=`docs/guide.md``로 고쳤다. 스킬 문서의 예시(`ROADMAP.md`를 `파일`에 넣음)도 같이 고쳤다.
+  - 해소됨(2026-11-21) — 판정 수: `skills/driftmap/SKILL.md:314`는 "여섯 가지"라 하는데 코드에는 규칙 개념 판정이 하나 더 있다. README는 PR #8부터 여섯 판정 뒤에 규칙 개념을 따로 설명한다(`README.md:178`, `README.ko.md:135`). 그래서 README 쪽은 코드와 맞고, 스킬 문서만 남아 있었다. 지금은 스킬 문서가 규칙 개념·문서 판정을 표에 더해 여덟 가지로 적는다.
   - 해소됨(2026-11-21) — **문서 쪽 근거는 신선도가 안 본다(미구현).** 스킬 문서는 메타 줄에 `문서` 항목을 두고 "신선도에서 낮은 우선순위로 본다"고 적는다(`skills/driftmap/SKILL.md:99`). 하지만 파서와 `fresh.sh`에는 `문서` 항목을 읽는 코드가 없다. 그래서 PR #8이 README를 통째로 다시 쓴 뒤에도 `fresh.sh`는 12개 모두 신선으로 냈다. 이 지도의 "설명된 곳"에 적은 README 줄 번호 21개(서로 다른 파일:줄 기준)가 전부 다른 줄을 가리키고 있었고, 손으로 다시 찾아 맞췄다(2026-11-21). 이제 `fresh.sh`가 `문서` 항목의 파일이 움직이면 `재확인 필요 — 문서 커밋 N건`을 낸다. 이 지도의 메타 줄에도 `문서=`를 채웠다. 회귀 확인: 이 지도의 확인 해시를 PR #8 직전(`5c185bd`)으로 되돌린 사본을 돌리면, README를 `문서`로 둔 개념이 모두 문서 커밋 재확인으로 뜬다.
   - 해소됨(2026-11-21) — `check.sh` 검사 수: 스킬 문서가 표에서는 "여섯 가지"(`skills/driftmap/SKILL.md:251`), 바로 아래 본문에서는 "다섯 가지를 본다"(`skills/driftmap/SKILL.md:259`)라 적고 다섯만 나열한다. 코드는 여섯.
   - 해소됨(2026-11-21) — 간선 종류: 절 제목은 "네 종류"(`skills/driftmap/SKILL.md:167`)인데 표에는 셋(전제·정본·공유파일)뿐이다.
@@ -154,7 +154,7 @@
 
 - **정해진 것**: 결정 기록에 따로 없다(`/baton-setup`은 커밋 `24e3996`에서 들어왔다).
 - **실제 동작**: `lib/config.py:119` — 환경변수 > 저장소 절 > 전역 절 > 기본값. 관찰 로그 키 둘은 전역만(`lib/config.py:22`). 목록 키는 전역 + 저장소(`lib/config.py:132`). 테스트 `lib/test_config.py` 23개 통과(2026-11-21 실행). 세션 끊기 문턱·인계서 제안 문턱·추가 트리거 말·각 훅의 끄기 스위치가 모두 이 설정을 읽는다.
-- **설명된 곳**: `README.ko.md:145`, `README.md:176`, `skills/baton-setup/SKILL.md`, `commands/baton-setup.md`.
+- **설명된 곳**: `README.ko.md:161`, `README.md:204`, `skills/baton-setup/SKILL.md`, `commands/baton-setup.md`.
 - **어긋남**: 없음.
 
 ## 11. 공개 경계 — 개인 자료
@@ -163,7 +163,7 @@
 
 - **정해진 것**: `DECISIONS.md` 10-01 "북극성 정본 원문과 사례 모음은 공개 저장소에 올리지 않는다" · 10-01 "개인 자료가 섞인 공개 이력을 새 이력 하나로 바꾼다"(공개 전 검사는 실명·프롬프트 원문·다른 저장소 내용·절대경로·커밋 이력까지 본다). 둘 다 소유자.
 - **실제 동작**: `.gitignore`가 `docs/north-star/`와 `observer/research/cases.json`을 뺀다. 인계서 검사기는 홈 절대경로와 사용자가 고른 개인 자료 단어를 막고, 찾은 값 자체는 출력하지 않는다(`lib/handoff_check.py:46`, `lib/handoff_check.py:58`). 관찰 로그는 프롬프트 원문을 남기지 않는다(`hooks/handoff-inject.py:99`).
-- **설명된 곳**: `docs/NORTH_STAR.md` 0절(정본 경로는 소유자 로컬 기준이라고 밝힘), `README.md:276`, `README.ko.md:144`·`README.ko.md:244`.
+- **설명된 곳**: `docs/NORTH_STAR.md` 0절(정본 경로는 소유자 로컬 기준이라고 밝힘), `README.md:307`, `README.ko.md:160`·`README.ko.md:263`.
 - **어긋남**: 없음. `docs/NORTH_STAR.md`의 정본 경로 표는 공개판에 없는 파일을 가리키지만, 바로 아래에 "공개 저장소에는 없다"고 밝혀 두었다 — 끊어진 참조가 아니라 의도된 것.
 
 ## 12. 결정 기록은 사람이 쓴다
@@ -181,7 +181,7 @@
 
 - 테스트 230개 통과(2026-11-21, `7c71c9d`에서 `python3 -m unittest discover -s` 네 묶음: hooks 54·lib 120·tools 8·observer/research 48, 건너뜀 3). macOS 기본 bash 3.2로도 `lib/test_fresh.py`·`hooks/test_drift_notice.py`를 돌려 통과했다.
 - 매니페스트 세 곳의 버전이 같다(`1.0.0-beta.2`).
-- README의 명령 표 다섯 줄(`README.md:158`, `README.ko.md:127`)은 `commands/` 파일 다섯 개와 맞는다. 훅 등록은 `hooks/hooks.json`에 스크립트 다섯 개다.
+- README의 명령 표 다섯 줄(`README.md:186`, `README.ko.md:143`)은 `commands/` 파일 다섯 개와 맞는다. 훅 등록은 `hooks/hooks.json`에 스크립트 다섯 개다.
 - 인계서 템플릿의 8절(`skills/baton/SKILL.md` 템플릿)과 검사기의 필수 절 목록이 같다.
 - 루트 `HANDOFF.md`는 검사기를 통과한다(49줄, "문제 없음"). 이 작업은 그 파일을 고치지 않았다.
 
