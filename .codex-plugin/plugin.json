@@ -1,7 +1,7 @@
 {
   "name": "baton",
   "version": "1.0.0-beta.2",
-  "description": "Finds where your project's decisions, code, and docs disagree, one concept at a time, and records the commit each concept was checked at so unchanged concepts are never re-read. Also lints and auto-injects session handoffs (HANDOFF.md). 결정·코드·문서의 어긋남을 개념 단위로 추적하는 플러그인.",
+  "description": "Stops your AI agent from re-reading your project every new session. A one-page handoff (HANDOFF.md), checked when it is saved, goes into the next session when you ask to continue, with a line that says how old it is. A concept map (CONCEPTS.md) ties each concept to its files and the commit it was last checked at, so only concepts whose files changed get a second look. AI가 새 대화마다 프로젝트를 처음부터 다시 읽지 않게 — 지난 대화는 인계서 한 장으로, 바뀐 곳은 개념 지도로.",
   "author": { "name": "sulabo" },
   "homepage": "https://github.com/sulabo/baton",
   "repository": "https://github.com/sulabo/baton",
