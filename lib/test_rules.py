@@ -115,11 +115,28 @@ class DecideTest(unittest.TestCase):
                            capture_output=True, text=True, env=dict(env, BATON_LOG=os.path.join(d, "l.jsonl")))
         self.assertEqual((r.returncode, r.stderr), (0, ""))
 
+    def test_machine_prompt(self):
+        for p in ['<agent-message from="a3d1">\n[Subagent] HANDOFF 갱신했다', '  <task-notification>\n인계 완료',
+                  'Another Claude session sent a message: <cross-session-message from="uds:/tmp/x">이어서']:
+            self.assertTrue(rules.machine_prompt(p), p)
+        for p in ["핸드오프 읽고 이어서", "이 <agent-message> 태그가 왜 인계를 부르지?", "<agent-messages> 이어서", "<agent-message-x> 이어서", ""]:
+            self.assertFalse(rules.machine_prompt(p), p)
+        out = rules.explain(repo({"HANDOFF.md": "a\n"}), '<agent-message from="x">이어서')
+        self.assertIn("다른 세션·작업 알림이 보낸 메시지라 넣지 않는다", out)
+        r = repo({"HANDOFF.md": "a\n", "CONCEPTS.md": "## 1. 세이브\n본문\n"})
+        d = rules.decide(r, '<agent-message from="x">세이브 고쳐줘, 이어서')
+        self.assertTrue(d["machine"])
+        self.assertEqual((d["concepts"]["state"], d["concepts"]["candidates"]), ("MACHINE", []))  # 0이 아니라 안 셈
+        self.assertEqual(d["task_type"]["state"], "MACHINE")
+        self.assertEqual(rules.decide(r, "세이브 고쳐줘")["concepts"]["state"], "MATCHED")
+        self.assertFalse(rules.decide(r, "세이브 고쳐줘")["machine"])
+        self.assertIn("HANDOFF.md가 없어", rules.explain(repo({}), '<agent-message from="x">이어서'))  # 훅과 같은 순서
+
 
 class ObserveLogTest(unittest.TestCase):
     def run_hook(self, root, prompt, **env):
         log = os.path.join(root, "runs.jsonl")
-        e = dict(os.environ, CLAUDE_PROJECT_DIR=root, BATON_LOG=log, **env)
+        e = dict(os.environ, CLAUDE_PROJECT_DIR=root, BATON_LOG=log, XDG_CACHE_HOME=root, **env)  # 세션별 주입 기억도 실제 캐시에 안 쓴다
         r = subprocess.run([sys.executable, HOOK], input=json.dumps({"prompt": prompt, "session_id": "s1"}),
                            capture_output=True, text=True, env=e)
         return r, read_log(log)
@@ -132,7 +149,8 @@ class ObserveLogTest(unittest.TestCase):
         self.assertEqual(rec["session_id"], "s1")
         self.assertEqual(rec["decision"]["handoff"]["state"], "MATCHED")
         self.assertEqual(rec["decision"]["concepts"]["candidates"], [{"num": "1", "name": "세이브"}])
-        self.assertEqual(rec["acted"], {"handoff_lines": 2, "handoff_total": 2, "concept": None})  # 개념 주입은 기본 끔 — 관찰만
+        self.assertEqual(rec["acted"], {"handoff_lines": 2, "handoff_total": 2, "handoff_skip": None,
+                                        "concept": None})  # 개념 주입은 기본 끔 — 관찰만
         self.assertNotIn("이어서 세이브 고쳐줘", json.dumps(rec, ensure_ascii=False))  # 프롬프트 원문은 남기지 않는다(맞은 규칙 어휘만)
 
     def test_log_is_private_and_surrogate_prompt_still_logged(self):

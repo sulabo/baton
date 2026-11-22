@@ -11,5 +11,5 @@ BATON_PROMPT
 ```
 
 - `$ARGUMENTS`가 비어 있으면 "판단할 프롬프트를 인자로 달라"고만 말하고 멈춘다.
-- 판단 상태는 MATCHED(규칙 하나만 맞음) · AMBIGUOUS(둘 이상) · NO_MATCH(없음), 재료가 없으면 NO_MAP(개념 지도 없음) · UNCONFIGURED(도메인 미설정) — 뒤의 둘은 0건이 아니라 못 셈. 해석을 덧붙이지 않는다.
+- 판단 상태는 MATCHED(규칙 하나만 맞음) · AMBIGUOUS(둘 이상) · NO_MATCH(없음), 재료가 없으면 NO_MAP(개념 지도 없음) · UNCONFIGURED(도메인 미설정) — 뒤의 둘은 0건이 아니라 못 셈. MACHINE은 다른 세션·작업 알림이 보낸 메시지라 개념·작업 종류를 일부러 세지 않았다는 뜻이다. 해석을 덧붙이지 않는다.
 - 지금 실제로 넣는 것은 인계서뿐이다(개념 절은 `BATON_CONCEPT_INJECT=on`일 때만). 나머지는 관찰이다 — 북극성 길 단계 1.
