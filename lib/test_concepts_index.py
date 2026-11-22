@@ -37,8 +37,8 @@ class IndexFormatTest(unittest.TestCase):
         out = concepts.index(MAP)
         self.assertEqual(out, "\n".join([
             HEAD,
-            "1. 엔딩 판정 — 무엇이 결말을 가르는가 · 파일: src/end.ts, src/score.ts, src/a.ts (+2)",  # 제목의 '—' 뒤가 요약표보다 먼저
-            "2. 저장 슬롯 — 저장 슬롯이 셋이다 · 파일: src/save.ts",  # 제목에 '—'가 없으면 요약표의 한 줄 칸
+            "1. 엔딩 판정 — 무엇이 결말을 가르는가 · 파일: src/end.ts, src/score.ts, src/a.ts (+2)",  # 제목의 '—' 뒤가 요약
+            "2. 저장 슬롯 · 파일: src/save.ts",  # 제목에 '—'가 없으면 요약 없이 — 요약표의 한 줄 칸('저장 슬롯이 셋이다')은 읽지 않는다
         ]) + "\n")
         self.assertEqual(out, concepts.index(MAP))  # 결정론
 
