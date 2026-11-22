@@ -127,7 +127,7 @@ def nudge(sessions):
         for fp in hc.edit_paths(s["file"]):
             if HANDOFF_NAME.match(os.path.basename(fp)):
                 names[os.path.basename(fp)] += 1
-            if hc.is_handoff(fp):
+            if hc.wrote_handoff(fp):
                 wrote = True
             elif not wrote:
                 before.add(os.path.normpath(fp))
