@@ -56,6 +56,22 @@ GENERIC_WORDS = {
     "파일", "테스트", "검증", "작업", "다음", "현재", "기준", "방식", "정리",
 }
 
+WORD = re.compile(r"[0-9A-Za-z가-힣]+")
+
+
+def phrases(prompt):
+    """프롬프트 앞 20단어의 한 단어·두 단어 묶음. 흔한 말·한 글자·숫자는 뺀다."""
+    # ponytail: 조사를 떼지 않는다('계속해'와 '계속'을 따로 센다). 앞 20단어만 본다(긴 프롬프트의 본문이 후보를 덮지 않게)
+    # 두 단어 묶음은 원문에서 공백 하나로 붙어 있던 것만 — 그래야 그 묶음이 프롬프트에 부분 문자열로 실제로 있다
+    # (훅·조립기는 부분 문자열로 맞춘다. 'a.b'·'a,\nb'에서 'a b'를 만들면 승격해도 안 걸린다)
+    ms = list(WORD.finditer(prompt))[:20]
+    ok = [m.group().lower() if len(m.group()) >= 2 and not m.group().isdigit() and m.group().lower() not in GENERIC_WORDS
+          else None for m in ms]
+    out = {w for w in ok if w}
+    out |= {f"{ok[i]} {ok[i + 1]}" for i in range(len(ms) - 1)
+            if ok[i] and ok[i + 1] and prompt[ms[i].end():ms[i + 1].start()] == " "}
+    return out
+
 
 def trigger_words(repo, prompt):
     """프롬프트에서 맞은 인계 트리거 말(중복 없이 정렬). 기본 TRIGGER + 설정의 추가 말(대소문자 무시 부분 문자열)."""
@@ -187,7 +203,7 @@ def explain(repo, prompt):
         tv = t["value"] if isinstance(t["value"], str) else ", ".join(t["value"] or []) or "없음"
         lines.append(f"작업 종류 {t['state']} — {tv}")
     lines.append("도메인   UNCONFIGURED — 사람이 아직 정하지 않았다(못 셈)")
-    lines.append("요약만/버릴 것: 아직 없음 — 컨텍스트 조립기는 길 단계 2")
+    lines.append("맥락 조립: lib/compiler.py explain으로 따로 본다 — 아직 훅에 안 붙어 넣지도 로그에 남기지도 않는다")
     lines.append("")
     lines.append("판단 경로: rules (Jev 없음 — 길 단계 4 전)")
     return "\n".join(lines)

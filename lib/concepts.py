@@ -45,7 +45,9 @@ TICKED = re.compile(r"`([^`]+)`")
 
 def field(line, key):
     """메타 줄에서 한 항목을 꺼낸다. 항목 구분자는 ' · '."""
-    m = re.search(key + r"=(.*?)(?: · |$)", line)
+    # 키 바로 앞은 줄 시작·':'·'·'(사이 공백은 몇 개든) — '파일='이 '근거파일=' 같은 다른 키 안에서 걸리지 않게.
+    # '**메타**:상태=…'처럼 공백이 없거나 두 칸인 손글씨 줄도 main 이전처럼 읽는다
+    m = re.search(r"(?:^|[:·])\s*" + re.escape(key) + r"=(.*?)(?: · |$)", line)
     return m.group(1).strip() if m else ""
 
 
@@ -201,13 +203,19 @@ def cmd_related(lines):
         print("?\t%s" % ref)
 
 
-def cmd_warnings(lines):
-    """파서가 조용히 못 읽은 부분. 못 센 것을 0으로 두지 않으려고 따로 낸다(2026-11-21 재검증: 열린 채 끝난 펜스 뒤 개념이 사라졌다).
+def warnings(lines):
+    """파서가 조용히 못 읽은 부분(한 줄씩). 못 센 것을 0으로 두지 않으려고 따로 낸다(2026-11-21 재검증: 열린 채 끝난 펜스 뒤 개념이 사라졌다).
     정상으로 닫힌 펜스 안의 '## N.'은 예시라서 경고하지 않는다(재현 저장소 t6: 세션마다 거짓 알림이 났다)."""
     *_, (_, open_at) = fences(lines)
-    if open_at:
-        lost = sum(1 for l in lines[open_at:] if SECTION.match(l))
-        print("코드 펜스가 %d줄에서 열린 채 파일이 끝난다 — 그 뒤 개념 %d개를 못 읽었다" % (open_at, lost))
+    if not open_at:
+        return []
+    lost = sum(1 for l in lines[open_at:] if SECTION.match(l))
+    return ["코드 펜스가 %d줄에서 열린 채 파일이 끝난다 — 그 뒤 개념 %d개를 못 읽었다" % (open_at, lost)]
+
+
+def cmd_warnings(lines):
+    for w in warnings(lines):
+        print(w)
 
 
 # 개념 색인 — 북극성 3절의 기준선 ②: 메인 모델이 색인만 보고 스스로 고른다(추가 호출 0). 규칙으로 프롬프트와 개념 제목을
