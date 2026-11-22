@@ -3,19 +3,24 @@
 
   notes.py export <CONCEPTS.md> <노트 폴더>   지도를 노트로 쓴다. 다시 만든 지도가 원본과 한 바이트라도 다르면 아무것도 안 쓴다.
                                                이미 있는 파일은 덮어쓰지 않는다
+  notes.py normalize <CONCEPTS.md>             생성 규칙대로 다시 쓴 지도를 표준 출력으로(왕복 대조 없이, 파일은 안 바꾼다)
   notes.py build <노트 폴더>                   노트에서 CONCEPTS.md를 만들어 표준 출력으로
   notes.py check <노트 폴더>                   링크·제목·별칭 겹침·폴더·머리 항목·개인 자료 검사
   notes.py match <노트 폴더> "<프롬프트>"       별칭·제목 적중과 경로 적중을 따로 낸다
+
+export가 거절하면(손으로 정한 요약표·절 순서, ` · ` 이음, 빈 줄 차이 등 생성 규칙이 다시 못 만드는 꼴):
+  python3 lib/notes.py normalize CONCEPTS.md > /tmp/x.md → diff CONCEPTS.md /tmp/x.md 를 사람이 보고 → 옮겨 커밋 → export.
+  생성 규칙: 요약표는 어긋남 먼저·심각도순·번호순, 개념 절은 번호순, 메타 목록은 파일·문서 "`a`,`b`", 이웃·별칭 ", ",
+  제목·메타 줄·본문 사이 빈 줄 하나.
 
 노트 폴더는 옵시디언 볼트(설계안의 `concepts/`)다. 경로는 모두 그 폴더 기준.
 - 개념 하나 = 노트 하나: `<계산한 폴더>/<파일 이름>.md`. 머리 항목(frontmatter)은 아래 KEYS, 본문은 `# 제목`, 지도의
   메타 줄 뒤 본문 그대로, `## 이웃`. 문자열·목록은 JSON 꼴로 쓴다(YAML로도 맞는 꼴 — 한 줄에 `: `·`#`가 있어도 안 깨진다).
   읽을 때는 따옴표 없는 값, `[a, b]`(설계안 3절 예시 꼴), 옵시디언이 고쳐 쓰는 `- 항목` 목록(들여쓰기 있든 없든)도 받는다.
-- 설계안 3절 목록에 없는 머리 항목 둘(선택, 기본과 다를 때만 쓴다) — 없으면 지도를 바이트 단위로 되살릴 수 없다:
-  `table_name` 요약표의 개념 칸이 제목과 다를 때(예: `맥락 조립기` ↔ `맥락 조립기 — 개념 그래프로 고르기`).
-  `meta_format` 메타 줄 목록의 이음 글자가 기본(파일·문서 "`,`" = 백틱 감싼 쉼표, 이웃·별칭 ", ")과 다를 때. 예 {"파일": " · "}
-  (값 안에 ` · `를 쓰는 지도). 이음 글자가 백틱으로 시작하면 항목마다 백틱을 두른다.
-- 메타 줄 앞에 글이 있거나 메타 줄 앞뒤 빈 줄이 하나가 아니면, 본문에 MARK_META 한 줄을 남겨 그 자리에 메타 줄을 되돌린다.
+- 설계안 3절 목록에 없는 머리 항목 하나(선택): `table_name` — 요약표의 개념 칸이 제목과 다를 때만
+  (예: `맥락 조립기` ↔ `맥락 조립기 — 개념 그래프로 고르기`). 없으면 요약표를 바이트 단위로 되살릴 수 없다.
+- 메타 값 안의 ` · `(`파일=a.py · b.py`)는 읽는다. 다시 쓸 때는 기본 이음으로 쓴다(그래서 export는 거절, normalize가 길).
+- 제목과 메타 줄 사이에 글이 있으면, 본문에 MARK_META 한 줄을 남겨 그 자리에 메타 줄을 되돌린다(내용이라서).
 - 이웃: `- 관계: [[A]], [[B]]` 한 줄 = 지도의 `개념 1·2(관계)` 묶음 하나. 한쪽 노트에만 적힌 링크는 반대쪽 메타 줄에도
   **같은 관계 이름으로** 낸다(설계안 3절의 백링크). 지도에는 13→14 `정본`·14→13 `전제`처럼 양쪽 이름이 다른 쌍도 있어서,
   반대쪽 이름은 추론이 아니라 이 도구의 기본값이다 — 다르게 하려면 양쪽에 적는다.
@@ -37,11 +42,11 @@ MARK_SECTIONS = "<!-- notes.py: 개념 절 자리 — build가 노트에서 만�
 MARK_META = "<!-- notes.py: 메타 줄 자리 — build가 머리 항목에서 만든다 -->"
 TABLE_HEAD = ["| # | 개념 | 상태 | 심각도 | 한 줄 |", "|---|---|---|---|---|"]
 KEYS = ("no", "summary", "aliases", "status", "severity", "checked", "checked_commit", "files", "docs")
-ALLOWED = KEYS + ("table_name", "meta_format", "tags", "cssclasses")
+ALLOWED = KEYS + ("table_name", "tags", "cssclasses")
 META_PREFIX = "- **메타**: "
 META_KEYS = ("상태", "확인", "파일", "이웃", "문서", "별칭")  # 생성하는 순서. 별칭은 promote-alias가 맨 뒤에 붙인다
-JOIN = {"파일": "`,`", "문서": "`,`", "이웃": ", ", "별칭": ", "}  # 목록 항목의 기본 이음 글자
 SEP = re.compile(r"\s*,\s*| · ")
+NEIGHBOR_SEP = re.compile(r"\s*,\s*| · (?=개념)")  # '개념 4 · 5(전제)'의 ' · '는 묶음 안이다
 KEYLIKE = re.compile(r"^[가-힣A-Za-z_]+$")
 NO_FILES = "없음(규칙 개념)"
 ILLEGAL = re.compile(r'[\\/:*?"<>|#^\[\]\x00-\x1f]')
@@ -137,36 +142,26 @@ def parse_meta(line):
     return out
 
 
-def parse_list(key, v):
-    """메타 목록 값 → (항목, 이음 글자). 이음 글자는 백틱까지 포함한다: '`a`,`b`' → (['a','b'], '`,`'), 'a · b' → (…, ' · ').
-    항목이 하나면 이음 글자는 기본값(백틱 여부만 본다). 백틱이 일부에만 있으면 기본으로 두고 왕복 검사가 거절하게 한다."""
-    parts = SEP.split(v.strip())
-    seps = SEP.findall(v.strip())
-    items = [p.strip() for p in parts if p.strip()]
-    ticked = [len(x) >= 2 and x[0] == x[-1] == "`" for x in items]
-    if any(ticked):
-        items = [x.strip("`") for x in items]
-    sep = seps[0] if seps else JOIN[key].strip("`")
-    return items, ("`%s`" % sep if any(ticked) else sep)
+def parse_list(v):
+    """메타 목록 값 → 항목. 쉼표나 ` · `로 나누고 백틱을 뗀다: '`a`,`b`' · 'a · b' → ['a', 'b']."""
+    return [x.strip().strip("`").strip() for x in SEP.split(v.strip()) if x.strip().strip("`").strip()]
 
 
-def join_list(items, joiner):
-    wrap = "`" if joiner.startswith("`") else ""
-    return wrap + joiner.join(items) + wrap
+def join_files(items):
+    return ",".join("`%s`" % x for x in items)
 
 
 def parse_neighbors(v, num):
-    """'개념 3(정본), 개념 4·5(전제)' → ([(관계, [번호…])], 이음 글자). '없음'이면 []. 못 읽으면 오류."""
+    """'개념 3(정본), 개념 4·5(전제)'(이음은 ', ' 또는 ' · ') → [(관계, [번호…])]. '없음'이면 []. 못 읽으면 오류."""
     if v.strip() in ("", "없음"):
-        return [], JOIN["이웃"]
+        return []
     groups = []
-    for part in SEP.split(v.strip()):
+    for part in NEIGHBOR_SEP.split(v.strip()):
         m = NEIGHBOR_GROUP.fullmatch(part.strip())
         if not m:
-            raise ValueError("개념 %s의 이웃을 못 읽었다: %r" % (num, part))
+            raise ValueError("개념 %s의 이웃을 못 읽었다" % num)
         groups.append((m.group(2) or "", [n.strip() for n in m.group(1).split("·")]))
-    seps = SEP.findall(v.strip())
-    return groups, (seps[0] if seps else JOIN["이웃"])
+    return groups
 
 
 def dump(v):
@@ -175,19 +170,24 @@ def dump(v):
     return json.dumps(v, ensure_ascii=False)
 
 
-def first_diff(a, b):
-    la, lb = a.split("\n"), b.split("\n")
-    for i in range(max(len(la), len(lb))):
-        x = la[i] if i < len(la) else "(없음)"
-        y = lb[i] if i < len(lb) else "(없음)"
-        if x != y:
-            return i + 1, x, y
-    return None
+def refusal(text, built):
+    """왕복이 다를 때 까닭(줄 내용은 옮기지 않는다 — 에이전트가 돌리면 개인 지도 내용이 대화 기록에 남는다). 같으면 None."""
+    if text == built:
+        return None
+    la, lb = text.split("\n"), built.split("\n")
+    rows = lambda ls: [l for l in ls if concepts.TABLE_ROW.match(l)]
+    if rows(la) != rows(lb) and sorted(rows(la)) == sorted(rows(lb)):
+        return "요약표 순서가 생성 규칙과 다르다"
+    nums = [int(no) for _, _, no, _ in segments(la) if no]
+    if nums != sorted(nums):
+        return "개념 절 순서가 번호순이 아니다"
+    line = next(i for i in range(max(len(la), len(lb))) if (la[i:i + 1] or [None]) != (lb[i:i + 1] or [None])) + 1
+    return "%d줄에서 다르다" % line
 
 
-def to_notes(text):
-    """CONCEPTS.md 글 → {노트 폴더 기준 경로: 노트 글}. 끝에서 노트로 지도를 다시 만들어 원본과 바이트 단위로 대조하고,
-    다르면 첫 다른 줄을 담아 ValueError — 내용을 조용히 버리거나 옮기지 않게(요약표에만 있는 행, 개념 절 사이에 낀 다른 절,
+def to_notes(text, verify=True):
+    """CONCEPTS.md 글 → {노트 폴더 기준 경로: 노트 글}. verify면 끝에서 노트로 지도를 다시 만들어 원본과 바이트 단위로 대조하고,
+    다르면 까닭(refusal)을 담아 ValueError — 내용을 조용히 버리거나 옮기지 않게(요약표에만 있는 행, 개념 절 사이에 낀 다른 절,
     표 머리 칸 이름, 굵은 번호, 메타 키 순서, 쉼표 뒤 공백, CRLF 등은 모두 여기서 거절된다)."""
     lines = text.split("\n")
     segs = segments(lines)
@@ -220,36 +220,25 @@ def to_notes(text):
         after = body[mi + 1:]
         while after and not after[-1].strip():
             after.pop()
-        if body[:mi] == [""] and after[:1] == [""] and after[1:2] and after[1].strip():
-            rest = after[1:]           # 보통 꼴: 제목 · 빈 줄 · 메타 줄 · 빈 줄 · 본문
+        if any(l.strip() for l in body[:mi]):
+            rest = body[:mi] + [MARK_META] + after   # 제목과 메타 줄 사이의 글은 내용이다
         else:
-            rest = body[:mi] + [MARK_META] + after
+            rest = after
+            while rest and not rest[0].strip():
+                rest.pop(0)
         checked = CHECKED.match(meta.get("확인", ""))
         row = rows.get(no, ["", title, "", "", ""])
-        fmt = {}
-        lists = {}
-        for key in ("파일", "문서", "별칭"):
-            items, joiner = parse_list(key, meta.get(key, ""))
-            lists[key] = items
-            if joiner != JOIN[key]:
-                fmt[key] = joiner
-        if meta.get("파일", "").startswith("없음"):
-            lists["파일"] = []
-            fmt.pop("파일", None)
-        groups, joiner = parse_neighbors(meta.get("이웃", ""), no)
-        if joiner != JOIN["이웃"]:
-            fmt["이웃"] = joiner
+        files = [] if meta.get("파일", "").startswith("없음") else parse_list(meta.get("파일", ""))
+        groups = parse_neighbors(meta.get("이웃", ""), no)
         fm = {
-            "no": int(no), "summary": row[4], "aliases": lists["별칭"],
+            "no": int(no), "summary": row[4], "aliases": parse_list(meta.get("별칭", "")),
             "status": meta.get("상태", ""), "severity": row[3],
             "checked": checked.group(1) if checked else meta.get("확인", ""),
             "checked_commit": checked.group(2) if checked else "",
-            "files": lists["파일"], "docs": lists["문서"],
+            "files": files, "docs": parse_list(meta.get("문서", "")),
         }
         if row[1] != title:
             fm["table_name"] = row[1]
-        if fmt:
-            fm["meta_format"] = fmt
         neigh = []
         for rel, nums in groups:
             missing = [n for n in nums if n not in stems]
@@ -259,7 +248,7 @@ def to_notes(text):
             neigh.append("- %s: %s" % (rel, links) if rel else "- " + links)
         note = ["---"] + ["%s: %s" % (k, dump(v)) for k, v in fm.items()] + ["---", "# " + title, ""]
         note += rest + ["", "## 이웃"] + neigh
-        path = posixpath.join(folder(lists["파일"]), stems[no] + ".md")
+        path = posixpath.join(folder(files), stems[no] + ".md")
         if nfc(path).casefold() in taken:
             raise ValueError("노트 경로가 겹친다: %s — 제목을 먼저 바꾼다" % path)
         taken.add(nfc(path).casefold())
@@ -274,9 +263,10 @@ def to_notes(text):
             b += 1
         index[a:b + 1] = [MARK_TABLE]
     notes[INDEX] = "\n".join(index)
-    diff = first_diff(text, to_concepts_md(notes))
-    if diff:
-        raise ValueError("노트로 다시 만든 지도가 원본과 %d줄에서 다르다 — 원본 %r / 다시 만든 것 %r. 노트를 쓰지 않았다" % diff)
+    why = refusal(text, to_concepts_md(notes)) if verify else None
+    if why:
+        raise ValueError("노트로 다시 만든 지도가 원본과 다르다 — %s. 노트를 쓰지 않았다. "
+                         "normalize로 생성 규칙대로 다시 쓴 지도를 보고 커밋한 뒤 export한다" % why)
     return notes
 
 
@@ -413,20 +403,19 @@ def to_concepts_md(notes):
     sections = []
     for n in sorted(parsed, key=lambda x: x["no"]):
         fm, no = n["fm"], n["no"]
-        fmt = fm.get("meta_format") if isinstance(fm.get("meta_format"), dict) else {}
         groups = list(edges[no]) + [(rel, [a]) for a, rel in sorted(back.get(no, {}).items())]
-        neigh = fmt.get("이웃", JOIN["이웃"]).join(
+        neigh = ", ".join(
             "개념 %s%s" % ("·".join(str(x) for x in ns), "(%s)" % rel if rel else "") for rel, ns in groups) or "없음"
         files = as_list(fm.get("files", []))
         items = ["상태=%s" % fm.get("status", ""),
                  "확인=%s%s" % (fm.get("checked", ""), "(`%s`)" % fm["checked_commit"] if fm.get("checked_commit") else ""),
-                 "파일=%s" % (join_list(files, fmt.get("파일", JOIN["파일"])) if files else NO_FILES),
+                 "파일=%s" % (join_files(files) if files else NO_FILES),
                  "이웃=%s" % neigh]
         docs, aliases = as_list(fm.get("docs", [])), as_list(fm.get("aliases", []))
         if docs:
-            items.append("문서=%s" % join_list(docs, fmt.get("문서", JOIN["문서"])))
+            items.append("문서=%s" % join_files(docs))
         if aliases:
-            items.append("별칭=%s" % join_list(aliases, fmt.get("별칭", JOIN["별칭"])))
+            items.append("별칭=%s" % ", ".join(aliases))
         meta = META_PREFIX + " · ".join(items)
         head = "## %s. %s" % (no, n["title"])
         if MARK_META in n["body"]:
@@ -579,6 +568,10 @@ def run(argv):
                 fh.write(t)
         roots = sum(1 for p in notes if p != INDEX and "/" not in p)
         print("노트 %d개(루트 %d · 하위 폴더 %d) + %s → %s" % (len(notes) - 1, roots, len(notes) - 1 - roots, INDEX, argv[2]))
+        return 0
+    if len(argv) == 2 and argv[0] == "normalize":
+        with open(argv[1], encoding="utf-8", newline="") as fh:
+            sys.stdout.write(to_concepts_md(to_notes(fh.read(), verify=False)))
         return 0
     if len(argv) == 2 and argv[0] == "build":
         sys.stdout.write(to_concepts_md(read_dir(argv[1])))

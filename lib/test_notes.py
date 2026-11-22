@@ -245,9 +245,13 @@ DOT_MAP = """# 지도
 class MiddleDotValueTest(unittest.TestCase):
     """다른 저장소 지도(US-5)의 꼴: 메타 값 안에 ' · '. 내용은 지어낸 것."""
 
-    def test_round_trip(self):
-        ns = notes.to_notes(DOT_MAP)          # 다르면 to_notes가 거절한다
-        self.assertEqual(notes.to_concepts_md(ns), DOT_MAP)
+    def test_read_then_normalize_then_export(self):
+        with self.assertRaises(ValueError):                 # ' · ' 이음은 생성 규칙이 다시 못 만든다
+            notes.to_notes(DOT_MAP)
+        fixed = notes.to_concepts_md(notes.to_notes(DOT_MAP, verify=False))
+        self.assertIn("파일=`ui/button.py`,`ui/theme.py` · 이웃=개념 2(정본), 개념 3(전제) · 문서=`docs/a.md`,`docs/b.md`\n", fixed)
+        ns = notes.to_notes(fixed)                          # 정리한 지도는 왕복한다
+        self.assertEqual(notes.to_concepts_md(ns), fixed)
         n = notes.parse_note("ui/버튼.md", ns["ui/버튼.md"])
         self.assertEqual(n["fm"]["files"], ["ui/button.py", "ui/theme.py"])
         self.assertEqual(n["fm"]["docs"], ["docs/a.md", "docs/b.md"])
@@ -276,13 +280,17 @@ class MalformedExportTest(unittest.TestCase):
         self.assertIn(notes.MARK_META, ns[S2])
         self.assertEqual(notes.to_concepts_md(ns), text)
 
-    def test_no_blank_around_meta_is_kept(self):
+    def test_blank_line_difference_is_normalized_not_marked(self):
         text = MAP.replace("## 2. 레벨\n\n", "## 2. 레벨\n")
-        self.assertEqual(notes.to_concepts_md(notes.to_notes(text)), text)
+        self.assertIn("줄에서 다르다", self.refused(text))
+        ns = notes.to_notes(text, verify=False)
+        self.assertNotIn(notes.MARK_META, ns[S2])           # 빈 줄 차이는 내용이 아니다
+        self.assertEqual(notes.to_concepts_md(ns), MAP)
 
     def test_table_row_without_section(self):
         msg = self.refused(MAP.replace("| 1 | 세이브 |", "| 3 | 유령 | 일치 | — | x |\n| 1 | 세이브 |"))
-        self.assertIn("유령", msg)
+        self.assertIn("10줄에서 다르다", msg)   # 유령 행이 끼어든 줄
+        self.assertNotIn("유령", msg)                        # 줄 내용은 옮기지 않는다
 
     def test_interleaved_heading(self):
         self.refused(MAP.replace("## 2. 레벨", "## 메모\n\n글\n\n## 2. 레벨"))
@@ -294,9 +302,39 @@ class MalformedExportTest(unittest.TestCase):
         self.refused(MAP.replace("\n", "\r\n"))
         self.refused(MAP.replace("`src/save/save.py`,`src/save/load.py`", "`src/save/save.py`, `src/save/load.py`,`x/y.py`"))
 
-    def test_comma_space_is_preserved(self):
+    def test_comma_space_is_normalized(self):
         text = MAP.replace("`src/save/save.py`,`src/save/load.py`", "`src/save/save.py`, `src/save/load.py`")
-        self.assertEqual(notes.to_concepts_md(notes.to_notes(text)), text)
+        self.refused(text)
+        self.assertEqual(notes.to_concepts_md(notes.to_notes(text, verify=False)), MAP)
+
+    def test_refusal_categories(self):
+        rows = MAP.split("\n")
+        a, b = rows.index("| 2 | 레벨 | 미구현 | 낮음 | 레벨 한 줄 |"), rows.index("| 1 | 세이브 | 일치 | — | 세이브: 한 줄 # 주석 아님 |")
+        rows[a], rows[b] = rows[b], rows[a]
+        msg = self.refused("\n".join(rows))
+        self.assertIn("요약표 순서가 생성 규칙과 다르다", msg)
+        self.assertNotIn("세이브", msg)
+        one = MAP[MAP.index("## 1."):MAP.index("## 2.")]
+        two = MAP[MAP.index("## 2."):MAP.index("## 유지 규칙")]
+        self.assertIn("개념 절 순서가 번호순이 아니다", self.refused(MAP.replace(one + two, two + one)))
+
+    def test_spaced_grouped_neighbors(self):
+        text = MAP.replace("이웃=개념 2(전제)", "이웃=개념 1 · 2(전제)")
+        ns = notes.to_notes(text, verify=False)
+        self.assertIn("- 전제: [[세이브 — 저장과 불러오기]], [[레벨]]", ns[S1])
+        self.assertIn("이웃=개념 1·2(전제)", notes.to_concepts_md(ns))
+
+    def test_docs_added_later_get_backticks(self):
+        ns = notes.to_notes(MAP)
+        self.assertNotIn("meta_format", ns[S2])
+        ns = edit(ns, S2, "docs: []", 'docs: ["README.md", "docs/a.md"]')
+        self.assertIn("· 문서=`README.md`,`docs/a.md`\n", notes.to_concepts_md(ns))
+
+    def test_normalize_is_stable(self):
+        messy = MAP.replace("`src/save/save.py`,`src/save/load.py`", "src/save/save.py · src/save/load.py")
+        once = notes.to_concepts_md(notes.to_notes(messy, verify=False))
+        self.assertEqual(notes.to_concepts_md(notes.to_notes(once, verify=False)), once)
+        self.assertEqual(once, MAP)
 
     def test_duplicate_section_and_missing_neighbor(self):
         self.assertIn("둘 이상", self.refused(MAP + "\n## 2. 또 레벨\n\n- **메타**: 상태=일치 · 확인=x · 파일=`a` · 이웃=없음\n"))
@@ -418,6 +456,9 @@ class CliTest(unittest.TestCase):
             os.makedirs(os.path.join(vault, ".obsidian"))
             with open(os.path.join(vault, ".obsidian", "x.md"), "w") as fh:
                 fh.write("[[없는 노트]]")
+            with redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(notes.main(["normalize", src]), 0)
+            self.assertEqual(out.getvalue(), MAP)
             with redirect_stdout(io.StringIO()) as out:
                 notes.main(["build", vault])
             self.assertEqual(out.getvalue(), MAP)
