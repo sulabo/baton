@@ -58,7 +58,10 @@ class RoundTripTest(unittest.TestCase):
         with open(path, encoding="utf-8", newline="") as fh:
             text = fh.read()
         ns = notes.to_notes(text)
-        self.assertEqual(len(ns), 14 + 1)
+        # 개념마다 노트 하나 + 색인 노트 하나. 개념 수는 지도가 자라면 바뀌니 파서로 센다.
+        n_concepts = len(list(notes.concepts.walk(text.splitlines())))
+        self.assertGreater(n_concepts, 0)
+        self.assertEqual(len(ns), n_concepts + 1)
         self.assertEqual(notes.to_concepts_md(ns), text)
         self.assertEqual(notes.check(ns), [])
 
