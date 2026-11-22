@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>baton homepage</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<title>baton — stop your AI agent from re-reading your project</title>
+<meta name="description" content="A Claude Code and Codex plugin. A new session picks up from a one-page handoff and finds the files it needs through a concept map, instead of re-reading the project.">
+<link rel="canonical" href="https://sulabo.github.io/baton/">
+<link rel="alternate" hreflang="en" href="https://sulabo.github.io/baton/">
+<link rel="alternate" hreflang="ko" href="https://sulabo.github.io/baton/ko/">
+<link rel="alternate" hreflang="x-default" href="https://sulabo.github.io/baton/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@400;600&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -101,11 +105,11 @@ p { margin: 0; }
 /* ---------- hero ---------- */
 .hero { position: relative; padding-top: clamp(120px, 16vw, 200px); padding-bottom: var(--section); }
 .hero-grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: clamp(32px, 6vw, 88px); align-items: center; }
-.hero-copy { display: grid; gap: var(--space-6); min-width: 0; }
+.hero-copy { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); min-width: 0; }
 .pill { justify-self: start; display: inline-flex; align-items: center; gap: 8px; max-width: 100%; font-size: var(--text-xs); font-weight: 500; color: var(--ink-2);
   border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px 4px 4px; background: var(--card); text-decoration: none; transition: border-color var(--dur-fast) var(--ease-out); }
 .pill:hover { border-color: var(--ink-quiet); }
-.pill b { font-weight: 600; color: var(--on-accent); background: var(--accent); border-radius: 999px; padding: 2px 8px; }
+.pill b { flex: none; white-space: nowrap; font-weight: 600; color: var(--on-accent); background: var(--accent); border-radius: 999px; padding: 2px 8px; }
 .pill span { min-width: 0; overflow-wrap: anywhere; }
 .hero h1 { font-size: var(--text-display); line-height: 1.02; letter-spacing: -0.035em; }
 .install { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); align-items: center; }
@@ -239,6 +243,7 @@ html.lenis, html.lenis body { height: auto; }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--paper); }
 .tabs button:hover:not([aria-selected="true"]) { color: var(--ink); }
 .tabpanel { display: grid; gap: var(--space-3); justify-items: center; width: 100%; }
+.tabpanel[hidden] { display: none; } /* 위 display가 hidden 속성을 덮어써 두 탭이 함께 보였다 */
 .tabpanel .cmd { width: min(100%, 34rem); justify-content: space-between; }
 .tabpanel .note { max-width: 46ch; }
 
@@ -293,6 +298,7 @@ html.lenis, html.lenis body { height: auto; }
     <ul class="nav-links">
       <li class="hide-sm"><a href="#how">How it works</a></li>
       <li class="hide-sm"><a href="#measured">Measured</a></li>
+      <li class="hide-sm"><a href="ko/" hreflang="ko" lang="ko">한국어</a></li>
       <li><a href="https://github.com/sulabo/baton">GitHub</a></li>
       <li><a class="nav-cta" href="#install" tabindex="-1" id="navcta">Install</a></li>
     </ul>
@@ -460,7 +466,7 @@ html.lenis, html.lenis body { height: auto; }
           <li><h3>Checks the handoff when it is saved</h3><p>Size, required sections, secrets, home paths and the private words you picked.</p></li>
           <li><h3>Records a last-checked commit per concept</h3><p>Unchanged concepts aren't re-read, and the map flags where the decision log, the code and the docs disagree.</p></li>
         </ol>
-        <p class="aside">None of the tools we reviewed documented these on 2026-11-21 and 11-22. <code>/compact</code> and <code>/resume</code> keep one conversation going; baton gives a new session a short written handoff. <a class="textlink" href="https://github.com/sulabo/baton#how-it-compares">Full comparison</a></p>
+        <p class="aside">None of the tools we reviewed documented these on 2026-11-21 and 11-22. <code>/compact</code> and <code>/resume</code> keep one conversation going; baton gives a new session a short written handoff. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.md#how-it-compares">Full comparison</a></p>
       </div>
     </div>
   </section>
@@ -510,7 +516,7 @@ html.lenis, html.lenis body { height: auto; }
         <li><a href="https://github.com/sulabo/baton">GitHub</a></li>
         <li><a href="https://github.com/sulabo/baton/releases">Releases</a></li>
         <li><a href="https://github.com/sulabo/baton/blob/main/CHANGELOG.md">Changelog</a></li>
-        <li><a href="https://github.com/sulabo/baton/blob/main/README.ko.md">한국어</a></li>
+        <li><a href="ko/" hreflang="ko" lang="ko">한국어</a></li>
         <li><a href="https://github.com/sulabo/baton/blob/main/LICENSE">MIT License</a></li>
       </ul>
     </div>

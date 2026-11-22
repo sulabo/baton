@@ -3,6 +3,8 @@
 </p>
 
 <p align="center">
+  <a href="https://sulabo.github.io/baton/">Homepage</a>
+  ·
   <a href="docs/GUIDE.md">Guide</a>
   ·
   <a href="README.ko.md">한국어</a>
