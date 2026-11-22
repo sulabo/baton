@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """북극성 길 단계 3: 인계서 검사기. 템플릿대로 쓴 인계서는 통과하고, 어긴 곳은 줄 번호와 종류로 잡는다."""
+import json
 import os
 import subprocess
 import sys
@@ -75,7 +76,9 @@ class HandoffCheckTest(unittest.TestCase):
 
     def test_line_and_char_limits(self):
         self.assertTrue(any("201줄" in x for x in handoff_check.check(GOOD + "-\n" * (201 - GOOD.count("\n")))))
-        self.assertTrue(any("상한 9,000자" in x for x in handoff_check.check(GOOD + "가" * 9000)))
+        over = GOOD + "가" * (handoff_check.MAX_CHARS + 1 - len(GOOD))
+        self.assertTrue(any(f"상한 {handoff_check.MAX_CHARS:,}자" in x for x in handoff_check.check(over)))
+        self.assertFalse(any("자 — 상한" in x for x in handoff_check.check(over[:-1])))
 
     def test_long_code_block(self):
         block = "```\n" + "x\n" * 25 + "```\n"
@@ -281,6 +284,44 @@ class HandoffCheckTest(unittest.TestCase):
             bad = subprocess.run([sys.executable, os.path.join(HERE, "handoff_check.py"), p], capture_output=True, text=True)
             self.assertEqual(bad.returncode, 1)
             self.assertIn("필수 절 없음", bad.stdout)
+
+
+class InjectBudgetTest(unittest.TestCase):
+    """검사를 통과한 인계서는 주입에서 잘리지 않는다 — 두 상한이 따로 박혀 있어 갈라지면 여기서 깨진다."""
+
+    HOOK = os.path.join(os.path.dirname(HERE), "hooks", "handoff-inject.py")
+
+    def test_checker_limit_fits_inject_budget(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_inject", self.HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        self.assertEqual(handoff_check.MAX_LINES, hook.LIMIT)
+        # 신선도 한 줄이 가장 길 때의 본문 예산(머리말 + 줄바꿈 + 신선도 + 꼬리 안내 몫을 뺀 것)에 검사기 상한 + 끝 줄바꿈이 들어간다
+        self.assertLessEqual(handoff_check.MAX_CHARS + 1,
+                             hook.LIMIT_CHARS - len(hook.HEAD) - 1 - hook.rules.FRESHNESS_MAX - hook.TAIL_RESERVE)
+
+    def test_largest_passing_handoff_is_injected_whole(self):
+        with tempfile.TemporaryDirectory() as root:
+            last = "- 마지막 줄: 다음 행동\n"
+            head = GOOD + "\n"
+            room = handoff_check.MAX_CHARS - len(head) - len(last)  # 이 만큼을 80자 줄로 채운다
+            pad = ("가" * 79 + "\n") * (room // 80) + "나" * (room % 80)
+            text = head + pad + ("\n" if room % 80 else "") + last
+            text = text[:-len(last) - 1] + last if len(text) > handoff_check.MAX_CHARS else text
+            self.assertEqual(len(text), handoff_check.MAX_CHARS)
+            self.assertLessEqual(len(text), handoff_check.MAX_CHARS)
+            self.assertLessEqual(text.count("\n"), handoff_check.MAX_LINES)
+            self.assertFalse(any("자 — 상한" in x or "줄 — 상한" in x for x in handoff_check.check(text)))
+            with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+                f.write(text)
+            env = dict(os.environ, CLAUDE_PROJECT_DIR=root, BATON_LOG=os.path.join(root, "runs.jsonl"),
+                       XDG_CACHE_HOME=os.path.join(root, ".cache"))
+            r = subprocess.run([sys.executable, self.HOOK], input='{"prompt": "어디까지 했지? 이어서"}',
+                               text=True, capture_output=True, env=env, check=False)
+            ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn(last, ctx)
+            self.assertNotIn("까지만 넣었다", ctx)
 
 
 if __name__ == "__main__":
