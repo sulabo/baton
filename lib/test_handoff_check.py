@@ -431,6 +431,13 @@ class EnglishHandoffTest(unittest.TestCase):
         self.assertEqual(self.cli(GOOD_EN, {"LANG": "C.UTF-8"}), (0, "HANDOFF.md: no problems\n"))
 
 
+def gone(*a, **k):
+    """dropped()의 빠진 항목 목록만(본 항목 수·전체 수는 뺀다)."""
+    out, done, total = handoff_check.dropped(*a, **k)
+    assert done == total, (done, total)  # 시한 없이 부르면 다 본다
+    return out
+
+
 def git_repo(root):
     subprocess.run(["git", "init", "-q", root], check=True)
     return lambda *a: subprocess.run(["git", "-C", root, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
@@ -448,13 +455,13 @@ class DropCheckTest(unittest.TestCase):
     def test_dropped_lines_by_section_rule(self):
         new = self.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "").replace(
             "- [V] 테스트 168개 통과(11-23)\n", "").replace("- [V] 소유자 결정: 배포는 사람이 한다\n", "")
-        self.assertEqual(handoff_check.dropped(self.OLD, new),
+        self.assertEqual(gone(self.OLD, new),
                          [(0, "[V] 소유자 결정: 배포는 사람이 한다"), (1, "rtk가 감싼 diff 출력을 믿기 — md5로 확인")])
         # 표지 없는 끝난 사실(테스트 통과)은 지워도 알리지 않는다. 고쳐 쓴 줄·다른 절로 옮긴 줄·DECISIONS.md로 올린 줄은 빠진 것이 아니다
         moved = new.replace("## 이미 한 변경\n- 없음\n", "## 이미 한 변경\n- 다음 행동이던 설치 스크립트를 고쳤다\n").replace(
             "- 다음 행동: 설치 스크립트 고치기\n", "- 다음 행동: 배포\n") + "- rtk가 감싼 diff 출력은 믿지 않는다 — md5로\n"
-        self.assertEqual(handoff_check.dropped(self.OLD, moved, decisions="## 배포는 사람이 한다(소유자 결정)\n"), [])
-        self.assertEqual(handoff_check.dropped(GOOD, GOOD.replace("## 실패한 접근법 (다시 시도 금지)\n- 없음\n",
+        self.assertEqual(gone(self.OLD, moved, decisions="## 배포는 사람이 한다(소유자 결정)\n"), [])
+        self.assertEqual(gone(GOOD, GOOD.replace("## 실패한 접근법 (다시 시도 금지)\n- 없음\n",
                                                                   "## 실패한 접근법 (다시 시도 금지)\n")), [])  # 자리표시는 줄이 아니다
 
     def test_english_sections_and_markers(self):
@@ -463,10 +470,10 @@ class DropCheckTest(unittest.TestCase):
             "### Rejected (do not raise again)\n- None\n", "### Rejected (do not raise again)\n- Retry loop / 2026-10-03 / owner said no\n"
         ).replace("## Risks and next actions\n- Next action: install\n",
                   "## Risks and next actions\n- Never push to main directly\n- Next action: install the hook\n")
-        self.assertEqual(handoff_check.dropped(old, GOOD_EN),
+        self.assertEqual(gone(old, GOOD_EN),
                          [(1, "Trusting the wrapped diff output — check with md5"), (2, "Never push to main directly"),
                           (4, "Retry loop / 2026-10-03 / owner said no")])
-        self.assertEqual(handoff_check.dropped(old, old.replace("Trusting the wrapped diff output", "Trusted wrapped diff outputs")), [])
+        self.assertEqual(gone(old, old.replace("Trusting the wrapped diff output", "Trusted wrapped diff outputs")), [])
 
     def test_warning_messages(self):
         many = self.OLD.replace("## 실패한 접근법 (다시 시도 금지)\n", "## 실패한 접근법 (다시 시도 금지)\n"
@@ -488,7 +495,12 @@ class DropCheckTest(unittest.TestCase):
         self.assertTrue(en[1].endswith("\n    - … and 6 more"), en[1])
         hidden = handoff_check.drop_warnings(path, GOOD, lang="en", old=GOOD.replace(
             "## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n- 경로 /Users/someone/x 에서 실패\n"), private_terms=[])
-        self.assertIn("(content hidden — looks like a secret or a path)", hidden[0])
+        self.assertIn("(content hidden — matched the leak check)", hidden[0])  # 개인 자료 단어에도 맞는 중립 문구(리뷰 11-23)
+        ko = handoff_check.drop_warnings(path, GOOD, lang="ko", old=GOOD.replace(
+            "## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n- 홍길동 요청으로 바꾼 방식\n"),
+            private_terms=["홍길동"])
+        self.assertIn("(내용 생략 — 유출 검사에 걸림)", ko[0])
+        self.assertNotIn("홍길동", ko[0])
         self.assertEqual(handoff_check.drop_warnings(path, GOOD, old=""), [])
         with open(os.path.join(tmp.name, "DECISIONS.md"), "w", encoding="utf-8") as f:
             f.write("## 11-23 배포는 사람이 한다 (소유자 결정)\n")
@@ -512,6 +524,56 @@ class DropCheckTest(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout)  # 경고만 — 막지 않는다
             self.assertIn("마지막 커밋판에 있던 줄 2개", r.stdout)
             self.assertIn("경고만 있음", r.stdout)
+
+
+class DropCostTest(unittest.TestCase):
+    """빠진 줄 검사는 입력이 커도 훅 시한(10초) 훨씬 안에 끝나고, 시한·크기 상한에 걸리면 다 못 봤다고 말한다(리뷰 11-23)."""
+
+    def big(self, root, items=2000, decision_lines=20000):
+        old = GOOD.replace("## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n"
+                           + "".join(f"- 접근{i}가 실패 이유{i} 기록{i} 다시{i}\n" for i in range(items)))
+        with open(os.path.join(root, "DECISIONS.md"), "w", encoding="utf-8") as f:
+            f.write("".join(f"## 결정 {i} — 공통 낱말 다시 실패 기록 이유 {i * 7}\n" for i in range(decision_lines)))
+        return old
+
+    def test_large_input_finishes_fast(self):
+        import time
+        with tempfile.TemporaryDirectory() as root:
+            old = self.big(root)
+            t = time.monotonic()
+            out = handoff_check.drop_warnings(os.path.join(root, "HANDOFF.md"), GOOD, lang="en", old=old, private_terms=[],
+                                              deadline=time.monotonic() + 60)  # 시한에 기대지 않고도 빨라야 한다
+            took = time.monotonic() - t
+            self.assertLess(took, 2.0, took)  # 이전: 빠진 줄 200개 × 2만 줄 11.6초, 2,000개 94초
+            self.assertTrue(any("2000 line(s) from the last committed version are not in the new handoff" in x for x in out), out)
+            self.assertTrue(any("(DECISIONS.md is large; only its first 256 KB was compared)" in x for x in out), out)
+
+    def test_deadline_and_size_caps_are_reported(self):
+        with tempfile.TemporaryDirectory() as root:
+            old = self.big(root, items=50, decision_lines=10)
+            out, done, total = handoff_check.dropped(old, GOOD, deadline=0)  # 시한이 이미 지났다
+            self.assertEqual((out, done, total), ([], 0, 50))
+            path = os.path.join(root, "HANDOFF.md")
+            ko = handoff_check.drop_warnings(path, GOOD, lang="ko", old=old, private_terms=[], deadline=0)
+            self.assertEqual(ko, ["경고: 빠진 줄 검사를 다 못 했다(마지막 커밋판 항목 50개 중 0개만 봤다) — 아래 목록은 일부다. "
+                                  "0개여도 '빠진 줄 없음'이 아니다"])
+            en = handoff_check.drop_warnings(path, GOOD, lang="en", old=old + "x" * (handoff_check.DROP_READ_MAX + 10),
+                                             private_terms=[])
+            self.assertIn("the last committed version is large, only its first 256 KB was read", en[0])
+            self.assertIn("50 line(s) from the last committed version are not in the new handoff", en[1])
+
+    def test_keep_rule_unchanged_by_the_index(self):
+        # 색인(비둘기집) 비교는 예전의 "한 줄이 열쇠의 DROP_KEEP 이상을 가진다"와 같은 답을 낸다
+        import random
+        rnd = random.Random(5)
+        words = [f"w{i}" for i in range(30)]
+        for _ in range(200):
+            old_line = " ".join(rnd.sample(words, rnd.randint(1, 8)))
+            new = "\n".join(" ".join(rnd.sample(words, rnd.randint(1, 8))) for _ in range(5))
+            keys = handoff_check.line_keys(old_line)
+            slow = not any(len(keys & handoff_check.line_keys(l)) >= handoff_check.DROP_KEEP * len(keys) for l in new.splitlines())
+            fast = bool(gone("# Session Handoff\n## 실패한 접근법\n- " + old_line + "\n", new))
+            self.assertEqual(fast, slow, (old_line, new))
 
 
 class MustReadTest(unittest.TestCase):
@@ -557,8 +619,16 @@ class MustReadTest(unittest.TestCase):
 class PluginRootTest(unittest.TestCase):
     """스킬·명령 본문은 중괄호 ${CLAUDE_PLUGIN_ROOT}만 쓴다 — Claude Code는 그 꼴만 본문에 바꿔 넣고, Bash 환경에는 변수가 없다
     (code.claude.com/docs/en/plugins-reference "Environment variables", docs/en/skills "String substitutions").
-    allowed-tools의 Bash(…) 패턴은 본문이 시키는 명령과 앞머리가 같아야 미리 허용된다."""
-    FILES = ("skills/baton/SKILL.md", "commands/promote.md", "commands/baton-explain.md")
+    allowed-tools의 Bash(…) 패턴은 본문이 시키는 명령과 앞머리가 같아야 미리 허용된다. 읽기만 하는 promote.sh·handoff_check.py만
+    미리 허용한다 — /baton-explain은 $ARGUMENTS를 heredoc으로 넘기므로 줄바꿈 뒤 명령이 허용에 묻어 갈 수 있어 미리 허용하지 않는다(리뷰 11-23)."""
+    FILES = ("skills/baton/SKILL.md", "commands/promote.md")
+
+    def test_explain_is_not_preapproved(self):
+        with open(os.path.join(os.path.dirname(HERE), "commands", "baton-explain.md"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertNotIn("allowed-tools", text.split("\n---\n", 1)[0])
+        self.assertNotRegex(text, r"\$CLAUDE_PLUGIN_ROOT")
+        self.assertIn('python3 "${CLAUDE_PLUGIN_ROOT}/lib/rules.py" explain - <<\'BATON_PROMPT\'', text)
 
     def test_braced_root_and_matching_allowed_tools(self):
         import re
