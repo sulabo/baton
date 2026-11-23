@@ -22,7 +22,7 @@ baton is a plugin for Claude Code and Codex. When you ask a new session to pick 
 
 It works on two plain files in your repo, `HANDOFF.md` and `CONCEPTS.md`, through local hooks (small scripts that run at set moments).
 
-> **Beta** (`1.0.0-beta.3`). Messages are in Korean for now, and every number below comes from one person's use.
+> **Beta** (`1.0.0-beta.4`). Every number below comes from one person's use.
 
 <p align="center">
   <img src="docs/assets/how-it-works.png" width="100%" alt="How it works. 1: In session 1 you finish some work and say “write a handoff”. 2: HANDOFF.md, one page you can read and edit, checked when saved. 3: In session 2 you ask “where were we?” and the page goes in once. 4: The agent starts at the next step, not by searching for where it left off. Result: sessions that re-opened HANDOFF.md in their first 5 model calls went from 41 of 42 before install to 3 of 11 after, in the author's real-use sessions that began with a progress question.">
@@ -51,11 +51,11 @@ All our numbers come from the author's own repositories. Sources and commands: [
 
 ## Why baton?
 
-- **A one-page handoff.** Say "write a handoff" when you finish a piece of work. The agent writes `HANDOFF.md`, a plain file you can read and edit.
-- **Checked when saved.** A hook checks length, required sections, secrets, home-folder paths, and the private words you pick, and hands any problem back to the agent (Claude Code; on Codex the skill runs the checker).
-- **Loaded once, with its age.** Ask "where were we?" in the next session. The handoff goes in once per session (again if the file changed or the conversation was compacted), with a line saying how old it is and how many commits came after it.
-- **A concept map that knows what changed.** `CONCEPTS.md` ties each concept to its decision, code, and docs. `/drift` shows which concepts need a re-check: files changed since the last check, or no check recorded.
+- **A one-page handoff, written when a piece of work ends.** Once 3 or more files were edited in a session since the last handoff, baton asks the agent at the end of its turn to update `HANDOFF.md` and to tell you in one line (Claude Code, once per session). You can still say "write a handoff" at any time. It is a plain file you can read and edit.
+- **Checked when saved.** A hook checks length, required sections, secrets, home-folder paths, and the private words you pick, and hands any problem back to the agent (Claude Code; on Codex the skill runs the checker). It also warns when lines from the last committed version are gone, such as a failed approach or a decision.
+- **Loaded once, with its age.** Ask "where were we?" in the next session. The handoff goes in once per session (again if the file changed or the conversation was compacted), with a line saying how old it is and how many commits came after it. Up to 3 entries you marked "(must read)" come next, in one line of their own.
 - **A nudge before the context balloons.** When the context passes 2× and 3× its size at the first call (defaults), baton suggests writing a handoff and starting fresh (Claude Code only).
+- **A concept map that knows what changed.** `CONCEPTS.md` ties each concept to its decision, code, and docs. `/drift` shows which concepts need a re-check: files changed since the last check, or no check recorded.
 - **Local.** The hooks are Python and shell scripts on your machine. A search of the scripts found no network calls (not a runtime trace). They keep a small log under `~/.cache/baton` that never stores prompt text.
 
 ## Get started
@@ -72,6 +72,8 @@ Then:
 1. Run `/baton-doctor` in a new session to check that the repo is ready.
 2. Finish some work and say "write a handoff". Commit `HANDOFF.md`.
 3. In the next session, ask "where were we?".
+
+Messages are in Korean when your system locale is Korean, and in English otherwise. Set `BATON_LANG` to `en` or `ko` to choose ([Language](docs/GUIDE.md#language)).
 
 <details>
 <summary><strong>Alternative:</strong> paste this prompt to your agent after installing</summary>
@@ -91,7 +93,7 @@ codex plugin marketplace add sulabo/baton
 codex plugin add baton@baton
 ```
 
-Codex runs plugin hooks only after you mark them as trusted. It has no slash commands, so ask for the skills instead (`/baton-doctor` isn't available there). The context-growth notice, the handoff nudge, and the save-time check don't run on Codex.
+Codex runs plugin hooks only after you mark them as trusted. It has no slash commands, so ask for the skills instead (`/baton-doctor` isn't available there). The context-growth notice, the handoff auto-write and nudge, and the save-time check don't run on Codex.
 
 </details>
 
@@ -99,7 +101,6 @@ Codex runs plugin hooks only after you mark them as trusted. It has no slash com
 
 - **You keep one long conversation going.** `/compact` and `/resume` are built for that; baton is for starting a new session.
 - **You want recall without writing anything.** Try [claude-mem](https://github.com/thedotmack/claude-mem), which records sessions automatically.
-- **You need English messages today.** Hook output is in Korean during the beta.
 - **You rarely commit.** The handoff still loads, but its age line and `/drift` count committed history only.
 
 ## Documentation
