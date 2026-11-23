@@ -12,10 +12,20 @@ import unittest
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "zero-guard.sh")
 
 
-def run(command, stdout="", stderr="", response=None):
+KO_MSG = "[baton] 0건이 나왔다. 진짜 없는 것인지, 형식이 안 맞아 못 센 것인지 구분해서 보고한다. 형식 불일치 줄을 먼저 확인한다."
+EN_MSG = ("[baton] The output has a zero count. Before you report it, tell whether there really is nothing or whether nothing "
+          "could be counted because the format did not match. Check the lines that did not match the format first.")
+LOCALE = ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")
+
+
+def run(command, stdout="", stderr="", response=None, env=None):
+    """env: 알림 언어를 정하는 환경변수(기본 BATON_LANG=ko — 기존 테스트는 한국어 알림을 본다)."""
     data = {"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"command": command},
             "tool_response": response if response is not None else {"stdout": stdout, "stderr": stderr}}
-    r = subprocess.run(["bash", HOOK], input=json.dumps(data, ensure_ascii=False), capture_output=True, text=True)
+    e = {k: v for k, v in os.environ.items() if k not in LOCALE}
+    e["XDG_CONFIG_HOME"] = os.path.join(os.devnull, "none")  # 실제 설정 파일의 BATON_LANG을 읽지 않는다
+    e.update(env if env is not None else {"BATON_LANG": "ko"})
+    r = subprocess.run(["bash", HOOK], input=json.dumps(data, ensure_ascii=False), capture_output=True, text=True, env=e)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout) if r.stdout.strip() else None
 
@@ -73,6 +83,34 @@ class ZeroGuardTest(unittest.TestCase):
 
     def test_sourcing_other_files_is_silent(self):
         self.assertIsNone(run(". ./env.sh && cat lib/fresh.sh", stdout="없음"))
+
+    def test_english_zero_signals_fire(self):  # 검사 스크립트의 영어 출력(BATON_LANG=en)
+        for out in ("Total findings: 0", "    No findings", "Summary: re-check 0 · fresh 3 · rule concepts 0",
+                    "    12 concepts, 0 metadata lines", "     D3: not mentioned in the concept map — check which concept it touches",
+                    "1    lives     agrees          needs a re-check — no baseline",
+                    "Related entries ... — **this is not 0, they could not be counted**:",
+                    "    ── Without a marker: 0 (usually notes on finished work)", "    → 0 items", "    → 0 dropped in total.",
+                    "    The latest version has no section — this signal cannot be counted (not 0: uncounted)"):
+            with self.subTest(out=out):
+                self.assertIsNotNone(run("bash lib/fresh.sh CONCEPTS.md .", stdout=out))
+
+    def test_english_nonzero_output_is_silent(self):
+        for out in ("Summary: re-check 2 · fresh 3 · rule concepts 0", "Total findings: 10", "    → 2 items",
+                    "    12 concepts, 12 metadata lines", "Total findings: 3", "    ── Without a marker: 3",
+                    "checked at 2026-11-23 10:05 (`9cd1928`)", "    References: 26 · one way only: 0.5"):
+            with self.subTest(out=out):
+                self.assertIsNone(run("bash lib/check.sh CONCEPTS.md", stdout=out))
+
+    def test_message_language(self):
+        out = run("bash lib/check.sh CONCEPTS.md", stdout="지적 총 0건")
+        self.assertEqual((out["systemMessage"], out["hookSpecificOutput"]["additionalContext"]), (KO_MSG, KO_MSG))
+        for stdout in ("지적 총 0건", "Total findings: 0"):  # 출력 언어와 알림 언어는 따로다
+            out = run("bash lib/check.sh CONCEPTS.md", stdout=stdout, env={"BATON_LANG": "en"})
+            self.assertEqual((out["systemMessage"], out["hookSpecificOutput"]["additionalContext"]), (EN_MSG, EN_MSG))
+
+    def test_locale_decides_without_baton_lang(self):
+        self.assertEqual(run("lib/check.sh m", stdout="Total findings: 0", env={"LANG": "ko_KR.UTF-8"})["systemMessage"], KO_MSG)
+        self.assertEqual(run("lib/check.sh m", stdout="Total findings: 0", env={"LANG": "C.UTF-8"})["systemMessage"], EN_MSG)
 
     def test_bad_input_is_silent(self):
         r = subprocess.run(["bash", HOOK], input="not json", capture_output=True, text=True)

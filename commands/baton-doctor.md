@@ -1,17 +1,24 @@
 ---
-description: 이 플러그인이 이 저장소에서 돌 준비가 됐는지 점검한다.
+description: Checks whether this plugin is ready to run in this repo. 이 플러그인이 이 저장소에서 돌 준비가 됐는지 점검한다.
 ---
 
-아래를 순서대로 확인하고 **안 되는 것마다 무엇을 하면 되는지** 한 줄씩 적어라.
+Check the following in order, and for **each one that fails, write one line on what to do about it**. Reply in the
+user's language.
 
 ```bash
-git rev-parse --show-toplevel                      # git 저장소인가
-find . -maxdepth 2 -name CONCEPTS.md               # 개념 지도가 있는가
-grep -c '^- \*\*메타\*\*:' <그 파일>                # 메타 줄이 있는가 (없으면 신선도 불가)
-git ls-files --error-unmatch HANDOFF.md            # 인계서가 추적되는가 (안 되면 승격 불가)
-ls DECISIONS.md                                     # 결정 기록이 있는가
-python3 "$CLAUDE_PLUGIN_ROOT/lib/config.py"         # /baton-setup을 돌렸는가, 설정 파일이 읽히는가
+git rev-parse --show-toplevel                                    # is this a git repo
+find . -maxdepth 2 -name CONCEPTS.md                             # is there a concept map
+grep -c -E '^- \*\*(메타|meta|Meta)\*\*:' <that file>            # does it have metadata lines (none: freshness can't be computed)
+git ls-files --error-unmatch HANDOFF.md                          # is the handoff tracked (not tracked: no promotion review)
+ls DECISIONS.md                                                  # is there a decision log
+python3 "$CLAUDE_PLUGIN_ROOT/lib/config.py"                      # was /baton-setup run, can the config file be read, output language
 ```
 
-각 항목은 **된다/안 된다**로만 답하지 말고, 안 되면 그것 때문에 **무엇을 못 하게 되는지**를 적는다.
-설정 파일이 없으면 문턱이 만든 사람의 기본값이라는 뜻이다(`/baton-setup` 권고). 있는데 못 읽으면 훅은 설정 없이 돈다 — 고치거나 지우게 한다.
+Don't answer each item only with works / doesn't work. When something doesn't work, write **what it stops from
+working**.
+No config file means the thresholds are the author's defaults (recommend `/baton-setup`). If it exists but can't be
+read, the hooks run without it: have the user fix or delete it.
+Report the output language and where it came from, as the last line of `config.py` prints it: the `BATON_LANG`
+environment variable, `BATON_LANG` in the config file, the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), or the default
+(English). To change it, set `BATON_LANG` to `ko`, `en` or `auto`, as an environment variable or with
+`/baton-setup` (`setup_scan.py apply --global --set BATON_LANG=…`).

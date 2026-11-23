@@ -11,6 +11,7 @@ case "$INPUT" in
   *check.sh*|*fresh.sh*|*promote.sh*) ;;
   *) exit 0 ;;   # 빠른 길: 이름이 아예 없으면 python을 띄우지 않는다
 esac
+LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/lib"
 HIT=$(printf '%s' "$INPUT" | python3 -c '
 import json, os, re, shlex, sys
 try:
@@ -82,10 +83,26 @@ if isinstance(r, dict):
     out = "\n".join(str(r.get(k) or "") for k in ("stdout", "stderr", "output"))
 else:
     out = r if isinstance(r, str) else ""
-if re.search(r"(?<![0-9])0건|없음|메타 줄 0개|재확인 0(?![0-9])", out):
-    print("hit")
-' 2>/dev/null)
-[ "$HIT" = hit ] || exit 0
+# 0건 신호는 두 언어 모두 본다 — 검사 스크립트가 어느 언어로 출력했든(BATON_LANG과 무관하게) 잡는다
+KO = r"(?<![0-9])0건|없음|메타 줄 0개|재확인 0(?![0-9])"
+EN = (r"(?i)\bno findings\b|\bnone\b|\bno baseline\b|\bnot mentioned\b|\bnot 0\b|re-check 0(?![0-9])"
+      r"|[:→] ?0(?![0-9.,])|(?<![0-9.,])0 (?:findings?|commits?|metadata lines?|candidates?|items?|entries|dropped|versions?)\b")
+if not (re.search(KO, out) or re.search(EN, out)):
+    sys.exit(0)
+lang = "en"
+try:  # 알림 언어(lib/i18n.py). 못 정하면 lib.sh의 baton_lang처럼 en
+    sys.path.insert(0, sys.argv[1])
+    import i18n
+    cwd = d.get("cwd") if isinstance(d.get("cwd"), str) else None
+    lang = i18n.lang(os.environ.get("CLAUDE_PROJECT_DIR") or cwd)
+except Exception:
+    pass
+print(lang)
+' "$LIB" 2>/dev/null)
 # systemMessage는 사용자에게만 보인다. 모델이 읽게 하려면 additionalContext로 넣는다(Claude Code·Codex 공통 PostToolUse 형식)
-MSG="[baton] 0건이 나왔다. 진짜 없는 것인지, 형식이 안 맞아 못 센 것인지 구분해서 보고한다. 형식 불일치 줄을 먼저 확인한다."
+case "$HIT" in
+  ko) MSG="[baton] 0건이 나왔다. 진짜 없는 것인지, 형식이 안 맞아 못 센 것인지 구분해서 보고한다. 형식 불일치 줄을 먼저 확인한다." ;;
+  en) MSG="[baton] The output has a zero count. Before you report it, tell whether there really is nothing or whether nothing could be counted because the format did not match. Check the lines that did not match the format first." ;;
+  *) exit 0 ;;
+esac
 printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$MSG" "$MSG"

@@ -19,17 +19,31 @@ import config  # noqa: E402
 LANGS = ("ko", "en")
 
 
-def from_locale():
+def _locale():
+    """(language, "VAR=value" that decided it), or ("en", None) when no locale variable is set."""
     for k in ("LC_ALL", "LC_MESSAGES", "LANG"):
         v = os.environ.get(k)
         if v:
-            return "ko" if v.lower().startswith("ko") else "en"
-    return "en"
+            return ("ko" if v.lower().startswith("ko") else "en"), f"{k}={v}"
+    return "en", None
+
+
+def from_locale():
+    return _locale()[0]
+
+
+def where(repo=None):
+    """(language, source). source: "env" (BATON_LANG environment variable), "config" (BATON_LANG in the config file),
+    "LANG=ko_KR.UTF-8"-style locale variable, or "default" (nothing set)."""
+    v = config.get("BATON_LANG", repo, "").strip().lower()
+    if v in LANGS:
+        return v, "env" if "BATON_LANG" in os.environ else "config"
+    lang_, var = _locale()
+    return lang_, var or "default"
 
 
 def lang(repo=None):
-    v = config.get("BATON_LANG", repo, "").strip().lower()
-    return v if v in LANGS else from_locale()
+    return where(repo)[0]
 
 
 def pick(repo, ko, en):
