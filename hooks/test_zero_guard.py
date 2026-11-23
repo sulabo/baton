@@ -13,9 +13,13 @@ import unittest
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "zero-guard.sh")
 
 
+# 모델에게(additionalContext): 지시. 사용자에게(systemMessage): 무슨 일인지
 KO_MSG = "[baton] 0건이 나왔다. 진짜 없는 것인지, 형식이 안 맞아 못 센 것인지 구분해서 보고한다. 형식 불일치 줄을 먼저 확인한다."
 EN_MSG = ("[baton] The output has a zero count. Before you report it, tell whether there really is nothing or whether nothing "
           "could be counted because the format did not match. Check the lines that did not match the format first.")
+KO_USER = "[baton] 결과가 0이에요. 정말 없는 건지, 형식이 달라 못 센 건지 AI가 확인하게 했어요."
+EN_USER = ("[baton] The result is 0. baton asked the AI to check whether there's really nothing or a different format kept it "
+           "from counting.")
 LOCALE = ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")
 
 
@@ -146,14 +150,14 @@ class ZeroGuardTest(unittest.TestCase):
 
     def test_message_language(self):
         out = run("bash lib/check.sh CONCEPTS.md", stdout="지적 총 0건")
-        self.assertEqual((out["systemMessage"], out["hookSpecificOutput"]["additionalContext"]), (KO_MSG, KO_MSG))
+        self.assertEqual((out["systemMessage"], out["hookSpecificOutput"]["additionalContext"]), (KO_USER, KO_MSG))
         for stdout in ("지적 총 0건", "Total findings: 0"):  # 출력 언어와 알림 언어는 따로다
             out = run("bash lib/check.sh CONCEPTS.md", stdout=stdout, env={"BATON_LANG": "en"})
-            self.assertEqual((out["systemMessage"], out["hookSpecificOutput"]["additionalContext"]), (EN_MSG, EN_MSG))
+            self.assertEqual((out["systemMessage"], out["hookSpecificOutput"]["additionalContext"]), (EN_USER, EN_MSG))
 
     def test_locale_decides_without_baton_lang(self):
-        self.assertEqual(run("lib/check.sh m", stdout="Total findings: 0", env={"LANG": "ko_KR.UTF-8"})["systemMessage"], KO_MSG)
-        self.assertEqual(run("lib/check.sh m", stdout="Total findings: 0", env={"LANG": "C.UTF-8"})["systemMessage"], EN_MSG)
+        self.assertEqual(run("lib/check.sh m", stdout="Total findings: 0", env={"LANG": "ko_KR.UTF-8"})["systemMessage"], KO_USER)
+        self.assertEqual(run("lib/check.sh m", stdout="Total findings: 0", env={"LANG": "C.UTF-8"})["systemMessage"], EN_USER)
 
     def test_repo_modules_are_not_imported(self):
         # 훅은 사용자 저장소에서 돈다. 그곳의 copy.py(config가 부른다)·json.py가 표준 모듈 대신 불리면 안 된다(python3 -I)
@@ -163,7 +167,7 @@ class ZeroGuardTest(unittest.TestCase):
                 with open(os.path.join(d, name + ".py"), "w", encoding="utf-8") as f:
                     f.write(f"open({mark!r}, 'a').write({name!r} + '\\n')\nraise ImportError('planted')\n")
             out = run("bash lib/check.sh CONCEPTS.md", stdout="지적 총 0건", env={"BATON_LANG": "en"}, cwd=d)
-            self.assertEqual(out["systemMessage"], EN_MSG)
+            self.assertEqual(out["systemMessage"], EN_USER)
             self.assertFalse(os.path.exists(mark), open(mark).read() if os.path.exists(mark) else "")
 
     def test_bad_input_is_silent(self):

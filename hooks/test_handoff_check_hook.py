@@ -157,7 +157,8 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertEqual(out["decision"], "block")
         reason = out["reason"]
         self.assertIn("파일 3개를 고쳤다: a.py, b.py, sub/c.py.", reason)  # cwd(/r) 기준 상대 경로
-        self.assertIn("BATON_HANDOFF_AUTO=off", reason)
+        self.assertIn('그다음 사용자에게 이 한 줄만 쓰고 턴을 끝낸다: "인계서를 고쳐 뒀어요. 이 기능을 끄려면 '
+                      'BATON_HANDOFF_AUTO=off로 설정하세요."', reason)  # 사용자가 보는 한 줄도 해요체
         self.assertIn("기억으로 새로 쓰지 말고 지금 HANDOFF.md에서 시작해 아직 참인 줄은 그대로 옮긴다.", reason)
         self.assertIn("마지막 커밋판에서 빠진 줄을 알려 준다.", reason)
         self.assertNotIn("python3", reason)  # 검사기를 손으로 돌리라고 하지 않는다 — 저장 훅이 돌린다(권한 확인이 끼어들지 않게, 리뷰 11-23)
@@ -178,7 +179,7 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.handoff("# Project notes\n## Goal\n- ship\n## Next steps\n- review\n")
         out = self.auto(sid="foreign")
         self.assertEqual(set(out), {"systemMessage"})
-        self.assertIn("파일 3개를 고쳤는데", out["systemMessage"])
+        self.assertIn("파일을 3개 고쳤는데", out["systemMessage"])
         self.assertEqual([(e["event"], e.get("fallback")) for e in self.events()],
                          [("handoff_auto", None), ("handoff_auto", None), ("handoff_nudge", "foreign_handoff")])
         self.assertIsNone(self.auto(sid="foreign"))  # 세션에 한 번은 그대로
@@ -233,11 +234,13 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIn("When you save it, the save-time check reports problems and lines dropped since the last committed "
                       "version.", reason)
         self.assertNotIn("python3", reason)
-        self.assertIn("Then end your turn with one line to the user saying the handoff was updated and that "
-                      "BATON_HANDOFF_AUTO=off turns this off.", reason)
+        self.assertIn('Then end your turn with exactly this one line to the user: "I updated the handoff. To turn this off, '
+                      'set BATON_HANDOFF_AUTO=off."', reason)
         msg = self.stop(sid="s2", extra_env=en)
-        self.assertTrue(msg.startswith("[baton] You edited 3 files in this session, and the handoff"), msg)
-        self.assertIn("once per session", msg)
+        self.assertEqual(msg, "[baton] You changed 3 files, but the handoff hasn't changed.\n"
+                              "If you're done with the current task, try saying \"write a handoff\". "
+                              "The next conversation won't have to search from scratch.\n"
+                              "You'll see this suggestion only once per conversation.")
         out = self.post(self.handoff("# Session Handoff (written: 2026-11-23)\n- path /Users/someone/x\n"), extra_env=en)
         self.assertTrue(out["reason"].startswith("[baton] The HANDOFF.md you just wrote has handoff-check problems. "
                                                  "Fix them and save again:\n- missing required sections: Goal and done criteria"),
@@ -350,9 +353,16 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIsNone(self.stop())
         self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/a.py"), edit("/r/c.py", "Write")])
         msg = self.stop()
-        self.assertIn("파일 3개", msg)
+        self.assertEqual(msg, "[baton] 파일을 3개 고쳤는데 인계서는 그대로예요.\n"
+                              "하던 일이 끝났다면 \"인계서 써 줘\"라고 해 보세요. 다음 대화가 처음부터 다시 찾지 않아도 돼요.\n"
+                              "이 제안은 한 대화에 한 번만 나와요.")
         self.assertIsNone(self.stop())  # 세션에 한 번
         self.assertIsNotNone(self.stop(sid="s2"))
+
+    def test_nudge_singular_in_english(self):
+        self.write([edit("/r/a.py")])
+        msg = self.stop(extra_env={"BATON_LANG": "en", "BATON_HANDOFF_NUDGE_FILES": "1"})
+        self.assertTrue(msg.startswith("[baton] You changed 1 file, but the handoff hasn't changed.\n"), msg)
 
     def test_handoff_write_resets_count(self):
         self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py"), edit("/r/HANDOFF.md", "Write"), edit("/r/d.py")])
