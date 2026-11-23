@@ -96,6 +96,14 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(rules.decide(r, "버그 고쳐줘")["handoff"]["state"], "NO_MATCH")
         self.assertEqual(rules.decide(repo({}), "지난번 거")["handoff"]["state"], "NO_MATCH")  # 다른 저장소에는 안 퍼진다
 
+    def test_phrases_skip_english_function_words(self):
+        # /baton-setup 트리거 제안에 "as"·"please"가 올라왔다(en-setup 11-23). 한국어 결과는 그대로
+        self.assertEqual(rules.phrases("please pick it up as before from the save slots"),
+                         {"pick", "before", "save", "slots", "save slots"})
+        self.assertEqual(rules.phrases("체크포인트 기록 고쳐줘 1 a"), {"체크포인트", "기록", "고쳐줘", "체크포인트 기록", "기록 고쳐줘"})
+        self.assertEqual(rules.phrases("Please, AS the THE"), set())  # 대소문자 무시
+        self.assertEqual(rules.title_words("as — x"), ["as"])  # 개념 제목 매칭은 그대로
+
     def test_trigger_words_deduplicated_and_domain_unconfigured(self):
         d = rules.decide(repo({}), "이어서 이어서 이어서 인계")
         self.assertEqual(d["handoff"]["words"], ["이어서", "인계"])

@@ -57,6 +57,16 @@ GENERIC_WORDS = {
 }
 
 WORD = re.compile(r"[0-9A-Za-z가-힣]+")
+# 후보 구절(phrases)에서 빼는 영어 기능어·인사말. 이것들로 후보를 내면 /baton-setup 트리거 제안에 "as"·"please"가 올라온다.
+# 한국어는 GENERIC_WORDS만 본다(그대로). 개념 제목 매칭(title_words)에는 쓰지 않는다
+EN_STOP = {
+    "a", "an", "the", "and", "or", "but", "if", "then", "so", "as", "at", "by", "for", "from", "in", "into", "of", "on",
+    "to", "with", "about", "is", "are", "was", "were", "be", "been", "am", "do", "does", "did", "have", "has", "had",
+    "it", "its", "this", "that", "these", "those", "there", "here", "me", "my", "we", "us", "our", "you", "your",
+    "they", "them", "their", "he", "she", "his", "her", "what", "which", "who", "how", "why", "when", "where",
+    "can", "could", "would", "should", "will", "may", "might", "must", "not", "no", "yes", "ok", "okay", "please",
+    "pls", "thanks", "thank", "just", "also", "now", "let", "lets", "hi", "hey", "up", "out", "all", "some", "any",
+}
 
 
 def phrases(prompt):
@@ -66,7 +76,7 @@ def phrases(prompt):
     # (훅·조립기는 부분 문자열로 맞춘다. 'a.b'·'a,\nb'에서 'a b'를 만들면 승격해도 안 걸린다)
     ms = list(WORD.finditer(prompt))[:20]
     ok = [m.group().lower() if len(m.group()) >= 2 and not m.group().isdigit() and m.group().lower() not in GENERIC_WORDS
-          else None for m in ms]
+          and m.group().lower() not in EN_STOP else None for m in ms]
     out = {w for w in ok if w}
     out |= {f"{ok[i]} {ok[i + 1]}" for i in range(len(ms) - 1)
             if ok[i] and ok[i + 1] and prompt[ms[i].end():ms[i + 1].start()] == " "}

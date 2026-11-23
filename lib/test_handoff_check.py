@@ -410,6 +410,30 @@ class EnglishHandoffTest(unittest.TestCase):
         self.assertEqual(self.cli(GOOD_EN, {"LANG": "C.UTF-8"}), (0, "HANDOFF.md: no problems\n"))
 
 
+class PluginRootTest(unittest.TestCase):
+    """스킬·명령 본문은 중괄호 ${CLAUDE_PLUGIN_ROOT}만 쓴다 — Claude Code는 그 꼴만 본문에 바꿔 넣고, Bash 환경에는 변수가 없다
+    (code.claude.com/docs/en/plugins-reference "Environment variables", docs/en/skills "String substitutions").
+    allowed-tools의 Bash(…) 패턴은 본문이 시키는 명령과 앞머리가 같아야 미리 허용된다."""
+    FILES = ("skills/baton/SKILL.md", "commands/promote.md", "commands/baton-explain.md")
+
+    def test_braced_root_and_matching_allowed_tools(self):
+        import re
+        for rel in self.FILES:
+            with open(os.path.join(os.path.dirname(HERE), rel), encoding="utf-8") as f:
+                text = f.read()
+            self.assertNotRegex(text, r"\$CLAUDE_PLUGIN_ROOT", rel)
+            front, body = text.split("\n---\n", 1)
+            tools = re.search(r"^allowed-tools: (.+)$", front, re.M)
+            self.assertTrue(tools, rel)
+            prefixes = re.findall(r"Bash\(([^)]*?) \*\)", tools.group(1))
+            self.assertTrue(prefixes, rel)
+            for pre in prefixes:
+                self.assertIn("${CLAUDE_PLUGIN_ROOT}/lib/", pre)
+                self.assertIn(pre + " ", body, (rel, pre))  # 본문 명령이 같은 앞머리로 시작한다
+            for cmd in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/lib/[\w.]+", body):  # 본문이 부르는 스크립트는 모두 미리 허용된다
+                self.assertTrue(any(cmd in pre for pre in prefixes), (rel, cmd))
+
+
 class InjectBudgetTest(unittest.TestCase):
     """검사를 통과한 인계서는 주입에서 잘리지 않는다 — 두 상한이 따로 박혀 있어 갈라지면 여기서 깨진다."""
 

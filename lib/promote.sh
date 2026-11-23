@@ -31,6 +31,9 @@ git -C "$R" ls-files --error-unmatch HANDOFF.md >/dev/null 2>&1 || die \
        "First: git -C \"$R\" add HANDOFF.md && git -C \"$R\" commit -m 'chore: start tracking the handoff'")"
 
 count() { grep -c . || true; }
+# 자리표시 항목("- 없음"·"- None"·"- -"·빈 "- ")은 항목이 아니다 — 반복 실패·탈락·기각 목록 어디에도 세지 않는다.
+# 판에서 절을 찾았는지(형식 불일치 판정)는 거르기 전 내용으로 본다 — "- 없음"만 있는 절도 절은 있는 것이다
+real() { grep -Ev '^- *(\*\*)?(없음|[Nn]one|N/A|-)?(\*\*)?[.。]? *$' || true; }
 
 # 한 판에서 절 하나를 뽑는다. 절 제목은 저장소마다 다르므로 앞머리만 맞춘다.
 #   `## E. 실패한 접근법` 처럼 절 기호가 붙어도 잡힌다. 표제는 확장 정규식 — 한국어|영어 템플릿을 둘 다 받는다.
@@ -61,7 +64,7 @@ t "[A] 반복 실패 — 서로 다른 ${THRESHOLD}일 이상 살아남은 제�
   "[A] Repeated failures — constraints that survived on ${THRESHOLD} or more different days"; echo
 [ "$MISS" -gt 0 ] && { t "    형식 불일치로 못 센 판 ${MISS}개 (분모는 $((NDAY-MISS))일)" \
                          "    ${MISS} versions could not be counted (format mismatch; denominator $((NDAY-MISS)) days)"; echo; }
-REPEATED=$(printf '%s' "$FAILS" | sort | uniq -c | sort -rn | awk -v t="$THRESHOLD" '$1>=t')
+REPEATED=$(printf '%s' "$FAILS" | real | sort | uniq -c | sort -rn | awk -v t="$THRESHOLD" '$1>=t')
 echo "$REPEATED" | awk -v u="$(t "일:" "days:")" 'NF{$1=$1" "u; print "    "$0}' | head -12
 N=$(echo "$REPEATED" | count); t "    → ${N}건" "    → ${N} found"; echo
 
@@ -84,7 +87,7 @@ else
 
   PAST=$(printf '%s' "$PAST_RAW" | sort | uniq -c \
            | awk '$1>=2{sub(/^ *[0-9]+ /,""); print}' | sort -u)
-  DROPPED=$(comm -23 <(printf '%s\n' "$PAST" | grep . | sort) <(printf '%s\n' "$NOW" | grep . | sort))
+  DROPPED=$(comm -23 <(printf '%s\n' "$PAST" | real | grep . | sort) <(printf '%s\n' "$NOW" | grep . | sort))
 
   # 결정 표지가 붙은 것을 위로 — 그쪽이 DECISIONS.md 감이다. 영어 표지는 같은 뜻의 낱말(owner decision·final·forbidden·never·adopted·lifted·canonical)
   MARKED=$(echo "$DROPPED" | grep -E "소유자 결정|확정|금지|절대|채택|해제|정본|[A-Z][0-9]{1,2}\b|\b([Oo]wner decision|[Ff]inal|[Ff]orbidden|[Nn]ever|[Aa]dopted|[Ll]ifted|[Cc]anonical)\b" || true)
@@ -107,6 +110,6 @@ t "[C] 번복 — 문자열로는 안 잡힌다. 소유자가 알려줄 때만 �
   "[C] Reversals — string matching cannot catch them. Raise one only when the owner points it out."; echo
 echo
 t "기각 목록을 먼저 확인한다: HANDOFF.md 의 '기각됨' 절" "Check the rejected list first: the 'Rejected' section of HANDOFF.md"; echo
-REJECTED=$(grep -E -A20 '기각됨|^#+ *[Rr]ejected' "$R/HANDOFF.md" 2>/dev/null | grep '^- ' | head -5)
+REJECTED=$(grep -E -A20 '기각됨|^#+ *[Rr]ejected' "$R/HANDOFF.md" 2>/dev/null | grep '^- ' | real | head -5)
 if [ -n "$REJECTED" ]; then echo "$REJECTED" | sed "s/^/    $(t "이미 기각: " "already rejected: ")/"
 else t "    (기각 목록 없음)" "    (no rejected list)"; echo; fi

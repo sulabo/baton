@@ -87,6 +87,26 @@ class PromoteTest(unittest.TestCase):
         self.assertIn("탈락 총 1건", ko)
         self.assertIn("    이미 기각: - Retry loop", ko)
 
+    def test_placeholder_items_are_not_entries(self):
+        # 11-23 ~/baton: 기각 절에 "- 없음"만 있는데 "이미 기각: - 없음"이 나왔다. 반복 실패·탈락에도 자리표시를 세지 않는다
+        ko = ("# Session Handoff\n\n## 확인된 사실과 결정\n- {fact}\n\n## 관련 파일·심볼\n- a\n\n"
+              "## 실패한 접근법 (다시 시도 금지)\n- 없음\n\n## 검증 증거\n- {ev}\n\n### 기각됨 (다시 올리지 않는다)\n{rej}")
+        r = self.repo([ko.format(fact="없음", ev="1일", rej="- 없음\n"), ko.format(fact="없음", ev="2일", rej="- 없음\n"),
+                       ko.format(fact="[V] 새 사실", ev="3일", rej="- 없음\n")])
+        out = self.run_promote(r)
+        self.assertIn("    → 0건", out)  # "- 없음"이 3일 살아남은 반복 실패가 아니다
+        self.assertNotIn("형식 불일치", out)  # "- 없음"만 있는 절도 절은 있다 — 못 센 판이 아니다
+        self.assertIn("탈락 총 0건", out)  # "- 없음"이 최신판에서 빠진 것은 탈락이 아니다
+        self.assertIn("    (기각 목록 없음)", out)
+        self.assertNotIn("이미 기각", out)
+        en = handoff_en(["None"], ["None"], ["None"])
+        for rej in ("- None\n", "- none.\n", "- -\n", "- \n", "- **없음**\n"):
+            r = self.repo([en[:en.index("### Rejected")] + "### Rejected (do not raise again)\n" + rej])
+            self.assertIn("    (no rejected list)", self.run_promote(r, "en"), rej)
+        r = self.repo([ko.format(fact="없음", ev="x", rej="- 없음\n- 캐시 재도입 / 2026-10-01 / 소유자가 거절\n")])
+        self.assertIn("    이미 기각: - 캐시 재도입 / 2026-10-01 / 소유자가 거절", self.run_promote(r))  # 진짜 항목은 그대로
+        self.assertNotIn("이미 기각: - 없음", self.run_promote(r))
+
     def test_english_errors_and_locale_fallback(self):
         with tempfile.TemporaryDirectory() as d:
             out = self.run_promote(d, "en", code=2)

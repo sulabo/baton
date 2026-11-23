@@ -1,6 +1,7 @@
 ---
 name: handoff
-description: Write a session handoff (HANDOFF.md). When a piece of work is done, the topic changes, or the conversation gets long, leave the current state in a file so the next session can pick it up. Before writing, scan past handoffs to decide whether anything should be promoted to DECISIONS.md. Triggers on English requests such as "write a handoff", "leave a handoff for the next session", "update HANDOFF.md", "review what to promote to DECISIONS.md", and on Korean requests such as "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토". The baton Stop hook can also ask for it once per session.
+description: Write a session handoff (HANDOFF.md). When a piece of work is done, the topic changes, or the conversation gets long, leave the current state in a file so the next session can pick it up. Before writing, scan past handoffs to decide whether anything should be promoted to DECISIONS.md. Triggers on requests such as "write a handoff", "leave a handoff for the next session", "update HANDOFF.md", "review what to promote to DECISIONS.md"; the baton Stop hook can also ask for it once per session. 세션 인계서(HANDOFF.md) 작성. 작업 하나가 끝났거나 주제를 바꾸거나 대화가 길어졌을 때, 다음 세션이 이어받을 수 있게 현재 작업 상태를 파일로 남긴다. 쓰기 전에 과거 인계서를 훑어 DECISIONS.md로 승격할 것이 있는지 함께 판정한다. "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토"에도 발동.
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/lib/promote.sh *) Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py *)
 ---
 
 # Handoff — writing a session handoff and reviewing promotions
@@ -28,7 +29,7 @@ Past versions are not archived separately. **The git history is the archive.**
 **The script does it. Do not put git commands together by hand.**
 
 ```bash
-$CLAUDE_PLUGIN_ROOT/lib/promote.sh [repo path] [versions (default 8)]
+${CLAUDE_PLUGIN_ROOT}/lib/promote.sh [repo path] [versions (default 8)]
 ```
 
 If HANDOFF.md is not tracked, the script says so and stops. Put that fact and the advice to run `git add HANDOFF.md`
@@ -126,7 +127,7 @@ claims the next action depends on. The writer has three jobs.
 After writing, run the checker, fix what it reports, then commit.
 
 ```bash
-python3 $CLAUDE_PLUGIN_ROOT/lib/handoff_check.py HANDOFF.md
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py HANDOFF.md
 ```
 
 It checks the 8 required sections, 200 lines, 8,700 characters, code blocks over 20 lines, full diffs, secrets and
