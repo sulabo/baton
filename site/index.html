@@ -329,7 +329,7 @@ html.lenis, html.lenis body { height: auto; }
     <svg class="relay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M44 50 C 48 50, 49 54, 53 54" vector-effect="non-scaling-stroke"/></svg>
     <div class="container hero-grid hero-fade">
       <div class="hero-copy">
-        <a class="pill enter d1" href="https://github.com/sulabo/baton/releases"><b>New</b><span>v1.0.0-beta.3 · the same handoff goes in once per session</span></a>
+        <a class="pill enter d1" href="https://github.com/sulabo/baton/releases"><b>New</b><span>v1.0.0-beta.4 · English messages and automatic handoff updates</span></a>
         <h1 id="hero-title" class="enter d1">Stop your AI agent from <span class="mark-accent">re‑reading</span> your project every new session.</h1>
         <p class="lede enter d2">Pick up the last session from a one-page handoff, and find the files you need through the concept map.</p>
         <div class="install enter d3" id="hero-install">
@@ -342,9 +342,9 @@ html.lenis, html.lenis body { height: auto; }
         <div class="card-top"><span><strong>New session</strong> · demo repo</span><span class="tag">HANDOFF.md · loaded once</span></div>
         <div class="rows">
           <div class="row"><div class="row-head"><span>You</span></div><div>where were we?</div></div>
-          <div class="row"><div class="row-head"><span class="fresh"><i></i>First lines the agent gets</span><span class="tag">translated</span></div>
-            <div class="out"><span class="b">[baton]</span> This handoff is as of 2026-11-11 (11 days ago, date in its first line). 3 commits since then are not in it — start with <code>git log --oneline -3 -- .</code> 11 days have passed — first check that the next step still holds.</div></div>
-          <div class="row"><div class="row-head"><span>Then the handoff itself</span></div><div class="out"># Session Handoff (작성: 2026-11-11)</div></div>
+          <div class="row"><div class="row-head"><span class="fresh"><i></i>After a one-line header</span><span class="tag">real output</span></div>
+            <div class="out"><span class="b">[baton]</span> This handoff is as of 2026-11-11 (11 days ago, date in its first line). 3 commits since then are not in it — start with <code>git log --oneline -3 -- .</code>. 11 days have passed — first check that the next step still holds.</div></div>
+          <div class="row"><div class="row-head"><span>Then the handoff itself</span></div><div class="out"># Session Handoff (written: 2026-11-11)</div></div>
         </div>
       </figure>
     </div>
@@ -377,10 +377,10 @@ html.lenis, html.lenis body { height: auto; }
             <li class="step is-active">
               <span class="step-num">1 · end of a session</span>
               <h3>Write a handoff. It is checked the moment it is saved.</h3>
-              <p>Say "write a handoff". A hook checks length, the eight required sections, secrets, home paths and your private words, and hands problems back to the agent.</p>
+              <p>Say "write a handoff"; baton also asks the agent when work ends. A hook checks length, required sections, secrets, home paths and private words, and hands problems back.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
-                  <div class="card-top"><span><strong>Saved HANDOFF.md</strong> · demo repo</span><span class="tag">translated</span></div>
+                  <div class="card-top"><span><strong>Saved HANDOFF.md</strong> · demo repo</span><span class="tag">shortened</span></div>
                   <div class="rows">
                     <div class="row"><div class="out"><span class="b">[baton]</span> The HANDOFF.md you just wrote has handoff-check problems. Fix them and save again:<br>
                       <span class="w">- line 6:</span> looks like an API token — remove it or write it generically (~/, &lt;key&gt;)<br>
@@ -394,10 +394,10 @@ html.lenis, html.lenis body { height: auto; }
             <li class="step">
               <span class="step-num">2 · next session</span>
               <h3>Ask "where were we?" The handoff goes in once, with its age.</h3>
-              <p>The hook puts the handoff into context with a line that says how old it is and how many commits came after it. It goes in once per session, never into messages from subagents.</p>
+              <p>It comes with a line on how old it is and the commits since. Once per session (again if the file changed or after a compaction), never into messages from subagents.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
-                  <div class="card-top"><span><strong>New session</strong> · demo repo</span><span class="tag">translated</span></div>
+                  <div class="card-top"><span><strong>New session</strong> · demo repo</span><span class="tag">shortened</span></div>
                   <div class="rows">
                     <div class="row"><div class="row-head"><span>You</span></div><div>where were we?</div></div>
                     <div class="row"><div class="out"><span class="b">[baton]</span> Below is the full HANDOFF.md of this repo. No need to open the file again. Read it as a hypothesis, not a fact, and check only the one or two claims the next step depends on.</div></div>
@@ -412,7 +412,7 @@ html.lenis, html.lenis body { height: auto; }
               <p><code>CONCEPTS.md</code> ties each idea to its files and the commit it was last checked at. baton doesn't judge freshness; it counts commits.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
-                  <div class="card-top"><span><strong>/drift</strong> · demo repo</span><span class="tag">translated</span></div>
+                  <div class="card-top"><span><strong>/drift</strong> · demo repo</span><span class="tag">real output</span></div>
                   <div class="row"><div class="out"><span class="b">[baton]</span> 2 concepts in the concept map need a re-check (1 fresh). Details: /drift</div></div>
                   <div class="table-wrap"><table class="drift"><thead><tr><th>#</th><th>Concept</th><th>Status</th><th>Verdict</th></tr></thead><tbody>
                     <tr><td>1</td><td>lives</td><td>agrees</td><td class="v-re">needs a re-check — 1 commit</td></tr>
@@ -445,7 +445,7 @@ html.lenis, html.lenis body { height: auto; }
         </ul>
       </div>
       <figure class="card" style="margin:0" id="map-card" data-rise="200">
-        <div class="card-top"><span><strong>First prompt of a session</strong> · demo repo</span><span class="tag">≤ 1,500 chars · translated</span></div>
+        <div class="card-top"><span><strong>First prompt of a session</strong> · demo repo</span><span class="tag">≤ 1,500 chars · shortened</span></div>
         <div class="row"><div class="out"><span class="b">[baton]</span> Index of this repo's concept map (CONCEPTS.md). Open the files of the concept that fits the task first.<br>1. lives — starting number of lives · files: src/lives.ts<br>2. score — points per coin · files: src/score.ts<br>3. levels — level list, still empty · files: src/levels.ts</div></div>
         <div class="table-wrap"><table class="drift"><thead><tr><th>#</th><th>Concept</th><th>Verdict</th></tr></thead><tbody>
           <tr><td>1</td><td>lives</td><td class="v-re">needs a re-check — 1 commit</td></tr>
@@ -480,7 +480,7 @@ html.lenis, html.lenis body { height: auto; }
       </div>
       <div>
         <ol>
-          <li><h3>Loads the handoff only when you ask to continue</h3><p>Once per session, and never into messages from subagents or other sessions.</p></li>
+          <li><h3>Loads the handoff only when you ask to continue</h3><p>Once per session (again if the file changed or the conversation was compacted), and never into messages from subagents or other sessions.</p></li>
           <li><h3>Checks the handoff when it is saved</h3><p>Size, required sections, secrets, home paths and the private words you picked.</p></li>
           <li><h3>Records a last-checked commit per concept</h3><p>Unchanged concepts aren't re-read, and the map flags where the decision log, the code and the docs disagree.</p></li>
         </ol>
@@ -517,9 +517,9 @@ html.lenis, html.lenis body { height: auto; }
         <details open><summary>Does baton send anything over the network?</summary><p>No. The hooks read your git history and local files, and write only under <code>~/.cache/baton/</code>.</p></details>
         <details><summary>Does it save tokens?</summary><p>In snapshot runs, yes, for progress questions. In real use it hasn't shown that yet. The numbers and their scope are in "Measured so far" above.</p></details>
         <details><summary>How is this different from /compact or /resume?</summary><p>They keep one conversation going, as a summary plus the messages after it. baton is for starting a new session: it gives the agent a short handoff that you can read and edit, and tells it how old that handoff is. You can use both.</p></details>
-        <details><summary>Can I use it in English?</summary><p>Yes, with Korean output for now. English requests start the skills, and handoff loading answers phrases such as "where were we" or "pick up where we left off". Add more trigger words with <code>/baton-setup</code>.</p></details>
+        <details><summary>Can I use it in English?</summary><p>Yes. Messages are in English unless your locale is Korean; set <code>BATON_LANG=en</code> to choose English. English requests start the skills, and handoff loading answers phrases such as "where were we" or "pick up where we left off". Add more trigger words with <code>/baton-setup</code>.</p></details>
         <details><summary>Do I need DECISIONS.md?</summary><p>No. File freshness works from git history alone. Without a decision log, baton can't catch "decided but not built yet", and concepts without files aren't tracked.</p></details>
-        <details><summary>Does it change my files?</summary><p>The hooks only print notices and hand problems back to the agent. <code>CONCEPTS.md</code> and <code>HANDOFF.md</code> are written by the agent when you ask for them.</p></details>
+        <details><summary>Does it change my files?</summary><p>The hooks only print notices and hand problems and requests back to the agent. <code>CONCEPTS.md</code> and <code>HANDOFF.md</code> are written by the agent when you ask for them. baton also asks the agent to update <code>HANDOFF.md</code> when a piece of work ends, without committing it.</p></details>
       </div>
     </div>
   </section>
