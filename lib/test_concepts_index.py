@@ -5,10 +5,22 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import concepts
+
+# 이 파일의 한국어 단언은 한국어 출력을 전제한다 — 언어를 고정한다(영어는 아래 EnglishIndexTest가 lang으로 따로 본다)
+_PIN = mock.patch.dict(os.environ, {"BATON_LANG": "ko"})
+
+
+def setUpModule():
+    _PIN.start()
+
+
+def tearDownModule():
+    _PIN.stop()
 
 HEAD = concepts.INDEX_HEAD.format(path="CONCEPTS.md")
 MAP = """# 지도
@@ -59,6 +71,82 @@ class IndexFormatTest(unittest.TestCase):
             r = subprocess.run([sys.executable, os.path.join(HERE, "concepts.py"), p, "index"],
                                capture_output=True, text=True, check=True)
         self.assertEqual(r.stdout, concepts.index(MAP))
+
+
+EN_MAP = """# Map
+
+| # | Concept | Status | Severity | One line |
+|---|---|---|---|---|
+| 2 | save | undecided | low | three save slots |
+| **1** | ending | agrees | — | the score decides the ending |
+| 3 | old | retired(2026-11-01) | — | merged |
+
+## 1. ending rule — what decides the ending
+
+- **Meta**: status=agrees · checked=2026-11-20(`9cd1928`) · files=`src/end.ts`,`src/score.ts`,`src/a.ts`,`src/b.ts`,`src/c.ts` · neighbors=none · docs=`docs/g.md`
+
+Body.
+
+## 2. save slots
+
+- **Meta**: status=undecided · checked=2026-11-20(`9cd1928`) · files=`src/save.ts` · neighbors=Concept 1(premise)
+
+## 3. old idea
+
+- **Meta**: files=`src/old.ts`
+
+## 4. rule only
+
+- **Meta**: status=agrees · files=none(rule concept) · neighbors=none
+"""
+EN_HEAD = concepts.INDEX_HEAD_EN.format(path="CONCEPTS.md")
+
+
+class EnglishIndexTest(unittest.TestCase):
+    """영어 지도(- **Meta**: … files=…)도 같은 규칙으로 읽고, lang="en"이면 머리말·낱말이 영어다."""
+
+    def test_english_map_in_english(self):
+        self.assertEqual(concepts.index(EN_MAP, lang="en"), "\n".join([
+            EN_HEAD,
+            "1. ending rule — what decides the ending · files: src/end.ts, src/score.ts, src/a.ts (+2)",
+            "2. save slots · files: src/save.ts",
+            "4. rule only",  # 3은 메타 줄에 상태가 없고 요약표 상태가 retired라서 빠진다. 규칙 개념(files=none)은 파일 부분이 없다
+        ]) + "\n")
+
+    def test_head_matches_the_guide(self):
+        self.assertEqual(EN_HEAD, "[baton] Index of this repo's concept map (CONCEPTS.md). Open the files of the concept that fits "
+                                  "the task first. A concept is a navigation anchor — check actual behavior in the code. The "
+                                  "evidence is in that section of CONCEPTS.md.")
+        with open(os.path.join(os.path.dirname(HERE), "docs", "GUIDE.md"), encoding="utf-8") as f:
+            self.assertIn(EN_HEAD, f.read())
+
+    def test_language_follows_lang_not_the_map(self):
+        ko = concepts.index(MAP, lang="en")
+        self.assertTrue(ko.startswith(EN_HEAD))
+        self.assertIn("2. 저장 슬롯 · files: src/save.ts\n", ko)
+        self.assertIn("2. save slots · 파일: src/save.ts\n", concepts.index(EN_MAP, lang="ko"))
+
+    def test_overflow_line_in_english(self):
+        text = "\n".join("## %d. c%d — summary\n- **Meta**: status=agrees · files=`a%d.py`" % (i, i, i) for i in range(1, 60))
+        out = concepts.index(text, 400, lang="en")
+        self.assertLessEqual(len(out), 400)
+        self.assertRegex(out.splitlines()[-1], r"^… \d+ more — see the summary table in CONCEPTS.md$")
+
+    def test_retired_status_word_in_meta(self):
+        self.assertEqual(concepts.index("## 1. a\n- **Meta**: status=retired(2026-01-01) · files=`a.py`\n", lang="en"), "")
+
+    def test_cli_follows_baton_lang_and_locale(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "CONCEPTS.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(EN_MAP)
+            run = lambda **env: subprocess.run([sys.executable, os.path.join(HERE, "concepts.py"), p, "index"], capture_output=True,
+                                               text=True, check=True, cwd=d, env=env).stdout
+            base = {k: v for k, v in os.environ.items() if k not in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")}
+            base["XDG_CONFIG_HOME"] = os.path.join(d, "cfg")  # 실제 설정의 BATON_LANG을 읽지 않게
+            self.assertTrue(run(**base, BATON_LANG="en").startswith(EN_HEAD))
+            self.assertTrue(run(**base, LANG="ko_KR.UTF-8").startswith("[baton] 이 저장소 개념 지도(CONCEPTS.md) 색인이다."))
+            self.assertTrue(run(**base, LANG="C.UTF-8").startswith(EN_HEAD))
 
 
 class IndexQuirkTest(unittest.TestCase):

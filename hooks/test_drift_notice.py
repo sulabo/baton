@@ -34,8 +34,13 @@ class DriftNoticeTest(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-qm", "c")
 
-    def run_hook(self):
-        env = dict(os.environ, XDG_CACHE_HOME=self.cache, CLAUDE_PLUGIN_ROOT=ROOT)
+    def run_hook(self, lang="ko", **extra):
+        env = dict(os.environ, XDG_CACHE_HOME=self.cache, CLAUDE_PLUGIN_ROOT=ROOT, BATON_LANG=lang)
+        if lang is None:  # 로캘로 정하게 — 실제 설정 파일의 BATON_LANG도 안 읽게 한다
+            for k in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG"):
+                env.pop(k, None)
+            env["XDG_CONFIG_HOME"] = os.path.join(self.tmp.name, "cfg")
+        env.update(extra)
         r = subprocess.run(["bash", HOOK], cwd=self.repo, env=env, capture_output=True, text=True, check=False)
         self.assertEqual(r.returncode, 0, r.stderr)
         if not r.stdout.strip():
@@ -104,6 +109,61 @@ class DriftNoticeTest(unittest.TestCase):
                                     "```\n## 3. 예시\n- **메타**: 예시 줄\n```\n## 2. 둘째\n본문\n"})
         msg = self.run_hook()
         self.assertIn("개념 2개 중 메타 줄 1개", msg)
+
+
+class DriftNoticeEnglishTest(DriftNoticeTest):
+    """BATON_LANG=en: 같은 경우의 영어 알림. 위 한국어 테스트를 물려받아 한국어도 같이 돈다."""
+
+    def head(self):
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=self.repo, capture_output=True, text=True,
+                              check=True).stdout.strip()
+
+    def en_meta(self, h):
+        return "- **Meta**: status=agrees · checked=2026-11-21(`%s`) · files=`a.txt` · neighbors=none\n" % h
+
+    def test_missing_meta_in_english(self):
+        self.commit({"CONCEPTS.md": "## 1. save — saving\nbody\n"})
+        self.assertEqual(self.run_hook("en"), "[baton] The concept map has no metadata lines (concepts: 1).\n"
+                                              "  Freshness can't be computed — this is not 0, it is unknown.\n"
+                                              "  To fill them in: /drift or the driftmap skill")
+
+    def test_stale_singular_plural_and_partial_meta(self):
+        self.commit({"a.txt": "a\n", "b.txt": "b\n"})
+        h = self.head()
+        self.commit({"CONCEPTS.md": "## 1. one\n" + self.en_meta(h) + "## 2. two\nbody\n", "a.txt": "b\n"})
+        self.assertEqual(self.run_hook("en"), "[baton] 1 concept in the concept map needs a re-check (0 fresh). Details: /drift\n"
+                                              "  Only 1 of 2 concepts have a metadata line — the other 1 can't be counted at all.")
+        self.commit({"CONCEPTS.md": "## 1. one\n" + self.en_meta(h) + "## 2. two\n" + self.en_meta(h) +
+                                    "## 3. three\n" + self.en_meta(h).replace("a.txt", "b.txt")})
+        self.assertEqual(self.run_hook("en"), "[baton] 2 concepts in the concept map need a re-check (1 fresh). Details: /drift")
+
+    def test_fence_warning_in_english(self):
+        self.commit({"a.txt": "a\n"})
+        meta = self.en_meta(self.head())
+        self.commit({"CONCEPTS.md": "## 1. front\n" + meta + "```\nopen\n\n## 2. back\n" + meta})
+        self.assertEqual(self.run_hook("en"), "[baton] 0 concepts in the concept map need a re-check (1 fresh). Details: /drift\n"
+                                              "  a code fence opened at line 3 is never closed — 1 concept after it could not be read")
+
+    def test_language_is_part_of_the_cache_key(self):
+        self.commit({"CONCEPTS.md": STALE_MAP, "a.txt": "a\n"})
+        self.assertIn("재확인 대상 1건", self.run_hook("ko"))
+        self.assertEqual(self.run_hook("en"), "[baton] 1 concept in the concept map needs a re-check (0 fresh). Details: /drift")
+        self.assertIn("재확인 대상 1건", self.run_hook("ko"))
+
+    def test_locale_fallback(self):
+        self.commit({"CONCEPTS.md": STALE_MAP, "a.txt": "a\n"})
+        self.assertIn("재확인 대상 1건", self.run_hook(None, LANG="ko_KR.UTF-8"))
+        self.assertIn("1 concept in the concept map needs a re-check", self.run_hook(None, LANG="C.UTF-8"))
+
+    def test_unreadable_summary_is_reported(self):  # fresh.sh가 요약 줄 없이 끝나면 '못 셌다' — 캐시 자리에 요약 없는 출력을 둔다
+        self.commit({"CONCEPTS.md": STALE_MAP, "a.txt": "a\n"})
+        self.run_hook("en")
+        drift = os.path.join(self.cache, "baton", "drift")
+        for name in os.listdir(drift):
+            with open(os.path.join(drift, name), "w") as f:
+                f.write("garbage")
+        self.assertEqual(self.run_hook("en"), "[baton] Could not read the freshness summary of the concept map — this is not 0, "
+                                              "it could not be counted. Run /drift to see it.")
 
 
 if __name__ == "__main__":

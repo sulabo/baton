@@ -54,7 +54,8 @@ class Base(unittest.TestCase):
         with open(os.path.join(self.repo, "CONCEPTS.md"), "w", encoding="utf-8") as fh:
             fh.write(MAP)
         self.home = os.path.join(self.tmp.name, "home")
-        p = mock.patch.dict(os.environ, {"HOME": self.home, "XDG_CACHE_HOME": os.path.join(self.tmp.name, "cache")})
+        p = mock.patch.dict(os.environ, {"HOME": self.home, "XDG_CACHE_HOME": os.path.join(self.tmp.name, "cache"),
+                                         "BATON_LANG": "ko"})
         p.start()
         self.addCleanup(p.stop)
         os.environ.pop("CLAUDE_CONFIG_DIR", None)
@@ -425,6 +426,98 @@ class Promote(Base):
             candidates.promote_alias(self.repo, "1", "체크포인트")  # 걸리지 않는 구절은 그대로 쓴다
             candidates.promote_alias(self.repo, "1", "Session Handoff 형식")  # 인계서 구조 검사(필수 절 등)는 별칭에 안 건다
         self.assertIn("· 별칭=체크포인트, Session Handoff 형식\n", self.read_map())
+
+
+EN_MAP = """# Concepts
+
+## 1. save — saving and loading
+
+- **Meta**: status=agrees · checked=2026-09-01(`0000000`) · files=`src/save/save.ts` · neighbors=none
+body
+
+## 2. level — map layout
+
+- **Meta**: status=agrees · checked=2026-09-01(`0000000`) · files=`src/level/map.ts` · neighbors=Concept 1(premise) · aliases=stage
+"""
+
+
+class EnglishTest(Base):
+    """영어 지도에는 aliases=로 쓰고, BATON_LANG=en이면 출력·거절 문장이 영어다."""
+
+    def setUp(self):
+        super().setUp()
+        with open(os.path.join(self.repo, "CONCEPTS.md"), "w", encoding="utf-8") as fh:
+            fh.write(EN_MAP)
+        p = mock.patch.dict(os.environ, {"BATON_LANG": "en"})
+        p.start(); self.addCleanup(p.stop)
+
+    def read_map(self):
+        with open(os.path.join(self.repo, "CONCEPTS.md"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def main_out(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = candidates.main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_promote_writes_aliases_key_in_an_english_map(self):
+        rc, out, _ = self.main_out(["promote-alias", "1", "checkpoint", self.repo])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "Changed metadata line:\n- **Meta**: status=agrees · checked=2026-09-01(`0000000`) · "
+                              "files=`src/save/save.ts` · neighbors=none · aliases=checkpoint\n")
+        candidates.promote_alias(self.repo, "2", "wave")
+        self.assertIn("· aliases=stage, wave\n", self.read_map())
+        g = compiler.graph(self.repo)
+        self.assertEqual((g["nodes"]["1"]["aliases"], g["nodes"]["2"]["aliases"]), (["checkpoint"], ["stage", "wave"]))
+        with open(os.path.join(self.repo, "CONCEPTS.md"), "w", encoding="utf-8") as fh:
+            fh.write(EN_MAP.replace("aliases=stage", "aliases=none"))
+        candidates.promote_alias(self.repo, "2", "wave")
+        self.assertIn("· aliases=wave\n", self.read_map())
+        with self.assertRaises(ValueError):
+            candidates.promote_alias(self.repo, "1", "None")  # 'none'은 '별칭 없음'이라는 뜻이라 별칭이 될 수 없다
+
+    def test_refusals_are_in_english(self):
+        cases = [("1", "x, y", "An alias needs at least two characters and no comma"),
+                 ("1", "concept 3 save", "would be counted by the map parser as a reference between concepts"),
+                 ("9", "checkpoint", "Concept 9 in CONCEPTS.md has no metadata line"),
+                 ("2", "Stage", "Concept 2 already has the alias 'Stage'")]
+        for num, phrase, want in cases:
+            with self.subTest(phrase=phrase):
+                with self.assertRaises(ValueError) as e:
+                    candidates.promote_alias(self.repo, num, phrase)
+                self.assertIn(want, str(e.exception))
+        with open(os.path.join(self.repo, "CONCEPTS.md"), "a", encoding="utf-8") as fh:
+            fh.write("```\nopen\n")
+        rc, _, err = self.main_out(["promote-alias", "1", "checkpoint", self.repo])
+        self.assertEqual(rc, 1)
+        self.assertEqual(err, "candidates: The parser can't read CONCEPTS.md to the end (a code fence opened at line 11 is never "
+                              "closed — 0 concepts after it could not be read) — fix that first\n")
+        rc, _, err = self.main_out(["dismiss", "deadbeef", self.repo])
+        self.assertEqual(err, "candidates: No candidate deadbeef in the cache — run scan first\n")
+
+    def test_usage_and_scan_render(self):
+        rc, out, _ = self.main_out([])
+        self.assertEqual(rc, 2)
+        self.assertIn("candidates.py promote-alias <number> \"<phrase>\" <repo root>", out)
+        rc, out, _ = self.main_out(["scan", self.repo])
+        self.assertEqual(rc, 0)
+        self.assertTrue(out.startswith("Concept map candidates (CONCEPTS.md, HEAD ?)\nInput: sessions 0 ({}) · turns 0"), out)
+        self.assertIn("\nNo candidates (not enough input — could not count)\n", out)
+        self.assertIn("(CONCEPTS.md is unchanged — only what a person picks is promoted)", out)
+
+    def test_render_rows_in_english(self):
+        d = {"map": "CONCEPTS.md", "head": "abc", "rejected": {}, "counts": {"sessions": 1, "turns": 3, "prompt_turns": 3,
+             "edit_turns": 3, "concept_turns": 1, "unbound_turns": 1, "concepts": 2, "alias_observed": 1, "concept_observed": 1},
+             "aliases": [{"id": "a1", "concept": "1", "title": "save", "phrase": "checkpoint", "days": 3, "hits": 3, "misfires": 0}],
+             "concepts": [{"id": "c1", "names": [{"phrase": "glow"}], "files": ["src/fx/particle.ts"], "related": [], "days": 3,
+                           "hits": 3, "misfires": 1}], "cache": "/c.json"}
+        out = candidates.render(d)
+        self.assertIn("Observed: aliases (concept, phrase) 1 · new-concept phrases 1 → dropped by the checks none\n", out)
+        self.assertIn("\nAlias candidates (id · concept · phrase · distinct days · hits · misfires)\n"
+                      "  a1  concept 1 save  'checkpoint'  3 days · 3 · 0\n", out)
+        self.assertIn("  c1  'glow'\n      files src/fx/particle.ts · related none · 3 days · 3 · 1\n", out)
+        self.assertEqual(candidates.render(d, "ko").splitlines()[0], "개념 지도 후보 (CONCEPTS.md, HEAD abc)")
 
 
 class EndToEnd(Base):

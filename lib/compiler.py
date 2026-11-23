@@ -19,7 +19,7 @@ select()는 고르기만 하고, render()가 글로 만든다. 기준선(같은 
 import hashlib, json, os, re, subprocess, sys, time, unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import concepts, rules
+import concepts, i18n, rules
 
 VERSION = "compiler-v1"
 # 예산(스펙 19절 예시값). 파일 10개는 평가의 recall@k와 같은 k다.
@@ -37,7 +37,27 @@ PATH_TOKEN = re.compile(r"`([^`\s]+)`")
 DEC_HEAD = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*(.*)$")
 DEC_ROW = re.compile(r"^\|\s*\**([A-Z]+[0-9]+)\**\s*\|\s*([^|]*)\|")
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-NUM = re.compile(r"개념\s*(\d{1,2}(?:\s*[·,]\s*\d{1,2})*)")
+NUM = re.compile(concepts.CONCEPT_WORD + r"\s*(\d{1,2}(?:\s*[·,]\s*\d{1,2})*)")
+# 사람(과 모델)이 보는 낱말. 이유 문자열은 로그(summary)에 안 남고 render·explain에만 나온다
+WORDS = {
+    "ko": {"title": "제목 '%s'", "alias": "별칭 '%s'", "file": "작업 파일 %s", "neighbor_of": "개념 %s의 이웃",
+           "concept": "개념 %s", "tag_file": "(작업 파일)", "tag_neighbor": "(이웃)", "handoff": "인계서 작업 파일",
+           "folder": "작업 파일과 같은 폴더, 최근 커밋",
+           "head": "[baton] 맥락 조립 — 프롬프트와 작업 파일로 고른 탐색 앵커다. 전부 읽지 말고 필요한 것만 연다. 실제 동작은 코드로 확인한다.",
+           "concepts": "관련 개념 (%s)", "files": "읽어 볼 만한 파일 (이 세션에서 아직 안 연 것)", "decisions": "관련 결정 (DECISIONS.md)",
+           "warn": "[baton] 지도 경고: %s", "none": "[baton] 고른 것 없음 — 넣지 않는다"},
+    "en": {"title": "title '%s'", "alias": "alias '%s'", "file": "working file %s", "neighbor_of": "neighbor of concept %s",
+           "concept": "concept %s", "tag_file": " (working file)", "tag_neighbor": " (neighbor)", "handoff": "working file in the handoff",
+           "folder": "same folder as a working file, recent commit",
+           "head": "[baton] Context assembly — navigation anchors picked from the prompt and the working files. Don't read them all; "
+                   "open only what you need. Check actual behavior in the code.",
+           "concepts": "Related concepts (%s)", "files": "Files worth reading (not opened in this session yet)",
+           "decisions": "Related decisions (DECISIONS.md)", "warn": "[baton] map warning: %s", "none": "[baton] Nothing selected — nothing is added"},
+}
+USAGE_EN = """Context compiler: picks the concepts, files and decisions worth reading for one prompt. Changes nothing.
+
+  compiler.py explain "<prompt>" [repo root]   shows what it picked, why, and the text it would add
+"""
 
 
 def nfc(s):
@@ -68,14 +88,15 @@ def split_list(v):
     out = []
     for x in re.split(r"[,，]", v):
         x = x.strip().strip("`").strip()
-        if x and x != "없음" and x != "-":
+        if x and x != "없음" and x.lower() != "none" and x != "-":
             out.append(x)
     return out
 
 
-def graph(repo):
+def graph(repo, lang=None):
     """{"rel": 지도 경로, "nodes": {번호: {name, title, files, neighbors, aliases}}, "warnings": 파서가 못 읽은 부분}
-    또는 None(지도 없음·못 읽음). 절 나누기는 concepts.walk(코드 펜스 안 제목은 무시) 그대로."""
+    또는 None(지도 없음·못 읽음). 절 나누기는 concepts.walk(코드 펜스 안 제목은 무시) 그대로.
+    메타 줄은 한국어 키·영어 키(files=·neighbors=·aliases=) 둘 다 읽는다. lang은 warnings 문장의 언어."""
     path, rel = rules.concept_path(repo)
     if not path:
         return None
@@ -93,28 +114,29 @@ def graph(repo):
             neighbors += [n.strip() for n in re.split(r"[·,]", group) if n.strip() and n.strip() != num]
         nodes[num] = {"name": name, "title": name.split("—")[0].strip(), "files": files,
                       "neighbors": neighbors, "aliases": [a for a in split_list(concepts.field(meta, "별칭")) if len(a) >= 2]}
-    return {"rel": rel, "nodes": nodes, "warnings": concepts.warnings(lines)}
+    return {"rel": rel, "nodes": nodes, "warnings": concepts.warnings(lines, lang)}
 
 
-def concept_matches(g, prompt, seed_files):
+def concept_matches(g, prompt, seed_files, lang=None):
     """[(번호, 이유, 종류)] — 종류는 prompt(제목·별칭이 프롬프트에 있음) · file(작업 파일이 그 개념 것) · neighbor(한 칸 이웃).
     prompt 먼저(이유가 많은 순), 그다음 file, 그다음 이웃. 작업 파일 개념은 어느 프롬프트에나 같아 판정 상태에는 안 센다."""
     if not g:
         return []
+    w = WORDS[concepts.lang_of(lang)]
     p = prompt.lower()
     owners = {}
     for num, n in g["nodes"].items():
         for f in n["files"]:
             owners.setdefault(f, []).append(num)
-    direct = {}
+    direct, kind = {}, {}
     for num, n in g["nodes"].items():
-        why = [f"제목 '{w}'" for w in rules.title_words(n["name"]) if w in p][:1]
-        why += [f"별칭 '{a}'" for a in n["aliases"] if a.lower() in p][:1]
-        why += [f"작업 파일 {f}" for f in seed_files
-                if f in n["files"] and not is_hub(f) and len(owners.get(f, [])) <= SHARED_MAX][:1]
-        if why:
-            direct[num] = why
-    kind = {k: "prompt" if any(not w.startswith("작업 파일") for w in v) else "file" for k, v in direct.items()}
+        why = [w["title"] % t for t in rules.title_words(n["name"]) if t in p][:1]
+        why += [w["alias"] % a for a in n["aliases"] if a.lower() in p][:1]
+        by_file = [w["file"] % f for f in seed_files
+                   if f in n["files"] and not is_hub(f) and len(owners.get(f, [])) <= SHARED_MAX][:1]
+        if why or by_file:
+            direct[num] = why + by_file
+            kind[num] = "prompt" if why else "file"
     order = sorted(direct, key=lambda k: (kind[k] != "prompt", -len(direct[k]), int(k)))
     out = [(k, " · ".join(direct[k]), kind[k]) for k in order]
     seen = set(direct)
@@ -122,7 +144,7 @@ def concept_matches(g, prompt, seed_files):
         for nb in g["nodes"][k]["neighbors"]:
             if nb in g["nodes"] and nb not in seen:
                 seen.add(nb)
-                out.append((nb, f"개념 {k}의 이웃", "neighbor"))
+                out.append((nb, w["neighbor_of"] % k, "neighbor"))
     return out[:MAX_CONCEPTS]
 
 
@@ -304,13 +326,14 @@ def decisions(repo, g, nums):
 # ── 고르기와 조립 ─────────────────────────────────────────────────────
 
 # 파일 출처 코드(로그용): p 프롬프트 개념 · h 인계서 · f 작업 파일 개념 · n 이웃 개념 · d 같은 폴더 최근순
-SRC = {"": "p", "(작업 파일)": "f", "(이웃)": "n"}
+SRC = {"": "p", "tag_file": "f", "tag_neighbor": "n"}
 
 
-def pick(repo, matched, g, hand, folder, skip):
+def pick(repo, matched, g, hand, folder, skip, lang=None):
     """파일 고르기. 순서: 프롬프트로 맞은 개념의 파일 → 인계서 작업 파일 → 작업 파일로 맞은 개념의 파일 → 이웃 개념의 파일 → 같은 폴더 최근순.
     프롬프트 개념이 맨 앞인 이유: 인계서 파일은 어느 프롬프트에나 같다 — 그것이 먼저 차면 그래프가 보탤 자리가 없다."""
     files, why, src = [], {}, {}
+    w = WORDS[concepts.lang_of(lang)]
 
     def add(f, reason, code):
         if f not in skip and f not in files and len(files) < MAX_FILES and not is_hub(f) \
@@ -321,34 +344,35 @@ def pick(repo, matched, g, hand, folder, skip):
         for num, _, kind in matched:
             if kind in kinds:
                 for f in g["nodes"][num]["files"]:
-                    add(f, f"개념 {num}{tag}", SRC[tag])
+                    add(f, (w["concept"] % num) + (w[tag] if tag else ""), SRC[tag])
 
     concept_files(("prompt",), "")
     for f in hand:
-        add(f, "인계서 작업 파일", "h")
-    concept_files(("file",), "(작업 파일)")
-    concept_files(("neighbor",), "(이웃)")
+        add(f, w["handoff"], "h")
+    concept_files(("file",), "tag_file")
+    concept_files(("neighbor",), "tag_neighbor")
     for f in folder:
-        add(f, "작업 파일과 같은 폴더, 최근 커밋", "d")
+        add(f, w["folder"], "d")
     return files, why, src
 
 
 def select(repo, prompt, transcript_path=None):
-    """맥락 꾸러미(dict). 파일을 쓰지 않는다(최근순 캐시 제외)."""
-    g = graph(repo)
+    """맥락 꾸러미(dict). 파일을 쓰지 않는다(최근순 캐시 제외). 이유 문장의 언어는 여기서 한 번 정한다(pack["lang"])."""
+    lang = i18n.lang(repo)
+    g = graph(repo, lang)
     hand = handoff_files(repo)
     touched, cut = session_files(repo, transcript_path)
     seeds = touched[:5] + [f for f in hand if f not in touched[:5]]
     head, times = last_commit_times(repo)
     git_ok = times is not None
     times = times or {}
-    matched = concept_matches(g, prompt, seeds)
+    matched = concept_matches(g, prompt, seeds, lang)
     skip = set(touched)
     folder = folder_recent(repo, seeds, times, skip, MAX_FILES)
-    files, why, src = pick(repo, matched, g, hand, folder, skip)
+    files, why, src = pick(repo, matched, g, hand, folder, skip, lang)
     nums = [n for n, _, _ in matched]
     return {
-        "version": VERSION, "head": head[:12],
+        "version": VERSION, "head": head[:12], "lang": lang,
         "state": "NO_MAP" if g is None else rules.state_of([n for n, _, k in matched if k == "prompt"]),
         "map": g["rel"] if g else None,
         "map_warnings": g["warnings"] if g else [],
@@ -359,7 +383,7 @@ def select(repo, prompt, transcript_path=None):
         # 같은 턴의 기준선 — 모두 같은 skip·같은 k. 측정은 이것들과 files를 같은 정답으로 비교한다(설계안 7절).
         # nograph = 개념 그래프만 뺀 조립기. 그래프가 보탠 몫은 files와 이것의 차이다.
         "baselines": {"folder": folder, "handoff": [f for f in hand if f not in skip][:MAX_FILES],
-                      "nograph": pick(repo, [], g, hand, folder, skip)[0]},
+                      "nograph": pick(repo, [], g, hand, folder, skip, lang)[0]},
     }
 
 
@@ -367,14 +391,14 @@ def render(pack, max_chars=MAX_CHARS):
     """넣을 글. 고른 것이 없으면 "". max_chars를 넘는 줄부터는 버린다(줄 중간에서 자르지 않는다)."""
     if not (pack["concepts"] or pack["files"] or pack["decisions"]):
         return ""
-    L = ["[baton] 맥락 조립 — 프롬프트와 작업 파일로 고른 탐색 앵커다. "
-         "전부 읽지 말고 필요한 것만 연다. 실제 동작은 코드로 확인한다."]
+    w = WORDS[concepts.lang_of(pack.get("lang"))]
+    L = [w["head"]]
     if pack["concepts"]:
-        L += ["", f"관련 개념 ({pack['map']})"] + [f"- {c['num']}. {c['title']} — {c['why']}" for c in pack["concepts"]]
+        L += ["", w["concepts"] % pack["map"]] + [f"- {c['num']}. {c['title']} — {c['why']}" for c in pack["concepts"]]
     if pack["files"]:
-        L += ["", "읽어 볼 만한 파일 (이 세션에서 아직 안 연 것)"] + [f"- {f['path']} — {f['why']}" for f in pack["files"]]
+        L += ["", w["files"]] + [f"- {f['path']} — {f['why']}" for f in pack["files"]]
     if pack["decisions"]:
-        L += ["", "관련 결정 (DECISIONS.md)"] + [f"- {d['date']} {d['title']}" for d in pack["decisions"]]
+        L += ["", w["decisions"]] + [f"- {d['date']} {d['title']}" for d in pack["decisions"]]
     out, used = [], 0
     if len(L[0]) + 1 > max_chars:
         return ""
@@ -396,12 +420,13 @@ def summary(pack):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3 or sys.argv[1] != "explain":
-        sys.exit(__doc__)
+        sys.exit(__doc__ if concepts.lang_of() == "ko" else USAGE_EN)
     prompt = sys.stdin.read() if sys.argv[2] == "-" else sys.argv[2]
     repo = sys.argv[3] if len(sys.argv) > 3 else rules.repo_root()
     pack = select(repo, prompt.rstrip("\n"), os.environ.get("BATON_TRANSCRIPT"))
     print(json.dumps(summary(pack), ensure_ascii=False, indent=2))
     print()
+    words = WORDS[pack["lang"]]
     for w in pack["map_warnings"]:
-        print(f"[baton] 지도 경고: {w}")
-    print(render(pack) or "[baton] 고른 것 없음 — 넣지 않는다")
+        print(words["warn"] % w)
+    print(render(pack) or words["none"])
