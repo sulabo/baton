@@ -245,7 +245,7 @@ If the project already set rules for document status (for example, step 1 decisi
 
 Skim the doc list and the source structure. Don't read everything; focus on file names, type names and key constants.
 
-### 2. Pick concepts — about ten
+### 2. Pick concepts — ten or fewer
 
 The criterion is not "is it a concept?" but **"would a mismatch actually cost a lot?"**
 Split into 30 and it can't be maintained. Start from the costliest, 8–12 of them.

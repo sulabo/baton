@@ -9,8 +9,9 @@
 # 출력은 JSON additionalContext — 일반 stdout은 Claude Code만 맥락에 넣고 Codex는 버린다(10-01 확인, handoff-inject.py와 같은 이유).
 set -uo pipefail
 
+# -I: 현재 폴더(저장소 루트)를 import 경로에 넣지 않는다 — 저장소에 json.py 같은 파일이 있으면 그것을 불러와 실행했다
 emit() {
-  python3 -c 'import json, sys; print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": sys.argv[1]}}, ensure_ascii=False))' "$1"
+  python3 -I -c 'import json, sys; print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": sys.argv[1]}}, ensure_ascii=False))' "$1"
 }
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
