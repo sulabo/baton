@@ -526,6 +526,40 @@ class DropCheckTest(unittest.TestCase):
             self.assertIn("경고만 있음", r.stdout)
 
 
+def stalling_git(root, seconds="17.25"):
+    """cat-file에서 멈추는 git 감싸개(exec하지 않는 #!/bin/sh — 손자 sleep이 파이프를 잡는다). 다른 하위 명령은 진짜 git으로.
+    돌려주는 값: 이 폴더를 앞에 붙인 PATH."""
+    import shutil
+    real = shutil.which("git")
+    bin_ = os.path.join(root, "fakebin")
+    os.makedirs(bin_, exist_ok=True)
+    with open(os.path.join(bin_, "git"), "w") as f:
+        f.write(f'#!/bin/sh\ncase "$*" in *cat-file*) sleep {seconds}; : ;; *) exec "{real}" "$@" ;; esac\n')
+    os.chmod(os.path.join(bin_, "git"), 0o755)
+    return bin_ + os.pathsep + os.environ.get("PATH", "")
+
+
+class CommittedTimeoutTest(unittest.TestCase):
+    """committed()는 git이 멈춰도 시한 안에 돌아오고 남은 프로세스가 없다(리뷰 11-23: exec 안 하는 감싸개에서 시한 3초가 30.2초)."""
+
+    def test_stalled_wrapper_returns_within_timeout(self):
+        import time
+        with tempfile.TemporaryDirectory() as root:
+            p = os.path.join(root, "HANDOFF.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(GOOD)
+            g = git_repo(root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+            self.assertEqual(handoff_check.committed(p), GOOD)
+            with mock.patch.dict(os.environ, {"PATH": stalling_git(root)}):
+                t = time.monotonic()
+                self.assertIsNone(handoff_check.committed(p, 1.0))
+                took = time.monotonic() - t
+            self.assertLess(took, 1.8, took)
+            time.sleep(0.2)
+            left = subprocess.run(["pgrep", "-f", "sleep 17.25"], capture_output=True, text=True).stdout.split()
+            self.assertEqual(left, [])  # 손자까지 묶음째 끝냈다
+
+
 class DropCostTest(unittest.TestCase):
     """빠진 줄 검사는 입력이 커도 훅 시한(10초) 훨씬 안에 끝나고, 시한·크기 상한에 걸리면 다 못 봤다고 말한다(리뷰 11-23)."""
 

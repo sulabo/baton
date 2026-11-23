@@ -437,28 +437,50 @@ def dropped(old, new, decisions="", deadline=None):
 def committed(path, timeout=3.0):
     """git HEAD에 있는 같은 파일 내용(앞 DROP_READ_MAX + 1바이트까지 — 넘쳤는지는 부르는 쪽이 길이로 안다).
     미추적·이력 없음·git 실패·시한 초과면 None(그때는 아무 말도 안 한다). cat-file이라 textconv를 타지 않는다.
-    큰 blob을 통째로 메모리에 올리지 않으려고 필요한 만큼만 읽고 git을 끝낸다. timeout초가 지나면 git을 죽인다."""
-    import threading
+    큰 blob을 통째로 메모리에 올리지 않으려고 필요한 만큼만 읽고 git을 끝낸다.
+    시한은 timeout초를 넘기지 않는다: git을 새 프로세스 묶음으로 띄우고 select로 시한까지만 읽은 뒤 묶음째 죽인다.
+    직계 자식만 죽이면 exec하지 않는 git 감싸개(#!/bin/sh … git "$@") 밑의 손자가 파이프를 잡고 있어 읽기가 시한을 넘겼다
+    (리뷰 11-23 재현: 시한 3초에 30.2초 — 훅 시한 10초를 넘겨 비밀값 막기가 사라졌다)."""
+    import select, signal
     d = os.path.dirname(os.path.abspath(path))
+    end = time.monotonic() + max(timeout, 0.0)
     try:
         p = subprocess.Popen(["git", "--no-optional-locks", "-C", d, "cat-file", "blob", "HEAD:./" + os.path.basename(path)],
-                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
     except Exception:
         return None
-    timer = threading.Timer(max(timeout, 0.0), p.kill)
-    timer.start()
+    chunks, size, eof = [], 0, False
     try:
-        data = p.stdout.read(DROP_READ_MAX + 1)
+        fd = p.stdout.fileno()
+        while size <= DROP_READ_MAX:
+            left = end - time.monotonic()
+            if left <= 0 or not select.select([fd], [], [], left)[0]:
+                break  # 시한
+            b = os.read(fd, 65536)
+            if not b:
+                eof = True
+                break
+            chunks.append(b)
+            size += len(b)
+        if eof:
+            p.wait(timeout=max(0.01, end - time.monotonic()))
     except Exception:
-        data = b""
+        pass
     finally:
-        timer.cancel()
-        enough = len(data) > DROP_READ_MAX
-        if enough:
-            p.kill()  # 더 읽을 필요가 없다
+        if p.returncode is None:  # 시한 초과·넉넉히 읽음·wait 시한 — 묶음째 끝낸다
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
         p.stdout.close()
-        p.wait()
-    return data.decode("utf-8", "replace") if p.returncode == 0 or enough else None
+        try:
+            p.wait(timeout=1)
+        except Exception:
+            pass
+    data = b"".join(chunks)
+    if size > DROP_READ_MAX:
+        return data[:DROP_READ_MAX + 1].decode("utf-8", "replace")
+    return data.decode("utf-8", "replace") if eof and p.returncode == 0 else None
 
 
 def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=True, deadline=None):

@@ -289,6 +289,23 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIn("마지막 커밋판에 있던 줄 2000개가 새 인계서에 없다", out["reason"])
         self.assertLessEqual(len(out["reason"]), 9600)
 
+    def test_stalled_git_keeps_the_secret_block(self):
+        # 리뷰(11-23): exec 안 하는 git 감싸개 밑에서 cat-file이 멈추면 읽기가 30.2초 걸려 훅이 죽고 비밀값 막기가 사라졌다
+        import time
+        from test_handoff_check import git_repo, stalling_git
+        p = self.handoff(GOOD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        token = "gh" + "p_" + "A1b2" * 9
+        self.handoff(GOOD + f"- 토큰 {token}\n")
+        t = time.monotonic()
+        out = self.post(p, extra_env={"PATH": stalling_git(self.root, "29.75")})
+        took = time.monotonic() - t
+        self.assertLess(took, 5.0, took)  # 훅 시한 10초 훨씬 안
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("API 토큰 의심 값", out["reason"])
+        time.sleep(0.2)
+        self.assertEqual(subprocess.run(["pgrep", "-f", "sleep 29.75"], capture_output=True, text=True).stdout.split(), [])
+
     def test_drop_check_skipped_for_time_says_so(self):
         import contextlib, importlib.util, io
         spec = importlib.util.spec_from_file_location("handoff_check_hook", HOOK)
