@@ -141,8 +141,10 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply --global --set BATON_LANG=
 **Environment variable > this repo's section > global section > code default.** For the list keys (`private_terms`,
 `BATON_HANDOFF_TRIGGERS_EXTRA`), the repo list is added to the global list (if the `BATON_HANDOFF_TRIGGERS_EXTRA`
 environment variable is set, only its comma-separated entries are used). For the output language, when `BATON_LANG`
-is not set (or is `auto`), the locale decides (`LC_ALL`, `LC_MESSAGES`, `LANG`; a value starting with `ko` means
-Korean), and without a locale it is English.
+is not set (or is `auto`; an empty environment variable counts as not set), the locale decides: the first non-empty
+of `LC_ALL`, `LC_MESSAGES`, `LANG`. A value is Korean when it is `ko` or starts with `ko` followed by `_`, `.`, `@` or
+`-` (so `kok_IN` is not Korean). On macOS with no locale variable (an app started outside a terminal), the first entry
+of the system language list (`AppleLanguages`) decides. With none of these it is English.
 
 ## Don't
 

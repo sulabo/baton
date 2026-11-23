@@ -7,6 +7,7 @@
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "zero-guard.sh")
@@ -18,14 +19,15 @@ EN_MSG = ("[baton] The output has a zero count. Before you report it, tell wheth
 LOCALE = ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")
 
 
-def run(command, stdout="", stderr="", response=None, env=None):
+def run(command, stdout="", stderr="", response=None, env=None, cwd=None):
     """env: 알림 언어를 정하는 환경변수(기본 BATON_LANG=ko — 기존 테스트는 한국어 알림을 본다)."""
     data = {"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"command": command},
             "tool_response": response if response is not None else {"stdout": stdout, "stderr": stderr}}
     e = {k: v for k, v in os.environ.items() if k not in LOCALE}
     e["XDG_CONFIG_HOME"] = os.path.join(os.devnull, "none")  # 실제 설정 파일의 BATON_LANG을 읽지 않는다
     e.update(env if env is not None else {"BATON_LANG": "ko"})
-    r = subprocess.run(["bash", HOOK], input=json.dumps(data, ensure_ascii=False), capture_output=True, text=True, env=e)
+    r = subprocess.run(["bash", HOOK], input=json.dumps(data, ensure_ascii=False), capture_output=True, text=True, env=e,
+                       cwd=cwd)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout) if r.stdout.strip() else None
 
@@ -152,6 +154,17 @@ class ZeroGuardTest(unittest.TestCase):
     def test_locale_decides_without_baton_lang(self):
         self.assertEqual(run("lib/check.sh m", stdout="Total findings: 0", env={"LANG": "ko_KR.UTF-8"})["systemMessage"], KO_MSG)
         self.assertEqual(run("lib/check.sh m", stdout="Total findings: 0", env={"LANG": "C.UTF-8"})["systemMessage"], EN_MSG)
+
+    def test_repo_modules_are_not_imported(self):
+        # 훅은 사용자 저장소에서 돈다. 그곳의 copy.py(config가 부른다)·json.py가 표준 모듈 대신 불리면 안 된다(python3 -I)
+        with tempfile.TemporaryDirectory() as d:
+            mark = os.path.join(d, "imported")
+            for name in ("copy", "json", "re", "i18n", "config"):
+                with open(os.path.join(d, name + ".py"), "w", encoding="utf-8") as f:
+                    f.write(f"open({mark!r}, 'a').write({name!r} + '\\n')\nraise ImportError('planted')\n")
+            out = run("bash lib/check.sh CONCEPTS.md", stdout="지적 총 0건", env={"BATON_LANG": "en"}, cwd=d)
+            self.assertEqual(out["systemMessage"], EN_MSG)
+            self.assertFalse(os.path.exists(mark), open(mark).read() if os.path.exists(mark) else "")
 
     def test_bad_input_is_silent(self):
         r = subprocess.run(["bash", HOOK], input="not json", capture_output=True, text=True)

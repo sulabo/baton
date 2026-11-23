@@ -22,7 +22,7 @@ working**.
 No config file means the thresholds are the author's defaults (recommend `/baton-setup`). If it exists but can't be
 read, the hooks run without it: have the user fix or delete it.
 Report the output language and where it came from, as the last line of `config.py` prints it: the `BATON_LANG`
-environment variable, `BATON_LANG` in the config file, the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), or the default
-(English). To change it, set `BATON_LANG` to `ko`, `en` or `auto`, as an environment variable or with
+environment variable, `BATON_LANG` in the config file, the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), the macOS
+language list (`AppleLanguages`, only when no locale variable is set), or the default (English). To change it, set `BATON_LANG` to `ko`, `en` or `auto`, as an environment variable or with
 `/baton-setup` (`python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply --global --set BATON_LANG=…`, which asks before
 it writes).

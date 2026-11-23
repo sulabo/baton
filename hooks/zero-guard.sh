@@ -12,7 +12,8 @@ case "$INPUT" in
   *) exit 0 ;;   # 빠른 길: 이름이 아예 없으면 python을 띄우지 않는다
 esac
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/lib"
-HIT=$(printf '%s' "$INPUT" | python3 -c '
+# -I: 지금 폴더(사용자 저장소)를 sys.path에 넣지 않는다 — 저장소의 copy.py·json.py가 대신 불리지 않게. lib는 아래에서 직접 더한다
+HIT=$(printf '%s' "$INPUT" | python3 -I -c '
 import json, os, re, shlex, sys
 try:
     d = json.load(sys.stdin)

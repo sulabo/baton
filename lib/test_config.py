@@ -13,6 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 HOOKS = os.path.join(os.path.dirname(HERE), "hooks")
 sys.path.insert(0, HERE)
 import config
+import i18n
 
 KEYS = ("BATON_HANDOFF_NUDGE_FILES", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_TRIGGERS_EXTRA", "BATON_OBSERVE", "BATON_LOG",
         "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_CHECK", "BATON_SPLIT_NOTICE", "BATON_HANDOFF_INJECT", "CLAUDE_PROJECT_DIR")
@@ -182,6 +183,9 @@ class EnglishConfigTest(ConfigFixture):
     def setUp(self):
         super().setUp()
         os.environ["BATON_LANG"] = "en"
+        self.apple = None  # macOS 언어 목록(AppleLanguages)인 척하는 값 — 기본은 못 읽음
+        p = mock.patch.object(i18n, "_apple_languages", lambda: self.apple)
+        p.start(); self.addCleanup(p.stop)
 
     def locale(self, **env):
         for k in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG"):
@@ -215,6 +219,16 @@ class EnglishConfigTest(ConfigFixture):
         os.environ["BATON_LANG"] = "auto"  # auto는 로캘을 따른다 — 설정 파일의 ko보다 환경변수가 이긴다
         os.environ["LANG"] = "en_US.UTF-8"
         self.assertEqual(config.status(self.repo)[-1], "Output language: en (source: the locale, LANG=en_US.UTF-8)")
+        os.environ["BATON_LANG"] = ""  # 빈 환경변수는 없는 것 — 설정 파일의 ko가 보인다
+        self.assertEqual(config.status(self.repo)[-1], "출력 언어: ko(정한 곳: 설정 파일의 BATON_LANG)")
+
+    def test_language_line_names_the_macos_language_list(self):
+        self.locale()
+        self.apple = "ko-KR"
+        self.assertEqual(config.status(self.repo)[-1], "출력 언어: ko(정한 곳: macOS 언어 목록 AppleLanguages=ko-KR)")
+        self.apple = "en-US"
+        self.assertEqual(config.status(self.repo)[-1],
+                         "Output language: en (source: the macOS language list, AppleLanguages=en-US)")
 
     def test_invalid_reasons_english(self):
         cases = {("BATON_SPLIT_RATIOS", "0"): "must be numbers of 1 or more, separated by commas (for example 2,3)",

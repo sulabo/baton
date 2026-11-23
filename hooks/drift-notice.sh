@@ -16,8 +16,10 @@ emit() {
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 MAP=$(find "$ROOT" -maxdepth 2 -name CONCEPTS.md -not -path "*/node_modules/*" 2>/dev/null | head -1)
 [ -n "$MAP" ] || exit 0
-# 메시지 언어는 한 번만 정하고 자식(concepts.py·fresh.sh)에게 BATON_LANG으로 넘긴다. 순서는 lib/i18n.py
-L=$(python3 "$CLAUDE_PLUGIN_ROOT/lib/i18n.py" "$ROOT" 2>/dev/null) || L=en
+# 메시지 언어는 한 번만 정하고 자식(concepts.py·fresh.sh)에게 BATON_LANG으로 넘긴다. 순서는 lib/i18n.py,
+# python3가 없으면 lib/lib.sh의 baton_lang_sh(환경변수·로캘)
+. "$CLAUDE_PLUGIN_ROOT/lib/lib.sh" 2>/dev/null
+L=$(python3 "$CLAUDE_PLUGIN_ROOT/lib/i18n.py" "$ROOT" 2>/dev/null) || L=$(baton_lang_sh 2>/dev/null)
 [ "$L" = ko ] || L=en
 export BATON_LANG="$L"
 

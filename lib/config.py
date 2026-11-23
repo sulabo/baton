@@ -132,9 +132,9 @@ def sections(repo=None):
     return out
 
 
-def get(name, repo=None, default=""):
-    """환경변수 > 저장소 절 > 전역 절 > default. 값은 환경변수와 같은 모양(문자열)."""
-    v = os.environ.get(name)
+def get(name, repo=None, default="", env=True):
+    """환경변수 > 저장소 절 > 전역 절 > default. 값은 환경변수와 같은 모양(문자열). env=False면 환경변수를 건너뛴다."""
+    v = os.environ.get(name) if env else None
     if v is not None:
         return v
     secs = sections(None if name in GLOBAL_ONLY else repo)
@@ -231,6 +231,8 @@ def language_source(src, t):
         src = t("환경변수 BATON_LANG", "the BATON_LANG environment variable")
     elif src == "config":
         src = t("설정 파일의 BATON_LANG", "BATON_LANG in the config file")
+    elif src.startswith("AppleLanguages="):
+        src = t(f"macOS 언어 목록 {src}", f"the macOS language list, {src}")
     elif src == "default":
         src = t("기본값 — BATON_LANG도 로캘 변수도 없다", "the default, as neither BATON_LANG nor a locale variable is set")
     else:

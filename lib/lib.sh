@@ -72,5 +72,18 @@ diagnose_path() {
   return 1
 }
 
-# 메시지 언어(ko/en). 순서는 lib/i18n.py 참조. 실패하면 en.
-baton_lang() { python3 "$HERE/i18n.py" "${ROOT:-.}" 2>/dev/null || echo en; }
+# 메시지 언어(ko/en). 순서는 lib/i18n.py 참조. python3가 없거나 실패하면 baton_lang_sh.
+baton_lang() { python3 "$HERE/i18n.py" "${ROOT:-.}" 2>/dev/null || baton_lang_sh; }
+
+# python3 없이 정하는 언어: BATON_LANG 환경변수(ko/en) > 로캘(LC_ALL·LC_MESSAGES·LANG 중 처음 비지 않은 것) > en.
+# 설정 파일과 macOS 언어 목록은 못 읽는다. 한국어 규칙은 lib/i18n.py와 같다: ko 뒤가 끝이거나 _ . @ - (kok_IN은 아니다)
+baton_lang_sh() {
+  case "${BATON_LANG:-}" in
+    [Kk][Oo]) echo ko; return ;;
+    [Ee][Nn]) echo en; return ;;
+  esac
+  case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+    [Kk][Oo]|[Kk][Oo][_.@-]*) echo ko ;;
+    *) echo en ;;
+  esac
+}
