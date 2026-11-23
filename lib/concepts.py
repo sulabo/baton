@@ -64,7 +64,7 @@ def field(line, key):
 
 
 def no_files(value):
-    """'파일=' 값이 '파일 없음'(규칙 개념)인가: '없음…' 또는 영어 'none'·'none(rule concept)'."""
+    """목록 값이 '없음'인가: '없음…' 또는 영어 'none'·'none(rule concept)'. 파일=(규칙 개념)과 문서=에 쓴다."""
     v = value.strip()
     return v.startswith("없음") or re.match(r"(?i)none(?:$|[\s(])", v) is not None
 
@@ -164,7 +164,9 @@ def cmd_meta(lines):
                     h.group(1) if h else "",
                     field(line, "파일"),
                     field(line, "이웃"),
-                    field(line, "문서"),
+                    # 문서=없음 · docs=none은 '설명된 문서가 없다'이지 경로가 아니다 — 경로로 넘기면 fresh.sh가 '문서 경로 소실'을
+                    # 영영 낸다(그 개념이 재확인에 묶인다). 빈 칸으로 낸다
+                    "" if no_files(field(line, "문서")) else field(line, "문서"),
                 ]
                 print("\t".join(c if c else "-" for c in cells))
                 break

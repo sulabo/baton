@@ -136,6 +136,13 @@ class FreshDocsTest(RepoCase):
         self.map_with_docs(self.base, docs="`README.md`,`docs/gone.md`"); self.commit("map")
         self.assertIn("문서 경로 소실 1개", self.line(self.fresh(), "1"))
 
+    def test_docs_none_is_an_empty_list_not_a_lost_path(self):  # 예전에는 '없음'을 경로로 읽어 '문서 경로 소실 1개'가 영영 났다
+        self.map_with_docs(self.base, docs="없음"); self.commit("map")
+        self.assertEqual(self.line(self.fresh(), "1").split(None, 3)[3], "신선")
+        self.write("CONCEPTS.md", "## 1. 규칙\n- **메타**: 상태=일치 · 확인=미상 · 파일=없음(규칙 개념) · 이웃=없음 · 문서=없음(아직 안 씀)\n")
+        self.commit("rule map")
+        self.assertEqual(self.line(self.fresh(), "1").split(None, 3)[3], "규칙 개념 — 결정 변동으로만 추적")  # '문서 못 봄'도 안 붙는다
+
     def test_summary_line(self):
         self.map_with_docs(self.base); self.commit("map")
         self.write("README.md", "# b\n"); self.commit("readme")
@@ -323,6 +330,19 @@ class FreshEnglishTest(RepoCase):
         self.assertEqual(verdict(self.line(self.out(), "1")), "needs a re-check — 1 doc commit")
         self.write("src/a.ts", "b\n"); self.write("README.md", "t\n"); self.commit("both")
         self.assertEqual(verdict(self.line(self.out(), "1")), "needs a re-check — 1 commit · 2 doc commits")
+
+    def test_docs_none_is_an_empty_list_not_a_lost_path(self):
+        self.en_map(self.base, docs="none")
+        self.assertEqual(verdict(self.line(self.out(), "1")), "fresh")
+        self.en_map(self.base, docs="None (not written yet)")
+        self.assertEqual(verdict(self.line(self.out(), "1")), "fresh")
+        self.write("CONCEPTS.md", "## 1. rule\n- **Meta**: status=agrees · checked=unknown · files=none(rule concept) · neighbors=none"
+                                  " · docs=none\n"); self.commit("rule map")
+        self.assertEqual(verdict(self.line(self.out(), "1")), "rule concept — tracked only through decision changes")
+        import sys
+        meta = subprocess.run([sys.executable, os.path.join(os.path.dirname(FRESH), "concepts.py"),
+                               os.path.join(self.root, "CONCEPTS.md"), "meta"], capture_output=True, text=True).stdout
+        self.assertEqual(meta.rstrip("\n").split("\t")[7], "-")  # 파서가 빈 문서 목록으로 낸다
 
     def test_rule_concept_with_moved_doc(self):
         self.write("README.md", "r\n"); base = self.commit("readme")
