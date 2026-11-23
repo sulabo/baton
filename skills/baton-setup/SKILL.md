@@ -1,6 +1,7 @@
 ---
 name: baton-setup
 description: 설치 후 한 번 돌리는 개인화. 이 사용자의 과거 세션 기록·git 이력·인계서를 읽어 baton 문턱(세션 끊기 알림·인계서 제안)과 인계 트리거 말, 인계서 검사가 막을 개인 자료 목록, 출력 언어를 그 사람 분포로 제안하고, 사용자가 고른 것만 설정 파일에 쓴다. "baton 설정해줘", "baton setup", "문턱 내 기록으로 맞춰줘", "개인 자료 목록 만들어줘"에도 발동. Also triggers on English requests such as "set up baton", "tune baton thresholds to my history", "build my private terms list", "set baton's language".
+allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py), Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/config.py)
 ---
 
 # Baton Setup — tune baton to your own history
@@ -31,8 +32,12 @@ with the same function, so the same section applies when Claude Code is opened i
 own top level, so it gets its own section.
 
 ```bash
-python3 "$CLAUDE_PLUGIN_ROOT/lib/setup_scan.py"
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py
 ```
+
+Run it exactly as written, with no arguments: that form is pre-approved in `allowed-tools`. Claude Code fills in the
+plugin path when it loads this file (the plugin-root variable is not set in the shell, so don't replace the path with
+a shell variable). `apply` (step 4) writes the config file and is not pre-approved, so it still asks.
 
 What it reads: Claude Code session logs opened at this repo's top level (`~/.claude/projects`), the git author, tracked
 files and untracked files that are not ignored (`git grep --untracked`), the working-folder names in other projects'
@@ -97,9 +102,9 @@ and its reason first.
 ### 4. Write only what was picked
 
 ```bash
-python3 "$CLAUDE_PLUGIN_ROOT/lib/setup_scan.py" apply \
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply \
   --set BATON_SPLIT_RATIOS=2.5,3.5 --set BATON_HANDOFF_NUDGE_FILES=4 --trigger "지난번"
-python3 "$CLAUDE_PLUGIN_ROOT/lib/setup_scan.py" apply --global --set BATON_LANG=en
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply --global --set BATON_LANG=en
 ```
 
 - **Don't put private words on the command line.** `--private-term 홍길동` leaves that command in the session log.
@@ -129,7 +134,7 @@ python3 "$CLAUDE_PLUGIN_ROOT/lib/setup_scan.py" apply --global --set BATON_LANG=
 - An environment variable with the same name wins over the config file. To turn something off or try a value for a
   while, an environment variable is the fastest way.
 - The values in effect now, including the output language and where it came from, are shown by
-  `python3 "$CLAUDE_PLUGIN_ROOT/lib/config.py"`.
+  `python3 ${CLAUDE_PLUGIN_ROOT}/lib/config.py` (pre-approved, read only).
 
 ## Order of precedence
 

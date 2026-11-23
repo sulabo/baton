@@ -83,11 +83,32 @@ if isinstance(r, dict):
     out = "\n".join(str(r.get(k) or "") for k in ("stdout", "stderr", "output"))
 else:
     out = r if isinstance(r, str) else ""
-# 0건 신호는 두 언어 모두 본다 — 검사 스크립트가 어느 언어로 출력했든(BATON_LANG과 무관하게) 잡는다
-KO = r"(?<![0-9])0건|없음|메타 줄 0개|재확인 0(?![0-9])"
-EN = (r"(?i)\bno findings\b|\bnone\b|\bno baseline\b|\bnot mentioned\b|\bnot 0\b|re-check 0(?![0-9])"
-      r"|[:→] ?0(?![0-9.,])|(?<![0-9.,])0 (?:findings?|commits?|metadata lines?|candidates?|items?|entries|dropped|versions?)\b")
-if not (re.search(KO, out) or re.search(EN, out)):
+# 0건 신호는 두 언어 모두 본다 — 검사 스크립트가 어느 언어로 출력했든(BATON_LANG과 무관하게) 잡는다.
+# 출력 어디든 0 낱말이 있으면 울리던 것을 구조로 가린다(2026-11-23: 재확인 14건인 fresh.sh 출력에서 울렸다 — 개념 이름
+# "0건과 못 셈의 구분"이 든 표 줄과 "결정·지침 변동: … 커밋 0건" 줄에 걸렸다).
+#  1) 못 셈 신호(메타 줄 0개·"0이 아니라 못 셌다")는 언제나 울린다 — 이 훅이 있는 이유다
+#  2) 머리 결과 줄(fresh.sh 요약의 재확인 수, check.sh 지적 총수)이 있으면 그것만 본다 — 0이면 울리고, 모두 0이 아니면
+#     나머지 줄의 0(부분 수·표 안 이름 글자)은 세부라 울리지 않는다
+#  3) 머리 결과 줄이 없으면(promote.sh 등) 줄마다 본다. " · "로 나눈 여러 수 요약 줄에서 0이 아닌 수가 옆에 있는 0은 세지 않는다
+# ponytail: promote.sh 목록 줄의 인계서 원문에 "0건"이 있으면 3)에서 울릴 수 있다 — 원문 줄을 구조로 가리려면 promote 출력 형식을 읽어야 한다
+ALWAYS = r"메타 줄 0개|0건이 아니라 못 셌|0건이 아니라 못 셈|(?<![0-9])0 metadata lines|\bnot 0\b"
+HEAD = r"^\s*(?:요약: 재확인|지적 총|Summary: re-check|Total findings:) ?([0-9]+)"
+ZERO = (r"(?<![0-9])0건|없음|재확인 0(?![0-9])"
+        r"|(?i:\bno findings\b|re-check 0(?![0-9])|(?<![0-9])0 (?:commits?|items?|dropped)\b|[:→] ?0(?![0-9.,]))")
+NONZERO = r"(?<![\w.])[1-9][0-9]*(?![0-9.])"
+lines = out.splitlines()
+heads = [int(m.group(1)) for m in (re.match(HEAD, ln) for ln in lines) if m]
+def zero_line(ln):
+    if not re.search(ZERO, ln):
+        return False
+    fields = ln.split(" · ")
+    return not any(re.search(ZERO, f) is None and re.search(NONZERO, f) for f in fields)
+if any(re.search(ALWAYS, ln) for ln in lines):
+    pass
+elif heads:
+    if all(h > 0 for h in heads):
+        sys.exit(0)
+elif not any(zero_line(ln) for ln in lines):
     sys.exit(0)
 lang = "en"
 try:  # 알림 언어(lib/i18n.py). 못 정하면 lib.sh의 baton_lang처럼 en
