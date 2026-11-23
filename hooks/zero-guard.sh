@@ -123,10 +123,13 @@ except Exception:
     pass
 print(lang)
 ' "$LIB" 2>/dev/null)
-# systemMessage는 사용자에게만 보인다. 모델이 읽게 하려면 additionalContext로 넣는다(Claude Code·Codex 공통 PostToolUse 형식)
+# systemMessage는 사용자에게만 보인다(UMSG: 무슨 일인지). 모델이 읽게 하려면 additionalContext로 넣는다(MSG: 지시)
+# — Claude Code·Codex 공통 PostToolUse 형식
 case "$HIT" in
-  ko) MSG="[baton] 0건이 나왔다. 진짜 없는 것인지, 형식이 안 맞아 못 센 것인지 구분해서 보고한다. 형식 불일치 줄을 먼저 확인한다." ;;
-  en) MSG="[baton] The output has a zero count. Before you report it, tell whether there really is nothing or whether nothing could be counted because the format did not match. Check the lines that did not match the format first." ;;
+  ko) MSG="[baton] 0건이 나왔다. 진짜 없는 것인지, 형식이 안 맞아 못 센 것인지 구분해서 보고한다. 형식 불일치 줄을 먼저 확인한다."
+      UMSG="[baton] 결과가 0이에요. 정말 없는 건지, 형식이 달라 못 센 건지 AI가 확인하게 했어요." ;;
+  en) MSG="[baton] The output has a zero count. Before you report it, tell whether there really is nothing or whether nothing could be counted because the format did not match. Check the lines that did not match the format first."
+      UMSG="[baton] The result is 0. baton asked the AI to check whether there's really nothing or a different format kept it from counting." ;;
   *) exit 0 ;;
 esac
-printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$MSG" "$MSG"
+printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$UMSG" "$MSG"

@@ -181,7 +181,8 @@ def auto_reason(files, cwd, lang):
                 f"기억으로 새로 쓰지 말고 지금 HANDOFF.md에서 시작해 아직 참인 줄은 그대로 옮긴다. "
                 f"짧게 쓴다 — 저장하면 저장 검사가 문제와 마지막 커밋판에서 빠진 줄을 알려 준다. "
                 f"승격 검토는 건너뛰고 커밋하지 않는다. "
-                f"그다음 사용자에게 인계서를 갱신했다는 것과 BATON_HANDOFF_AUTO=off로 끌 수 있다는 것을 한 줄로 알리고 턴을 끝낸다. "
+                f"그다음 사용자에게 이 한 줄만 쓰고 턴을 끝낸다: "
+                f"\"인계서를 고쳐 뒀어요. 이 기능을 끄려면 BATON_HANDOFF_AUTO=off로 설정하세요.\" "
                 f"이 요청은 세션에 한 번만 나온다.")
     return (f"[baton] You edited {len(files)} files in this session since the handoff (HANDOFF.md or HANDOFF_*.md) was last "
             f"written: {listed}. Write or update HANDOFF.md at the repo root now, following the baton handoff skill ({skill}, "
@@ -189,8 +190,9 @@ def auto_reason(files, cwd, lang):
             f"true; do not rewrite it from memory. Keep it short. When you save it, the save-time check reports problems "
             f"and lines dropped since the last committed version. "
             f"Skip the promotion review and do not commit. "
-            f"Then end your turn with one line to the user saying the handoff was updated and that BATON_HANDOFF_AUTO=off "
-            f"turns this off. baton asks for this once per session.")
+            f"Then end your turn with exactly this one line to the user: "
+            f"\"I updated the handoff. To turn this off, set BATON_HANDOFF_AUTO=off.\" "
+            f"baton asks for this once per session.")
 
 
 def on_stop(data):
@@ -229,14 +231,16 @@ def on_stop(data):
         runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_auto", "session_id": sid,
                        "files": len(files)})
         return
+    n = len(files)
     if lang == "ko":
-        msg = (f"[baton] 이 세션에서 파일 {len(files)}개를 고쳤는데 인계서(HANDOFF.md·HANDOFF_*.md)는 그 뒤로 안 바뀌었다. "
-               f"작업 덩어리가 끝났다면 '핸드오프 작성해줘'로 인계서를 남겨 두면 다음 세션이 처음부터 다시 찾지 않는다. "
-               f"쓸지는 정하면 된다 — 이 제안은 세션에 한 번만 나온다.")
+        msg = (f"[baton] 파일을 {n}개 고쳤는데 인계서는 그대로예요.\n"
+               f"하던 일이 끝났다면 \"인계서 써 줘\"라고 해 보세요. 다음 대화가 처음부터 다시 찾지 않아도 돼요.\n"
+               f"이 제안은 한 대화에 한 번만 나와요.")
     else:
-        msg = (f"[baton] You edited {len(files)} files in this session, and the handoff (HANDOFF.md or HANDOFF_*.md) has not "
-               f"changed since. If a piece of work is done, ask for 'write a handoff' so the next session does not have to "
-               f"search from scratch. It is your call — this suggestion appears once per session.")
+        msg = (f"[baton] You changed {n} {'file' if n == 1 else 'files'}, but the handoff hasn't changed.\n"
+               f"If you're done with the current task, try saying \"write a handoff\". "
+               f"The next conversation won't have to search from scratch.\n"
+               f"You'll see this suggestion only once per conversation.")
     print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_nudge", "session_id": sid, "files": len(files)}
     if foreign:

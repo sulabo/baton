@@ -63,13 +63,18 @@ class SplitNoticeTest(unittest.TestCase):
     def test_each_band_notifies_once(self):
         self.write([call(40000), call(85000)])
         first = self.message(self.run_hook())
-        self.assertIn("2.1배", first)
-        self.assertIn("2배에서 한 번만", first)
+        self.assertEqual(first, "[baton] 대화가 처음보다 2배 길어졌어요(4만 → 8만 5천 토큰).\n"
+                                "하던 일이 끝났다면 새 대화로 넘어가 보세요. 지난 대화로 계산해 보면 비용을 35~45% 아낄 수 있어요.\n"
+                                "넘어가는 법: \"인계서 써 줘\" → /clear → \"이어서\"\n"
+                                "이 알림은 한 번만 나와요.")
         self.assertIsNone(self.message(self.run_hook()))  # 같은 문턱 다시 안 울림
 
         self.write([call(40000), call(85000), call(130000)])
         third = self.message(self.run_hook())
-        self.assertIn("3배에서 한 번만", third)
+        self.assertEqual(third, "[baton] 대화가 처음보다 3배 길어졌어요(4만 → 13만 토큰).\n"
+                                "하던 일이 끝났다면 새 대화로 넘어가 보세요. 지난 대화로 계산해 보면 비용을 30~34% 아낄 수 있어요.\n"
+                                "넘어가는 법: \"인계서 써 줘\" → /clear → \"이어서\"\n"
+                                "이 알림은 한 번만 나와요.")
         self.assertIsNone(self.message(self.run_hook()))
 
         with open(os.path.join(self.root, "runs.jsonl"), encoding="utf-8") as f:
@@ -92,7 +97,7 @@ class SplitNoticeTest(unittest.TestCase):
         pad = json.dumps({"type": "user", "message": {"content": "가" * 3000}}, ensure_ascii=False)
         self.write([call(40000)] + [pad] * 300 + [call(90000)])
         self.assertGreater(os.path.getsize(self.transcript), 512 * 1024)
-        self.assertIn("2.2배", self.message(self.run_hook()))
+        self.assertIn("(4만 → 9만 토큰)", self.message(self.run_hook()))
 
     def test_no_repeat_after_compaction(self):
         # 압축으로 맥락이 줄었다가 다시 2배를 넘어도 같은 문턱은 다시 울리지 않는다
@@ -113,7 +118,7 @@ class SplitNoticeTest(unittest.TestCase):
         odd = ['["assistant"]', json.dumps({"type": "assistant", "message": "assistant"}),
                json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": "x"}}}), "{깨진 줄 assistant"]
         self.write(odd + [call(40000)] + odd + [call(90000)] + odd)
-        self.assertIn("2.2배", self.message(self.run_hook()))
+        self.assertIn("(4만 → 9만 토큰)", self.message(self.run_hook()))
 
     def test_session_id_with_path_chars_is_ignored(self):
         self.write([call(40000), call(90000)])
@@ -123,7 +128,9 @@ class SplitNoticeTest(unittest.TestCase):
         self.write([call(40000), call(90000)])
         self.assertIsNone(self.message(self.run_hook(extra_env={"BATON_SPLIT_NOTICE": "off"})))
         self.assertIsNone(self.message(self.run_hook(extra_env={"BATON_SPLIT_RATIOS": "4"})))
-        self.assertIn("1.5배에서", self.message(self.run_hook(extra_env={"BATON_SPLIT_RATIOS": "1.5,4"})))
+        msg = self.message(self.run_hook(extra_env={"BATON_SPLIT_RATIOS": "1.5,4"}))
+        self.assertTrue(msg.startswith("[baton] 대화가 처음보다 1.5배 길어졌어요(4만 → 9만 토큰).\n"), msg)
+        self.assertNotIn("아낄 수 있어요", msg)  # 1.5배는 재계산한 적이 없다 — 절감 몫을 말하지 않는다
 
     def test_bad_input_fails_open(self):
         for stdin in ("", "not json", "[]", json.dumps({"transcript_path": "/없는/경로.jsonl", "session_id": "x"})):
@@ -134,19 +141,31 @@ class SplitNoticeTest(unittest.TestCase):
     def test_english_notice(self):
         self.write([call(40000), call(85000)])
         msg = self.message(self.run_hook(extra_env={"BATON_LANG": "en"}))
-        self.assertEqual(msg, "[baton] The context per model call in this session is 85K, 2.1× the start (40K). If the current "
-                              "piece of work is done, write a handoff, run /clear, and continue with \"where were we\": the next "
-                              "call starts again at about 40K (estimated by recomputing past sessions: stopping at 2× cuts the "
-                              "cost by about 35–45%, at 3× by about 30–34%). You don't have to switch. This notice appears only "
-                              "once, at 2×.")
+        self.assertEqual(msg, "[baton] This conversation is now 2× as long as at the start (40K → 85K tokens).\n"
+                              "If you're done with the current task, try moving to a new conversation. Based on past "
+                              "conversations, that can save 35–45% of the cost.\n"
+                              "To move: \"write a handoff\" → /clear → \"where were we\"\n"
+                              "You'll see this notice only once.")
         self.write([call(40000), call(85000), call(130000)])
-        self.assertIn("only once, at 3×", self.message(self.run_hook(extra_env={"BATON_LANG": "en"})))
+        third = self.message(self.run_hook(extra_env={"BATON_LANG": "en"}))
+        self.assertTrue(third.startswith("[baton] This conversation is now 3× as long as at the start (40K → 130K tokens).\n"))
+        self.assertIn("that can save 30–34% of the cost.", third)
+        self.write([call(40000), call(85000), call(130000), call(170000)])
+        self.assertNotIn("save", self.message(self.run_hook(sid="en4", extra_env={"BATON_LANG": "en", "BATON_SPLIT_RATIOS": "4"})))
+
+    def test_korean_token_counts(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("split_notice", HOOK)
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        for n, want in ((85312, "8만 5천"), (172480, "17만 2천"), (40000, "4만"), (9500, "9천"), (999, "999"),
+                        (1234567, "123만 4천"), (100000, "10만")):
+            self.assertEqual(mod.man(n), want)
 
     def test_locale_decides_without_baton_lang(self):
         self.write([call(40000), call(90000)])
         drop = ("BATON_LANG", "LC_ALL", "LC_MESSAGES")
-        self.assertIn("2배에서 한 번만", self.message(self.run_hook(sid="k", extra_env={"LANG": "ko_KR.UTF-8"}, unset=drop)))
-        self.assertIn("once, at 2×", self.message(self.run_hook(sid="e", extra_env={"LANG": "C.UTF-8"}, unset=drop)))
+        self.assertIn("대화가 처음보다 2배 길어졌어요", self.message(self.run_hook(sid="k", extra_env={"LANG": "ko_KR.UTF-8"}, unset=drop)))
+        self.assertIn("2× as long as at the start", self.message(self.run_hook(sid="e", extra_env={"LANG": "C.UTF-8"}, unset=drop)))
 
     def test_non_claude_transcript_is_silent(self):
         # Codex 기록 모양(type=response_item)에는 맥락 정보가 없어 아무것도 내지 않는다

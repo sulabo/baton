@@ -68,6 +68,37 @@ def ratios(repo):
         return [2.0, 3.0]
 
 
+# 재계산 추정(docs/research/LOOP_PLAN.md "세션 끊기 재계산")이 있는 문턱만 절감 몫을 말한다. 다른 문턱(/baton-setup이 고른 값)은 잰 적이 없다
+SAVING = {2.0: "35~45%", 3.0: "30~34%"}
+
+
+def man(n):
+    """토큰 수를 한국어 만·천으로(85,312 → "8만 5천"). 천 아래는 버린다 — 영어 K 표기와 같은 자리."""
+    k = n // 1000
+    if not k:
+        return f"{n:,}"
+    hi, lo = divmod(k, 10)
+    return " ".join(x for x in (f"{hi:,}만" if hi else "", f"{lo}천" if lo else "") if x)
+
+
+def notice(lang, band, first, last):
+    """사용자에게 보이는 알림(systemMessage). 문턱마다 한 번."""
+    saving = SAVING.get(band)
+    if lang == "ko":
+        lines = [f"[baton] 대화가 처음보다 {band:g}배 길어졌어요({man(first)} → {man(last)} 토큰).",
+                 "하던 일이 끝났다면 새 대화로 넘어가 보세요."
+                 + (f" 지난 대화로 계산해 보면 비용을 {saving} 아낄 수 있어요." if saving else ""),
+                 '넘어가는 법: "인계서 써 줘" → /clear → "이어서"',
+                 "이 알림은 한 번만 나와요."]
+    else:
+        lines = [f"[baton] This conversation is now {band:g}× as long as at the start ({first // 1000}K → {last // 1000}K tokens).",
+                 "If you're done with the current task, try moving to a new conversation."
+                 + (f" Based on past conversations, that can save {saving.replace('~', '–')} of the cost." if saving else ""),
+                 'To move: "write a handoff" → /clear → "where were we"',
+                 "You'll see this notice only once."]
+    return "\n".join(lines)
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -108,16 +139,7 @@ def main():
             json.dump(sorted(done | {band}), f)
     except OSError:
         return  # 한 번만 알린다는 약속을 못 지키면 아예 알리지 않는다
-    msg = i18n.pick(repo,
-                    f"[baton] 이 세션은 호출당 맥락이 {last // 1000}K — 시작({first // 1000}K)의 {r:.1f}배다. "
-                    f"지금 작업 덩어리가 끝났다면 인계서를 쓰고 /clear 뒤 '이어서'로 넘기면 다음 호출부터 다시 약 {first // 1000}K에서 시작한다 "
-                    f"(재계산 추정: 2배에서 끊는 세션은 비용 약 35~45%, 3배면 약 30~34% 절감). "
-                    f"넘기지 않아도 된다 — 이 알림은 {band:g}배에서 한 번만 나온다.",
-                    f"[baton] The context per model call in this session is {last // 1000}K, {r:.1f}× the start ({first // 1000}K). "
-                    f"If the current piece of work is done, write a handoff, run /clear, and continue with \"where were we\": "
-                    f"the next call starts again at about {first // 1000}K (estimated by recomputing past sessions: stopping at 2× "
-                    f"cuts the cost by about 35–45%, at 3× by about 30–34%). "
-                    f"You don't have to switch. This notice appears only once, at {band:g}×.")
+    msg = notice(i18n.lang(repo), band, first, last)
     print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
     runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "split_notice", "session_id": sid,
                    "first_ctx": first, "last_ctx": last, "ratio": round(r, 2), "band": band})
