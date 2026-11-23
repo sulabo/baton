@@ -14,7 +14,7 @@
 import json, os, re, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
-import config, rules, runlog
+import config, i18n, rules, runlog
 
 TOKEN_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 TAIL_BYTES = 512 * 1024
@@ -108,10 +108,16 @@ def main():
             json.dump(sorted(done | {band}), f)
     except OSError:
         return  # 한 번만 알린다는 약속을 못 지키면 아예 알리지 않는다
-    msg = (f"[baton] 이 세션은 호출당 맥락이 {last // 1000}K — 시작({first // 1000}K)의 {r:.1f}배다. "
-           f"지금 작업 덩어리가 끝났다면 인계서를 쓰고 /clear 뒤 '이어서'로 넘기면 다음 호출부터 다시 약 {first // 1000}K에서 시작한다 "
-           f"(재계산 추정: 2배에서 끊는 세션은 비용 약 35~45%, 3배면 약 30~34% 절감). "
-           f"넘기지 않아도 된다 — 이 알림은 {band:g}배에서 한 번만 나온다.")
+    msg = i18n.pick(repo,
+                    f"[baton] 이 세션은 호출당 맥락이 {last // 1000}K — 시작({first // 1000}K)의 {r:.1f}배다. "
+                    f"지금 작업 덩어리가 끝났다면 인계서를 쓰고 /clear 뒤 '이어서'로 넘기면 다음 호출부터 다시 약 {first // 1000}K에서 시작한다 "
+                    f"(재계산 추정: 2배에서 끊는 세션은 비용 약 35~45%, 3배면 약 30~34% 절감). "
+                    f"넘기지 않아도 된다 — 이 알림은 {band:g}배에서 한 번만 나온다.",
+                    f"[baton] The context per model call in this session is {last // 1000}K, {r:.1f}× the start ({first // 1000}K). "
+                    f"If the current piece of work is done, write a handoff, run /clear, and continue with \"where were we\": "
+                    f"the next call starts again at about {first // 1000}K (estimated by recomputing past sessions: stopping at 2× "
+                    f"cuts the cost by about 35–45%, at 3× by about 30–34%). "
+                    f"You don't have to switch. This notice appears only once, at {band:g}×.")
     print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
     runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "split_notice", "session_id": sid,
                    "first_ctx": first, "last_ctx": last, "ratio": round(r, 2), "band": band})

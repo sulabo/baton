@@ -35,15 +35,18 @@ class SplitNoticeTest(unittest.TestCase):
         with open(self.transcript, "w", encoding="utf-8") as f:
             f.write("\n".join([json.dumps({"type": "user", "message": {"content": "시작"}})] + lines) + "\n")
 
-    def run_hook(self, sid="s1", extra_env=None, raw_stdin=None):
+    def run_hook(self, sid="s1", extra_env=None, raw_stdin=None, unset=()):
         env = os.environ.copy()
         env["XDG_CACHE_HOME"] = os.path.join(self.root, "cache")  # 실제 캐시에 쓰지 않는다
         env["XDG_CONFIG_HOME"] = os.path.join(self.root, "config")  # 실제 설정 파일을 읽지 않는다
         env["BATON_LOG"] = os.path.join(self.root, "runs.jsonl")
         env.pop("BATON_SPLIT_NOTICE", None)
         env.pop("BATON_SPLIT_RATIOS", None)
+        env["BATON_LANG"] = "ko"  # 한국어 알림을 보는 테스트 — 영어는 extra_env로 덮는다
         if extra_env:
             env.update(extra_env)
+        for k in unset:
+            env.pop(k, None)
         stdin = raw_stdin if raw_stdin is not None else json.dumps(
             {"transcript_path": self.transcript, "session_id": sid, "hook_event_name": "Stop"})
         return subprocess.run([sys.executable, HOOK], input=stdin, text=True,
@@ -127,6 +130,23 @@ class SplitNoticeTest(unittest.TestCase):
             result = self.run_hook(raw_stdin=stdin)
             self.assertEqual(result.returncode, 0, stdin)
             self.assertEqual(result.stdout, "", stdin)
+
+    def test_english_notice(self):
+        self.write([call(40000), call(85000)])
+        msg = self.message(self.run_hook(extra_env={"BATON_LANG": "en"}))
+        self.assertEqual(msg, "[baton] The context per model call in this session is 85K, 2.1× the start (40K). If the current "
+                              "piece of work is done, write a handoff, run /clear, and continue with \"where were we\": the next "
+                              "call starts again at about 40K (estimated by recomputing past sessions: stopping at 2× cuts the "
+                              "cost by about 35–45%, at 3× by about 30–34%). You don't have to switch. This notice appears only "
+                              "once, at 2×.")
+        self.write([call(40000), call(85000), call(130000)])
+        self.assertIn("only once, at 3×", self.message(self.run_hook(extra_env={"BATON_LANG": "en"})))
+
+    def test_locale_decides_without_baton_lang(self):
+        self.write([call(40000), call(90000)])
+        drop = ("BATON_LANG", "LC_ALL", "LC_MESSAGES")
+        self.assertIn("2배에서 한 번만", self.message(self.run_hook(sid="k", extra_env={"LANG": "ko_KR.UTF-8"}, unset=drop)))
+        self.assertIn("once, at 2×", self.message(self.run_hook(sid="e", extra_env={"LANG": "C.UTF-8"}, unset=drop)))
 
     def test_non_claude_transcript_is_silent(self):
         # Codex 기록 모양(type=response_item)에는 맥락 정보가 없어 아무것도 내지 않는다

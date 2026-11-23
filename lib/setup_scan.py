@@ -21,7 +21,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "observer"))
 sys.path.insert(0, os.path.join(ROOT, "observer", "research"))
-import config, rules
+import config, i18n, rules
 import baton_init, split_sim, usage_week
 
 _spec = importlib.util.spec_from_file_location("handoff_check_hook", os.path.join(ROOT, "hooks", "handoff-check.py"))
@@ -39,10 +39,18 @@ PLACEHOLDER = re.compile(r"(?i)@(example\.(com|org|net)|test|localhost)$")
 # ponytail: Codex 세션(~/.codex/sessions)은 세지 않는다 — 저장소에는 파일 연결 검증(observer/measure/codex_join_census.py)만 있고
 # 프롬프트·토큰·편집 레코드 형식을 읽는 코드가 없다. 형식을 확인해 usage_week처럼 읽는 함수를 만들면 여기에 더한다
 CODEX_NOTE = "Codex 세션은 세지 않음 — Codex 세션 파일의 프롬프트·호출 형식을 이 저장소 코드가 아직 다루지 않는다(observer/baton_init.py와 같은 범위)"
+CODEX_NOTE_EN = ("Codex sessions are not counted: this repo's code does not read the prompt and call format of Codex session files yet "
+                 "(the same scope as observer/baton_init.py)")
+HANGUL = re.compile("[\uac00-\ud7a3\u3131-\u318e]")
 
 
 def pct(x):
     return f"{x:.0%}"
+
+
+def num(n, one, many):
+    """영어 출력의 단수·복수("1 session", "2 sessions")."""
+    return f"{n} {one if n == 1 else many}"
 
 
 def git(root, *args):
@@ -75,8 +83,10 @@ def cost_after(ctxs, ratio):
     return 0.0 if i is None else split_sim.weighted(ctxs) - split_sim.weighted(ctxs[:i])
 
 
-def growth(sessions):
-    """세션마다 최대 맥락 ÷ 첫 호출 맥락. 끊기 문턱 후보마다 닿는 세션 비율, 그 뒤에 남은 비용 몫, 재계산 절감(split_sim)."""
+def growth(sessions, lang=None):
+    """세션마다 최대 맥락 ÷ 첫 호출 맥락. 끊기 문턱 후보마다 닿는 세션 비율, 그 뒤에 남은 비용 몫, 재계산 절감(split_sim).
+    lang: 이유 문장의 언어(없으면 lib/i18n.py로 정한다). 아래 함수들도 같다."""
+    t = config.tr(lang=lang)
     rows, bad = [], 0
     for s in sessions:
         ctxs = split_sim.call_contexts(s["file"])
@@ -84,10 +94,11 @@ def growth(sessions):
             rows.append(ctxs)
         else:
             bad += 1
-    out = {"counted": len(rows), "uncounted": bad, "uncounted_reason": "첫 호출 맥락 토큰이 기록에 없음",
+    out = {"counted": len(rows), "uncounted": bad,
+           "uncounted_reason": t("첫 호출 맥락 토큰이 기록에 없음", "no context tokens recorded for the first call"),
            "recommend": None}
     if not rows:
-        out["reason"] = "센 세션이 없어 기본값 유지"
+        out["reason"] = t("센 세션이 없어 기본값 유지", "no sessions counted, so the default stays")
         return out
     g = sorted(max(c) / c[0] for c in rows)
     base = sum(split_sim.weighted(c) for c in rows)
@@ -102,24 +113,33 @@ def growth(sessions):
     # 낮은 문턱을 늘 유리하게 보이므로 고르는 데 쓰지 않고 보여 주기만 한다. 실사용 로그가 쌓이면 실제로 넘긴 비율로 바꾼다
     ok = [c["ratio"] for c in out["candidates"] if c["cost_after"] >= COST_SHARE]
     if len(rows) < MIN_SESSIONS:
-        out["reason"] = f"센 세션 {len(rows)}개 — {MIN_SESSIONS}개 미만이라 기본값 {DEFAULT_RATIOS} 유지"
+        out["reason"] = t(f"센 세션 {len(rows)}개 — {MIN_SESSIONS}개 미만이라 기본값 {DEFAULT_RATIOS} 유지",
+                          f"{num(len(rows), 'session', 'sessions')} counted, fewer than {MIN_SESSIONS}, "
+                          f"so the default {DEFAULT_RATIOS} stays")
     elif not ok:
-        out["reason"] = (f"어느 문턱에서도 비용의 {COST_SHARE:.0%}가 뒤에 남지 않는다(세션이 크게 불지 않는다) — "
-                         f"알림으로 아낄 몫이 작아 기본값 {DEFAULT_RATIOS} 유지")
+        out["reason"] = t(f"어느 문턱에서도 비용의 {COST_SHARE:.0%}가 뒤에 남지 않는다(세션이 크게 불지 않는다) — "
+                          f"알림으로 아낄 몫이 작아 기본값 {DEFAULT_RATIOS} 유지",
+                          f"at no threshold does {COST_SHARE:.0%} of the cost come after it (sessions don't grow much), "
+                          f"so a notice would save little and the default {DEFAULT_RATIOS} stays")
     elif max(ok) == 2.0:
-        out["reason"] = f"비용의 {COST_SHARE:.0%} 이상이 뒤에 남는 가장 높은 문턱이 기본값과 같은 2배 — 유지"
+        out["reason"] = t(f"비용의 {COST_SHARE:.0%} 이상이 뒤에 남는 가장 높은 문턱이 기본값과 같은 2배 — 유지",
+                          f"the highest threshold with {COST_SHARE:.0%} or more of the cost after it is 2×, "
+                          f"the same as the default, so it stays")
     else:
         best = max(ok)
         out["recommend"] = f"{best:g},{best + 1:g}"
         share = next(c["cost_after"] for c in out["candidates"] if c["ratio"] == best)
-        out["reason"] = (f"{best:g}배에 닿은 뒤에도 비용의 {share:.0%}가 남는다 — 비용의 {COST_SHARE:.0%} 이상이 남는 가장 높은 문턱"
-                         f"(기본값 2배를 정한 방법과 같다)")
+        out["reason"] = t(f"{best:g}배에 닿은 뒤에도 비용의 {share:.0%}가 남는다 — 비용의 {COST_SHARE:.0%} 이상이 남는 가장 높은 문턱"
+                          f"(기본값 2배를 정한 방법과 같다)",
+                          f"{share:.0%} of the cost still comes after the context reaches {best:g}×. It is the highest threshold "
+                          f"with {COST_SHARE:.0%} or more of the cost after it (the same method that set the default 2×)")
     return out
 
 
-def nudge(sessions):
+def nudge(sessions, lang=None):
     """인계서(HANDOFF.md)를 쓰기 전에 고친 파일 수(안 썼으면 세션 전체)별로 인계서를 쓴 비율 — 기본 문턱 3을 정한 방법.
     여기서는 대화형 세션만 센다(usage_week 필터). 기본값의 세션 94개 측정은 실험·SDK 세션까지 센 분모라 값이 다를 수 있다."""
+    t = config.tr(lang=lang)
     rows, zero, names = [], 0, collections.Counter()
     for s in sessions:
         before, wrote = set(), False
@@ -134,10 +154,13 @@ def nudge(sessions):
             rows.append((len(before), wrote))
         else:
             zero += 1
-    out = {"counted": len(rows), "excluded": zero, "excluded_reason": "인계서를 쓰기 전 고친 파일 0개 — 제안 대상이 아님",
+    out = {"counted": len(rows), "excluded": zero,
+           "excluded_reason": t("인계서를 쓰기 전 고친 파일 0개 — 제안 대상이 아님",
+                                "0 files edited before the handoff was written, so the nudge does not apply"),
            "names": dict(names.most_common()), "recommend": None}
     buckets = []
-    for lo, hi, label in ((1, 1, "1개"), (2, 2, "2개"), (3, 3, "3개"), (4, 4, "4개"), (5, None, "5개 이상")):
+    for lo, hi, label in ((1, 1, t("1개", "1")), (2, 2, t("2개", "2")), (3, 3, t("3개", "3")), (4, 4, t("4개", "4")),
+                          (5, None, t("5개 이상", "5 or more"))):
         b = [w for k, w in rows if k >= lo and (hi is None or k <= hi)]
         buckets.append({"files": label, "sessions": len(b), "wrote": sum(b)})
     out["buckets"] = buckets
@@ -148,23 +171,35 @@ def nudge(sessions):
         if len(low) >= 3 and len(high) >= 3:
             gaps[n] = sum(high) / len(high) - sum(low) / len(low)
     if len(rows) < MIN_SESSIONS:
-        out["reason"] = f"센 세션 {len(rows)}개 — {MIN_SESSIONS}개 미만이라 기본값 {DEFAULT_NUDGE} 유지"
+        out["reason"] = t(f"센 세션 {len(rows)}개 — {MIN_SESSIONS}개 미만이라 기본값 {DEFAULT_NUDGE} 유지",
+                          f"{num(len(rows), 'session', 'sessions')} counted, fewer than {MIN_SESSIONS}, "
+                          f"so the default {DEFAULT_NUDGE} stays")
     elif not any(w for _, w in rows):
-        out["reason"] = f"인계서를 쓴 세션이 0개라 경계를 못 정한다 — 기본값 {DEFAULT_NUDGE} 유지"
+        out["reason"] = t(f"인계서를 쓴 세션이 0개라 경계를 못 정한다 — 기본값 {DEFAULT_NUDGE} 유지",
+                          f"0 sessions wrote a handoff, so there is no boundary to find and the default {DEFAULT_NUDGE} stays")
     elif not gaps:
-        out["reason"] = f"양쪽(문턱 미만·이상)에 세션이 3개씩 모이는 문턱이 없다 — 기본값 {DEFAULT_NUDGE} 유지"
+        out["reason"] = t(f"양쪽(문턱 미만·이상)에 세션이 3개씩 모이는 문턱이 없다 — 기본값 {DEFAULT_NUDGE} 유지",
+                          f"no threshold has 3 or more sessions on each side (below it, and at or above it), "
+                          f"so the default {DEFAULT_NUDGE} stays")
     else:
         best = max(gaps, key=gaps.get)
         # ponytail: 경계 하나만 본다. 문턱 이상에서 인계서를 10%p 이상 더 쓰고, 그 차이가 기본값 3의 차이보다 10%p 이상 클 때만 바꾼다
         # (잡음으로 문턱이 흔들리지 않게). 기본값 3 쪽에 세션이 3개씩 안 모여 차이를 못 셀 때는 -inf로 쳐서 최선 문턱을 권한다
         if gaps[best] < NUDGE_MARGIN:
-            out["reason"] = (f"고친 파일 수와 인계서 작성 사이에 뚜렷한 경계가 없다(가장 큰 차이 {gaps[best] * 100:+.0f}%p) — "
-                             f"기본값 {DEFAULT_NUDGE} 유지")
+            out["reason"] = t(f"고친 파일 수와 인계서 작성 사이에 뚜렷한 경계가 없다(가장 큰 차이 {gaps[best] * 100:+.0f}%p) — "
+                              f"기본값 {DEFAULT_NUDGE} 유지",
+                              f"no clear boundary between the number of edited files and writing a handoff (largest gap "
+                              f"{gaps[best] * 100:+.0f} percentage points), so the default {DEFAULT_NUDGE} stays")
         elif best != DEFAULT_NUDGE and gaps[best] - gaps.get(DEFAULT_NUDGE, float("-inf")) >= NUDGE_MARGIN:
             out["recommend"] = str(best)
-            out["reason"] = f"{best}개를 경계로 인계서 작성 비율 차이가 가장 크다({gaps[best] * 100:+.0f}%p)"
+            out["reason"] = t(f"{best}개를 경계로 인계서 작성 비율 차이가 가장 크다({gaps[best] * 100:+.0f}%p)",
+                              f"the gap in how often a handoff was written is largest at {best} files "
+                              f"({gaps[best] * 100:+.0f} percentage points)")
         else:
-            out["reason"] = f"기본값 {DEFAULT_NUDGE}이 이미 경계에 가깝다({gaps.get(DEFAULT_NUDGE, gaps[best]) * 100:+.0f}%p) — 유지"
+            gap = gaps.get(DEFAULT_NUDGE, gaps[best]) * 100
+            out["reason"] = t(f"기본값 {DEFAULT_NUDGE}이 이미 경계에 가깝다({gap:+.0f}%p) — 유지",
+                              f"the default {DEFAULT_NUDGE} is already close to the boundary ({gap:+.0f} percentage points), "
+                              f"so it stays")
     return out
 
 
@@ -213,8 +248,9 @@ def other_projects(root):
     return names
 
 
-def private_candidates(root):
+def private_candidates(root, lang=None):
     """개인 자료 목록 후보. 사람이 고른다 — 스캐너는 제안만."""
+    t = config.tr(root, lang)
     out, notes = [], []
 
     def files_with(term):
@@ -224,22 +260,24 @@ def private_candidates(root):
     log = git(root, "log", "--format=%an%x00%ae%x00%cn%x00%ce")
     seen = set()
     if log is None and git(root, "rev-parse", "--git-dir") is not None:
-        notes.append("커밋이 아직 없어 git 작성자를 못 셈")
+        notes.append(t("커밋이 아직 없어 git 작성자를 못 셈", "no commits yet, so git authors could not be counted"))
     elif log is None:
-        notes.append("git 저장소가 아니거나 git이 없어 작성자·추적 파일을 못 셈")
+        notes.append(t("git 저장소가 아니거나 git이 없어 작성자·추적 파일을 못 셈",
+                       "not a git repo, or git is missing, so authors and tracked files could not be counted"))
     else:
         for v in sorted({x.strip() for x in log.replace("\n", "\0").split("\0") if x.strip()}):
-            seen.add(v.lower()); out.append({"term": v, "source": "git 작성자·이메일", "files": files_with(v)})
+            seen.add(v.lower()); out.append({"term": v, "source": t("git 작성자·이메일", "git author or email"), "files": files_with(v)})
     try:
         user = getpass.getuser()
     except Exception:
         user = None
-        notes.append("OS 사용자 이름을 못 읽음")
+        notes.append(t("OS 사용자 이름을 못 읽음", "could not read the OS user name"))
     if user and user.lower() not in seen:
-        seen.add(user.lower()); out.append({"term": user, "source": "OS 사용자 이름", "files": files_with(user)})
+        seen.add(user.lower()); out.append({"term": user, "source": t("OS 사용자 이름", "OS user name"), "files": files_with(user)})
     proj = other_projects(root)
     if not os.path.isdir(os.path.expanduser("~/.claude/projects")):
-        notes.append("~/.claude/projects가 없어 다른 프로젝트 이름을 못 셈")
+        notes.append(t("~/.claude/projects가 없어 다른 프로젝트 이름을 못 셈",
+                       "~/.claude/projects is missing, so other project names could not be counted"))
     own = os.path.basename(root).lower()
     shown = 0
     for name in sorted(proj):
@@ -248,139 +286,261 @@ def private_candidates(root):
         n = files_with(name)
         if n:
             seen.add(name.lower()); shown += 1
-            out.append({"term": name, "source": "다른 프로젝트 이름", "files": n})
-    notes.append(f"다른 프로젝트 {len(proj)}개 이름 중 이 저장소 파일에 나오는 것 {shown}개")
+            out.append({"term": name, "source": t("다른 프로젝트 이름", "other project name"), "files": n})
+    notes.append(t(f"다른 프로젝트 {len(proj)}개 이름 중 이 저장소 파일에 나오는 것 {shown}개",
+                   f"other project names that appear in this repo's files: {shown} of {len(proj)}"))
     found = git(root, "grep", "-I", "-h", "-o", "-E", "--untracked", "-e", EMAIL)
     if found is not None:
         for e, n in collections.Counter(found.split()).most_common():
             if e.lower() not in seen and not PLACEHOLDER.search(e):
-                seen.add(e.lower()); out.append({"term": e, "source": "파일 속 이메일", "files": files_with(e)})
+                seen.add(e.lower()); out.append({"term": e, "source": t("파일 속 이메일", "email in a file"), "files": files_with(e)})
     return {"candidates": out, "notes": notes}
 
 
-def repo_advice(root):
+def repo_advice(root, lang=None):
+    t = config.tr(root, lang)
     tips = []
     if git(root, "rev-parse", "--git-dir") is None:
-        return ["git 저장소가 아니다 — 인계서 승격 검토(/promote)와 개념 지도 신선도(/drift)가 동작하지 않는다"]
+        return [t("git 저장소가 아니다 — 인계서 승격 검토(/promote)와 개념 지도 신선도(/drift)가 동작하지 않는다",
+                  "not a git repo: the handoff promotion review (/promote) and concept map freshness (/drift) do not work")]
     has_handoff = os.path.isfile(os.path.join(root, "HANDOFF.md"))
     tracked = bool((git(root, "ls-files", "HANDOFF.md") or "").strip())
     if has_handoff and not tracked:
-        tips.append("HANDOFF.md가 git에 추적되지 않는다 — `git add HANDOFF.md` 하지 않으면 승격 검토가 불가능하다")
+        tips.append(t("HANDOFF.md가 git에 추적되지 않는다 — `git add HANDOFF.md` 하지 않으면 승격 검토가 불가능하다",
+                      "HANDOFF.md is not tracked by git. The promotion review needs it: run `git add HANDOFF.md`"))
     elif not has_handoff:
-        tips.append("HANDOFF.md가 아직 없다 — 첫 작업 덩어리가 끝나면 '핸드오프 작성해줘'")
+        tips.append(t("HANDOFF.md가 아직 없다 — 첫 작업 덩어리가 끝나면 '핸드오프 작성해줘'",
+                      "no HANDOFF.md yet. When the first piece of work is done, ask \"write a handoff\""))
     else:
-        tips.append("HANDOFF.md 추적됨")
-    tips.append("DECISIONS.md 있음" if os.path.isfile(os.path.join(root, "DECISIONS.md"))
-                else "DECISIONS.md가 없다 — 결정이 인계서에만 살다가 사라질 수 있다. 결정이 나오면 /decision으로 시작한다")
+        tips.append(t("HANDOFF.md 추적됨", "HANDOFF.md is tracked"))
+    tips.append(t("DECISIONS.md 있음", "DECISIONS.md exists") if os.path.isfile(os.path.join(root, "DECISIONS.md"))
+                else t("DECISIONS.md가 없다 — 결정이 인계서에만 살다가 사라질 수 있다. 결정이 나오면 /decision으로 시작한다",
+                       "no DECISIONS.md. Decisions may live only in handoffs and get lost. "
+                       "When a decision is made, start the file with /decision"))
     if rules.concept_path(root)[0]:
-        tips.append("CONCEPTS.md 있음")
+        tips.append(t("CONCEPTS.md 있음", "CONCEPTS.md exists"))
     else:
         commits = (git(root, "rev-list", "--count", "HEAD") or "0").strip() or "0"
         nfiles = len((git(root, "ls-files") or "").splitlines())
         # ponytail: 개념 지도를 권할 크기 기준(커밋 50·파일 30)은 경험칙이다 — 측정한 값이 아니다
         big = int(commits) >= 50 and nfiles >= 30 if commits.isdigit() else False
-        tips.append(f"CONCEPTS.md 없음 — 커밋 {commits}개·추적 파일 {nfiles}개. "
-                    + ("개념 지도를 시작할 만하다(driftmap 스킬, 경험칙 기준 커밋 50·파일 30)" if big
-                       else "아직 작아 개념 지도는 미뤄도 된다(경험칙 기준 커밋 50·파일 30)"))
+        tips.append(t(f"CONCEPTS.md 없음 — 커밋 {commits}개·추적 파일 {nfiles}개. "
+                      + ("개념 지도를 시작할 만하다(driftmap 스킬, 경험칙 기준 커밋 50·파일 30)" if big
+                         else "아직 작아 개념 지도는 미뤄도 된다(경험칙 기준 커밋 50·파일 30)"),
+                      f"no CONCEPTS.md (commits: {commits}, tracked files: {nfiles}). "
+                      + ("Big enough to start a concept map (driftmap skill; rule of thumb: 50 commits and 30 files)" if big
+                         else "Still small, so the concept map can wait (rule of thumb: 50 commits and 30 files)")))
     return tips
 
 
+def language(sessions, root, lang=None):
+    """사람 프롬프트의 언어로 BATON_LANG을 제안한다. 한글이 든 프롬프트는 한국어, 글자가 있는데 한글이 없으면 그 밖의 언어,
+    글자가 없는 프롬프트("1", "?")는 안 센다. 한국어가 절반을 넘으면 ko, 절반 미만이면 en, 딱 반이면 제안하지 않는다.
+    ponytail: 붙여 넣은 글(오류 출력·문서)도 프롬프트에 들어 있어 섞인다 — 프롬프트 수로 세므로 긴 붙여넣기 하나가 이기지는 않는다.
+    지금 언어가 이미 설정(환경변수·설정 파일)으로 같은 값이면 제안하지 않는다. 로캘에서 온 값이면 같아도 써 두기를 권한다
+    (로캘이 바뀌거나 비어 있는 실행 환경에서도 그 언어로 나온다)."""
+    t = config.tr(root, lang)
+    ko = other = skipped = 0
+    for s in sessions:
+        for p in s["prompts"]:
+            if HANGUL.search(p):
+                ko += 1
+            elif any(c.isalpha() for c in p):
+                other += 1
+            else:
+                skipped += 1
+    n = ko + other
+    cur, src = i18n.where(root)
+    out = {"counted": n, "korean": ko, "other": other, "skipped": skipped, "current": cur, "source": src, "recommend": None}
+    srcs = config.language_source(src, t)
+    if not n:
+        out["reason"] = t("센 프롬프트가 없어 정하지 못한다 — 0건이 아니라 못 셈. 지금 값 유지",
+                          "no prompts were counted, so there is nothing to go on (could not count, not 0). The current value stays")
+        return out
+    if ko * 2 == n:
+        out["reason"] = t("한글 프롬프트와 그 밖의 프롬프트가 반반이다 — 지금 값 유지",
+                          "half of the prompts are in Korean and half are not, so the current value stays")
+        return out
+    want = "ko" if ko * 2 > n else "en"
+    share = pct(ko / n)
+    if want == cur and src in ("env", "config"):
+        out["reason"] = t(f"한글 프롬프트 {share} — 이미 {cur}다(정한 곳: {srcs}). 유지",
+                          f"{share} of the prompts are in Korean, and the output is already {cur} (source: {srcs}), so it stays")
+        return out
+    out["recommend"] = want
+    if want == cur:
+        out["reason"] = t(f"한글 프롬프트 {share} — 지금도 {cur}지만 설정한 값이 아니다(정한 곳: {srcs}). "
+                          f"써 두면 로캘이 다르거나 비어 있는 곳에서도 {want}로 나온다",
+                          f"{share} of the prompts are in Korean. The output is {cur} now, but it is not set anywhere "
+                          f"(source: {srcs}). Writing it keeps {want} where the locale is different or not set")
+    else:
+        out["reason"] = t(f"한글 프롬프트 {share} — 지금은 {cur}(정한 곳: {srcs})",
+                          f"{share} of the prompts are in Korean; the output is {cur} now (source: {srcs})")
+    if src == "env":
+        out["reason"] += t(". 다만 환경변수 BATON_LANG이 설정 파일보다 우선한다 — 써도 그 환경변수를 지우기 전에는 안 바뀐다",
+                           ". But the BATON_LANG environment variable wins over the config file: writing it changes nothing "
+                           "until that variable is removed")
+    return out
+
+
 def scan(root):
+    lang = i18n.lang(root)  # 이 실행의 출력 언어 — 한 번만 정해 아래로 넘긴다
+    t = config.tr(lang=lang)
     sessions, skipped, nfiles = load_sessions(root)
     current = {k: config.get(k, root, None) for k in config.SCALAR_KEYS}
     return {
-        "repo": root, "min_sessions": MIN_SESSIONS,
-        "config": {"path": config.path(), "status": config.status(root),
+        "repo": root, "min_sessions": MIN_SESSIONS, "lang": lang,
+        "config": {"path": config.path(), "status": config.status(root, lang),
                    "current": {k: v for k, v in current.items() if v is not None}},
         "sessions": {"files": nfiles, "usable": len(sessions), "excluded": skipped},
-        "codex": CODEX_NOTE,
-        "growth": growth(sessions),
-        "nudge": nudge(sessions),
+        "codex": t(CODEX_NOTE, CODEX_NOTE_EN),
+        "growth": growth(sessions, lang),
+        "nudge": nudge(sessions, lang),
         "triggers": triggers(sessions, root),
-        "private_terms": private_candidates(root),
-        "advice": repo_advice(root),
+        "private_terms": private_candidates(root, lang),
+        "advice": repo_advice(root, lang),
+        "language": language(sessions, root, lang),
     }
 
 
 def render(r):
-    s, g, n, t, p = r["sessions"], r["growth"], r["nudge"], r["triggers"], r["private_terms"]
+    t = config.tr(lang=r.get("lang"))
+    s, g, n, tg, p = r["sessions"], r["growth"], r["nudge"], r["triggers"], r["private_terms"]
     ex = s["excluded"]
     cur = r["config"]["current"]
-    now = lambda k, d: f" (지금 적용 값 {cur[k]} — 설정 파일·환경변수에서. 그대로 둔다)" if k in cur else f" (지금 적용 값 {d} — 코드 기본값)"
-    L = [f"[baton-setup] {r['repo']} — 읽기만 했다. 아무것도 바꾸지 않았다.", ""]
-    L += ["설정"] + [f"  {x}" for x in r["config"]["status"]] + [""]
-    L.append(f"세션 기록: 이 저장소 폴더의 세션 파일 {s['files']}개 → 쓸 수 있는 세션 {s['usable']}개")
-    L.append(f"  제외: 중복 사본 {ex['duplicate']} · 호출/사람 프롬프트 없음 {ex['empty']} · 실험·임시 폴더 {ex['experimental']} · "
-             f"claude -p·SDK {ex['non_cli']}")
+    now = lambda k, d: (t(f" (지금 적용 값 {cur[k]} — 설정 파일·환경변수에서. 그대로 둔다)",
+                          f" (value in effect now: {cur[k]}, from the config file or an environment variable. Left as is)")
+                        if k in cur else t(f" (지금 적용 값 {d} — 코드 기본값)", f" (value in effect now: {d}, the code default)"))
+    L = [t(f"[baton-setup] {r['repo']} — 읽기만 했다. 아무것도 바꾸지 않았다.", f"[baton-setup] {r['repo']}: read only. Nothing was changed."), ""]
+    L += [t("설정", "Config")] + [f"  {x}" for x in r["config"]["status"]] + [""]
+    L.append(t(f"세션 기록: 이 저장소 폴더의 세션 파일 {s['files']}개 → 쓸 수 있는 세션 {s['usable']}개",
+               f"Session logs: {num(s['files'], 'session file', 'session files')} for this repo's folder → "
+               f"{num(s['usable'], 'usable session', 'usable sessions')}"))
+    L.append(t(f"  제외: 중복 사본 {ex['duplicate']} · 호출/사람 프롬프트 없음 {ex['empty']} · 실험·임시 폴더 {ex['experimental']} · "
+               f"claude -p·SDK {ex['non_cli']}",
+               f"  Excluded: duplicate copies {ex['duplicate']} · no model calls or no human prompt {ex['empty']} · "
+               f"experiment or temp folders {ex['experimental']} · claude -p or SDK {ex['non_cli']}"))
     L.append(f"  {r['codex']}")
     if not s["files"]:
-        L.append("  이 저장소 폴더에서 연 Claude Code 세션 기록을 못 찾았다 — 0건이 아니라 못 셈"
-                 "(다른 폴더에서 열었거나, 기록이 지워졌거나, ~/.claude/projects가 없다)")
+        L.append(t("  이 저장소 폴더에서 연 Claude Code 세션 기록을 못 찾았다 — 0건이 아니라 못 셈"
+                   "(다른 폴더에서 열었거나, 기록이 지워졌거나, ~/.claude/projects가 없다)",
+                   "  No Claude Code session logs opened in this repo's folder were found. That means could not count, not 0 "
+                   "(the sessions were opened in another folder, the logs were deleted, or ~/.claude/projects is missing)"))
     if s["usable"] < r["min_sessions"]:
-        L.append(f"  표본 {s['usable']}개 — {r['min_sessions']}개 미만이라 문턱은 기본값을 권한다(몇 세션의 우연에 흔들린다)")
-    L += ["", f"1) 세션 끊기 알림 문턱 BATON_SPLIT_RATIOS (기본 {DEFAULT_RATIOS})",
-          f"  센 세션 {g['counted']}개 / 못 센 {g['uncounted']}개({g['uncounted_reason']})"]
+        L.append(t(f"  표본 {s['usable']}개 — {r['min_sessions']}개 미만이라 문턱은 기본값을 권한다(몇 세션의 우연에 흔들린다)",
+                   f"  Sample of {s['usable']}: fewer than {r['min_sessions']}, so the defaults are recommended for the thresholds "
+                   f"(a few sessions can swing them by chance)"))
+    L += ["", t(f"1) 세션 끊기 알림 문턱 BATON_SPLIT_RATIOS (기본 {DEFAULT_RATIOS})",
+                f"1) Context-growth notice thresholds BATON_SPLIT_RATIOS (default {DEFAULT_RATIOS})"),
+          t(f"  센 세션 {g['counted']}개 / 못 센 {g['uncounted']}개({g['uncounted_reason']})",
+            f"  {num(g['counted'], 'session', 'sessions')} counted / {g['uncounted']} not counted ({g['uncounted_reason']})")]
     if g.get("quartiles"):
         q = g["quartiles"]
-        L.append(f"  최대 맥락 ÷ 첫 호출 맥락: 사분위 {q[0]:g} · 중앙 {q[1]:g} · {q[2]:g}배")
-        L += [f"    {c['ratio']:g}배 — 닿는 세션 {pct(c['reach'])} · 닿은 뒤 남은 비용 {pct(c['cost_after'])} · "
-              f"재계산 절감(추정 상한) {pct(c['saving'])}" for c in g["candidates"]]
-    L.append(f"  제안: {g['recommend'] or '바꾸지 않음'} — {g['reason']}{now('BATON_SPLIT_RATIOS', DEFAULT_RATIOS)}")
-    L += ["", f"2) 인계서 제안 문턱 BATON_HANDOFF_NUDGE_FILES (기본 {DEFAULT_NUDGE})",
-          f"  센 세션 {n['counted']}개 / 제외 {n['excluded']}개({n['excluded_reason']})"]
-    L += [f"    고친 파일 {b['files']}: 세션 {b['sessions']} · 인계서 씀 {b['wrote']}"
+        L.append(t(f"  최대 맥락 ÷ 첫 호출 맥락: 사분위 {q[0]:g} · 중앙 {q[1]:g} · {q[2]:g}배",
+                   f"  Largest context ÷ first-call context: quartile {q[0]:g} · median {q[1]:g} · {q[2]:g}×"))
+        L += [t(f"    {c['ratio']:g}배 — 닿는 세션 {pct(c['reach'])} · 닿은 뒤 남은 비용 {pct(c['cost_after'])} · "
+                f"재계산 절감(추정 상한) {pct(c['saving'])}",
+                f"    {c['ratio']:g}× — sessions that reach it {pct(c['reach'])} · cost left after reaching it {pct(c['cost_after'])} · "
+                f"recomputed saving (estimated upper bound) {pct(c['saving'])}") for c in g["candidates"]]
+    L.append(t(f"  제안: {g['recommend'] or '바꾸지 않음'} — {g['reason']}{now('BATON_SPLIT_RATIOS', DEFAULT_RATIOS)}",
+               f"  Proposal: {g['recommend'] or 'no change'} — {g['reason']}{now('BATON_SPLIT_RATIOS', DEFAULT_RATIOS)}"))
+    L += ["", t(f"2) 인계서 제안 문턱 BATON_HANDOFF_NUDGE_FILES (기본 {DEFAULT_NUDGE})",
+                f"2) Handoff nudge threshold BATON_HANDOFF_NUDGE_FILES (default {DEFAULT_NUDGE})"),
+          t(f"  센 세션 {n['counted']}개 / 제외 {n['excluded']}개({n['excluded_reason']})",
+            f"  {num(n['counted'], 'session', 'sessions')} counted / {n['excluded']} excluded ({n['excluded_reason']})")]
+    L += [t(f"    고친 파일 {b['files']}: 세션 {b['sessions']} · 인계서 씀 {b['wrote']}",
+            f"    files edited {b['files']}: sessions {b['sessions']} · wrote a handoff {b['wrote']}")
           + (f" ({pct(b['wrote'] / b['sessions'])})" if b["sessions"] else "") for b in n["buckets"]]
-    L.append(f"  제안: {n['recommend'] or '바꾸지 않음'} — {n['reason']}{now('BATON_HANDOFF_NUDGE_FILES', DEFAULT_NUDGE)}")
-    L += ["", "3) 실제로 쓴 인계서 파일 이름(설정 아님, 보고만)"]
+    L.append(t(f"  제안: {n['recommend'] or '바꾸지 않음'} — {n['reason']}{now('BATON_HANDOFF_NUDGE_FILES', DEFAULT_NUDGE)}",
+               f"  Proposal: {n['recommend'] or 'no change'} — {n['reason']}{now('BATON_HANDOFF_NUDGE_FILES', DEFAULT_NUDGE)}"))
+    L += ["", t("3) 실제로 쓴 인계서 파일 이름(설정 아님, 보고만)", "3) Handoff file names actually written (not a setting, report only)")]
     if n["names"]:
-        L += [f"    {k}: 편집 {v}회" + ("" if k == "HANDOFF.md" else " — 주입 훅은 HANDOFF.md만 읽는다") for k, v in n["names"].items()]
+        L += [t(f"    {k}: 편집 {v}회", f"    {k}: edits {v}")
+              + ("" if k == "HANDOFF.md" else t(" — 주입 훅은 HANDOFF.md만 읽는다", " — the injection hook reads only HANDOFF.md"))
+              for k, v in n["names"].items()]
     else:
-        L.append(f"    세션 {s['usable']}개에서 HANDOFF*.md 편집 0회(이 저장소 폴더의 Claude Code 세션만 셌다)")
-    L += ["", "4) 인계 트리거 추가 말 후보 BATON_HANDOFF_TRIGGERS_EXTRA",
-          f"  처음 5호출 안에 HANDOFF.md를 읽었는데 지금 트리거가 안 맞은 세션 {t['sessions_read_untriggered']}개 · "
-          f"인계서를 안 읽고 주입도 없던 세션 {t['sessions_not_read']}개 · 그 밖의 사람 프롬프트 {t['other_prompts']}개"]
-    if t["candidates"]:
-        L += [f"    '{c['phrase']}' — 읽은 세션 첫 프롬프트 {c['read']}개 · 그 밖의 프롬프트 {c['other_prompts']}개에도 걸린다"
-              f"(그만큼 인계서가 더 들어간다 — 상한)" for c in t["candidates"]]
-    elif t["sessions_read_untriggered"] < 2:
-        L.append("    후보 없음이 아니라 표본 부족 — 그런 세션이 2개 이상이어야 반복된 말을 셀 수 있다")
+        L.append(t(f"    세션 {s['usable']}개에서 HANDOFF*.md 편집 0회(이 저장소 폴더의 Claude Code 세션만 셌다)",
+                   f"    0 edits to HANDOFF*.md in {num(s['usable'], 'session', 'sessions')} "
+                   f"(only Claude Code sessions in this repo's folder were counted)"))
+    L += ["", t("4) 인계 트리거 추가 말 후보 BATON_HANDOFF_TRIGGERS_EXTRA",
+                "4) Extra handoff trigger phrase candidates BATON_HANDOFF_TRIGGERS_EXTRA"),
+          t(f"  처음 5호출 안에 HANDOFF.md를 읽었는데 지금 트리거가 안 맞은 세션 {tg['sessions_read_untriggered']}개 · "
+            f"인계서를 안 읽고 주입도 없던 세션 {tg['sessions_not_read']}개 · 그 밖의 사람 프롬프트 {tg['other_prompts']}개",
+            f"  Sessions that read HANDOFF.md in their first 5 calls but matched no current trigger: "
+            f"{tg['sessions_read_untriggered']} · sessions that neither read the handoff nor had it injected: "
+            f"{tg['sessions_not_read']} · other human prompts: {tg['other_prompts']}")]
+    if tg["candidates"]:
+        L += [t(f"    '{c['phrase']}' — 읽은 세션 첫 프롬프트 {c['read']}개 · 그 밖의 프롬프트 {c['other_prompts']}개에도 걸린다"
+                f"(그만큼 인계서가 더 들어간다 — 상한)",
+                f"    '{c['phrase']}' — first prompts of such sessions: {c['read']} · other prompts it also matches: "
+                f"{c['other_prompts']} (the handoff would go in that many more times; an upper bound)") for c in tg["candidates"]]
+    elif tg["sessions_read_untriggered"] < 2:
+        L.append(t("    후보 없음이 아니라 표본 부족 — 그런 세션이 2개 이상이어야 반복된 말을 셀 수 있다",
+                   "    Not \"no candidates\" but too small a sample: it takes 2 or more such sessions to count repeated phrases"))
     else:
-        L.append("    두 세션 이상에서 반복된 말이 없다")
-    L += ["", "5) 개인 자료 목록 후보 private_terms (고른 것만 인계서 검사가 막는다)"]
-    L += [f"    {c['term']} — {c['source']} · 이 저장소 파일 {'못 셈' if c['files'] is None else str(c['files']) + '개'}에 나옴"
-          for c in p["candidates"]] or ["    후보 0개"]
+        L.append(t("    두 세션 이상에서 반복된 말이 없다", "    No phrase repeats across two or more sessions"))
+    L += ["", t("5) 개인 자료 목록 후보 private_terms (고른 것만 인계서 검사가 막는다)",
+                "5) Private-words list candidates private_terms (the handoff check blocks only the ones you pick)")]
+    L += [t(f"    {c['term']} — {c['source']} · 이 저장소 파일 {'못 셈' if c['files'] is None else str(c['files']) + '개'}에 나옴",
+            f"    {c['term']} — {c['source']} · files in this repo that contain it: "
+            + ("could not count" if c["files"] is None else str(c["files"])))
+          for c in p["candidates"]] or [t("    후보 0개", "    0 candidates")]
     L += [f"    ({x})" for x in p["notes"]]
-    L += ["", "6) 저장소 권고(보고만)"] + [f"  - {x}" for x in r["advice"]]
+    L += ["", t("6) 저장소 권고(보고만)", "6) Repo advice (report only)")] + [f"  - {x}" for x in r["advice"]]
+    lg = r["language"]
+    L += ["", t("7) 출력 언어 BATON_LANG (ko·en·auto, 기본은 로캘을 따른다)",
+                "7) Output language BATON_LANG (ko, en or auto; by default it follows the locale)"),
+          t(f"  사람 프롬프트 {lg['counted']}개 중 한글이 든 것 {lg['korean']}개 · 그 밖의 언어 {lg['other']}개"
+            f"(글자가 없어 안 센 것 {lg['skipped']}개)",
+            f"  Human prompts counted: {lg['counted']} · with Korean: {lg['korean']} · other languages: {lg['other']} "
+            f"(not counted, no letters: {lg['skipped']})"),
+          t(f"  제안: {lg['recommend'] or '바꾸지 않음'} — {lg['reason']}",
+            f"  Proposal: {lg['recommend'] or 'no change'} — {lg['reason']}")]
     return "\n".join(L)
 
 
 # ── 적용 ──────────────────────────────────────────────────────────────
 
+def here(repo=None):
+    """저장소 인자가 없으면 CLAUDE_PROJECT_DIR, 없으면 지금 폴더 — git 최상위로 모은 키."""
+    return config.repo_key(repo or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+
+
 def apply(argv):
-    ap = argparse.ArgumentParser(prog="setup_scan.py apply", description="사용자가 고른 값만 설정 파일에 쓴다")
+    t = config.tr(here())  # 도움말용. 저장소 인자를 읽은 뒤 그 저장소 기준으로 한 번 더 정한다
+    ap = argparse.ArgumentParser(prog="setup_scan.py apply",
+                                 description=t("사용자가 고른 값만 설정 파일에 쓴다", "Write only the values the user picked to the config file"))
     ap.add_argument("repo", nargs="?")
-    ap.add_argument("--global", dest="is_global", action="store_true", help="전역 절에 쓴다(기본: 이 저장소 절)")
-    ap.add_argument("--set", action="append", default=[], metavar="키=값")
-    ap.add_argument("--unset", action="append", default=[], metavar="키")
-    ap.add_argument("--private-term", action="append", default=[], metavar="단어")
-    ap.add_argument("--private-terms-file", metavar="경로", help="한 줄에 하나. '-'면 표준 입력 — 단어가 명령줄·세션 기록에 안 남는다")
-    ap.add_argument("--remove-term", action="append", default=[], metavar="단어")
-    ap.add_argument("--remove-terms-file", metavar="경로", help="뺄 단어 파일(한 줄에 하나, '-'면 표준 입력)")
-    ap.add_argument("--trigger", action="append", default=[], metavar="말")
-    ap.add_argument("--remove-trigger", action="append", default=[], metavar="말")
+    ap.add_argument("--global", dest="is_global", action="store_true",
+                    help=t("전역 절에 쓴다(기본: 이 저장소 절)", "write to the global section (default: this repo's section)"))
+    ap.add_argument("--set", action="append", default=[], metavar=t("키=값", "KEY=VALUE"))
+    ap.add_argument("--unset", action="append", default=[], metavar=t("키", "KEY"))
+    ap.add_argument("--private-term", action="append", default=[], metavar=t("단어", "WORD"))
+    ap.add_argument("--private-terms-file", metavar=t("경로", "PATH"),
+                    help=t("한 줄에 하나. '-'면 표준 입력 — 단어가 명령줄·세션 기록에 안 남는다",
+                           "one per line; '-' reads standard input, so the words stay out of the command line and the session log"))
+    ap.add_argument("--remove-term", action="append", default=[], metavar=t("단어", "WORD"))
+    ap.add_argument("--remove-terms-file", metavar=t("경로", "PATH"),
+                    help=t("뺄 단어 파일(한 줄에 하나, '-'면 표준 입력)", "file of words to remove (one per line; '-' reads standard input)"))
+    ap.add_argument("--trigger", action="append", default=[], metavar=t("말", "PHRASE"))
+    ap.add_argument("--remove-trigger", action="append", default=[], metavar=t("말", "PHRASE"))
     a = ap.parse_args(argv)
+    target = here(a.repo)
+    lang = i18n.lang(target)
+    t = config.tr(lang=lang)
     sets = {}
     for kv in a.set:
         k, sep, v = kv.partition("=")
         if not sep or k not in config.SCALAR_KEYS:
-            ap.error(f"모르는 설정: {k or kv} — 쓸 수 있는 키: {', '.join(config.SCALAR_KEYS)}")
-        why = config.invalid(k, v)
+            ap.error(t(f"모르는 설정: {k or kv} — 쓸 수 있는 키: {', '.join(config.SCALAR_KEYS)}",
+                       f"unknown setting: {k or kv}. Keys you can set: {', '.join(config.SCALAR_KEYS)}"))
+        why = config.invalid(k, v, lang)
         if why:
             ap.error(f"{k}: {why}")
         sets[k] = os.path.expanduser(v.strip()) if k == "BATON_LOG" else v.strip()  # "~/…"를 펼쳐 둔다
     for k in a.unset:
         if k not in config.SCALAR_KEYS + config.LIST_KEYS:
-            ap.error(f"모르는 키: {k}")
+            ap.error(t(f"모르는 키: {k}", f"unknown key: {k}"))
     def read_terms(path, flag):
         """단어 파일(또는 '-' 표준 입력)의 줄들. BOM은 뗀다. 못 읽으면 단어를 출력하지 않고 멈춘다."""
         if not path:
@@ -389,9 +549,10 @@ def apply(argv):
             with (sys.stdin if path == "-" else open(path, encoding="utf-8-sig")) as f:
                 return f.read().lstrip("\ufeff").splitlines()
         except UnicodeDecodeError:
-            ap.error(f"{flag}: UTF-8로 읽히지 않는다 — UTF-8로 저장한 뒤 다시 한다")
+            ap.error(t(f"{flag}: UTF-8로 읽히지 않는다 — UTF-8로 저장한 뒤 다시 한다",
+                       f"{flag}: not readable as UTF-8. Save the file as UTF-8 and run again"))
         except OSError as e:
-            ap.error(f"{flag}을 못 읽었다: {e.strerror}")
+            ap.error(t(f"{flag}을 못 읽었다: {e.strerror}", f"could not read {flag}: {e.strerror}"))
 
     lists = {"add": {"private_terms": a.private_term + read_terms(a.private_terms_file, "--private-terms-file"),
                      "BATON_HANDOFF_TRIGGERS_EXTRA": a.trigger},
@@ -400,56 +561,70 @@ def apply(argv):
     for op in lists:
         for k in lists[op]:
             items = [x.strip() for x in lists[op][k] if x.strip()]
-            if op == "add" and any(config.invalid(k, x) for x in items):
-                ap.error(f"{'개인 자료 단어' if k == 'private_terms' else '트리거 말'}: {config.invalid(k, 'x')}")  # 단어는 다시 출력하지 않는다
+            if op == "add" and any(config.invalid(k, x, lang) for x in items):
+                what = t("개인 자료 단어", "private word") if k == "private_terms" else t("트리거 말", "trigger phrase")
+                ap.error(f"{what}: {config.invalid(k, 'x', lang)}")  # 단어는 다시 출력하지 않는다
             lists[op][k] = items
         lists[op] = {k: v for k, v in lists[op].items() if v}
     add, remove = lists["add"], lists["remove"]
-    repo = None if a.is_global else config.repo_key(a.repo or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+    repo = None if a.is_global else target
     if repo and any(k in config.GLOBAL_ONLY for k in list(sets) + a.unset):
-        ap.error(f"{', '.join(config.GLOBAL_ONLY)}는 전역에만 둔다 — --global을 붙인다")
+        ap.error(t(f"{', '.join(config.GLOBAL_ONLY)}는 전역에만 둔다 — --global을 붙인다",
+                   f"{', '.join(config.GLOBAL_ONLY)} can only go in the global section. Add --global"))
     if not (sets or a.unset or add or remove):
-        ap.error("바꿀 것이 없다")
+        ap.error(t("바꿀 것이 없다", "nothing to change"))
     removed = {}
     try:
         p = config.update(repo, sets, a.unset, add, remove, removed)
     except (ValueError, OSError) as e:
-        sys.exit(f"[baton-setup] 쓰지 못했다: {e}")
-    where = "전역 절" if repo is None else f"저장소 절({repo})"
-    print(f"[baton-setup] {p}의 {where}에 썼다(파일 600).")
+        sys.exit(t(f"[baton-setup] 쓰지 못했다: {e}", f"[baton-setup] Could not write: {e}"))
+    where = t("전역 절", "the global section") if repo is None else t(f"저장소 절({repo})", f"the section for {repo}")
+    print(t(f"[baton-setup] {p}의 {where}에 썼다(파일 600).", f"[baton-setup] Wrote to {where} in {p} (file mode 600)."))
     for k, v in sets.items():
         print(f"  {k}={v}")
     for k in a.unset:
-        print(f"  {k} 지움 — 이제 전역 절·코드 기본값을 따른다")
+        print(t(f"  {k} 지움 — 이제 전역 절·코드 기본값을 따른다", f"  {k} removed. The global section or the code default applies now"))
     if "private_terms" in add:
-        print(f"  개인 자료 목록 단어 {len(add['private_terms'])}개 추가(이 출력에는 단어를 적지 않는다)")
+        n = len(add["private_terms"])
+        print(t(f"  개인 자료 목록 단어 {n}개 추가(이 출력에는 단어를 적지 않는다)",
+                f"  Added {n} {'word' if n == 1 else 'words'} to the private-words list (this output does not show them)"))
     if "BATON_HANDOFF_TRIGGERS_EXTRA" in add:
-        print(f"  인계 트리거 추가 말 추가: {', '.join(add['BATON_HANDOFF_TRIGGERS_EXTRA'])}")
+        print(t(f"  인계 트리거 추가 말 추가: {', '.join(add['BATON_HANDOFF_TRIGGERS_EXTRA'])}",
+                f"  Added extra trigger phrases: {', '.join(add['BATON_HANDOFF_TRIGGERS_EXTRA'])}"))
     data = config.load() or {}
     for k, items in remove.items():
-        name = "개인 자료 목록 단어" if k == "private_terms" else "인계 트리거 추가 말"
-        print(f"  {name} {len(items)}개 중 {removed.get(k, 0)}개를 {where}에서 뺌"
-              + (" — 나머지는 이 절에 없었다" if removed.get(k, 0) < len(items) else ""))
+        name = (t("개인 자료 목록 단어", "words from the private-words list") if k == "private_terms"
+                else t("인계 트리거 추가 말", "extra trigger phrases"))
+        gone = removed.get(k, 0)
+        print(t(f"  {name} {len(items)}개 중 {gone}개를 {where}에서 뺌", f"  Removed {gone} of {len(items)} {name} from {where}")
+              + (t(" — 나머지는 이 절에 없었다", ". The rest were not in this section") if gone < len(items) else ""))
         # 다른 절에 남아 있으면 여전히 적용된다 — 저장소 절에서 뺐으면 전역 절, 전역에서 뺐으면 저장소 절들을 본다
         others = [data.get("global")] if repo else list((data.get("repos") or {}).values())
         drop = {x.casefold() for x in items}
         left = sum(1 for sec in others if isinstance(sec, dict) and isinstance(sec.get(k), list)
                    and any(isinstance(x, str) and x.strip().casefold() in drop for x in sec[k]))
         if left:
-            print(f"  주의: 뺀 것 일부가 다른 {'전역 절' if repo else f'저장소 절 {left}곳'}에 남아 여전히 적용된다"
-                  f"({'--global을 붙여' if repo else '그 저장소에서'} 다시 뺀다)")
-    print("  되돌리기: apply --unset <키> · --remove-terms-file <경로> · --remove-trigger <말>(전역이면 --global). "
-          "같은 이름의 환경변수가 설정 파일보다 우선한다")
+            print(t(f"  주의: 뺀 것 일부가 다른 {'전역 절' if repo else f'저장소 절 {left}곳'}에 남아 여전히 적용된다"
+                    f"({'--global을 붙여' if repo else '그 저장소에서'} 다시 뺀다)",
+                    f"  Note: some of them are still in {'the global section' if repo else f'{left} other repo section(s)'} "
+                    f"and still apply (remove them again {'with --global' if repo else 'from that repo'})"))
+    print(t("  되돌리기: apply --unset <키> · --remove-terms-file <경로> · --remove-trigger <말>(전역이면 --global). "
+            "같은 이름의 환경변수가 설정 파일보다 우선한다",
+            "  To undo: apply --unset <key> · --remove-terms-file <path> · --remove-trigger <phrase> (add --global for the "
+            "global section). An environment variable with the same name wins over the config file"))
 
 
 def main(argv):
     if argv and argv[0] == "apply":
         return apply(argv[1:])
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    t = config.tr(here())
+    ap = argparse.ArgumentParser(description=t(__doc__.splitlines()[0],
+                                               "/baton-setup scanner: proposes baton thresholds and private-word candidates "
+                                               "from this user's own history. Read only."))
     ap.add_argument("repo", nargs="?")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    r = scan(config.repo_key(a.repo or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()))
+    r = scan(here(a.repo))
     print(json.dumps(r, ensure_ascii=False, indent=2) if a.json else render(r))
 
 
