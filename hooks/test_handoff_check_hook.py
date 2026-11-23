@@ -150,6 +150,8 @@ class HandoffCheckHookTest(unittest.TestCase):
         reason = out["reason"]
         self.assertIn("파일 3개를 고쳤다: a.py, b.py, sub/c.py.", reason)  # cwd(/r) 기준 상대 경로
         self.assertIn("BATON_HANDOFF_AUTO=off", reason)
+        self.assertIn("기억으로 새로 쓰지 말고 지금 HANDOFF.md에서 시작해 아직 참인 줄은 그대로 옮긴다.", reason)
+        self.assertIn("마지막 커밋판에서 빠진 줄을 알려 준다.", reason)
         checker = reason.split('python3 "', 1)[1].split('"', 1)[0]
         self.assertTrue(os.path.isfile(checker), checker)  # 검사기 경로는 실제 플러그인 파일
         skill = reason.split("baton 인계서 스킬(", 1)[1].split("의 ", 1)[0]
@@ -205,6 +207,9 @@ class HandoffCheckHookTest(unittest.TestCase):
                                           "HANDOFF_*.md) was last written: a.py, b.py, c.py. Write or update HANDOFF.md"), reason)
         self.assertIn("section 'When the Stop hook asks'", reason)
         self.assertIn("Skip the promotion review and do not commit.", reason)
+        self.assertIn("Start from the current HANDOFF.md and carry forward every line that is still true; do not rewrite it "
+                      "from memory.", reason)
+        self.assertIn("it lists lines that were dropped since the last committed version.", reason)
         self.assertIn("Then end your turn with one line to the user saying the handoff was updated and that "
                       "BATON_HANDOFF_AUTO=off turns this off.", reason)
         msg = self.stop(sid="s2", extra_env=en)
@@ -221,6 +226,38 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertTrue(ctx.startswith("[baton] Handoff-check warnings for the HANDOFF.md you just wrote (not blocking):\n- warning: "), ctx)
         self.assertIsNone(self.post(self.handoff(GOOD_EN), extra_env=en))  # 영어 템플릿은 조용히 통과
         self.assertIsNone(self.post(self.handoff(GOOD_EN)))  # 메시지가 한국어여도 영어 파일을 읽는다
+
+    def test_dropped_lines_warned_against_last_commit(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        self.assertIsNone(self.post(p))  # git 저장소가 아니면 비교할 판이 없다 — 조용하다
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.assertIsNone(self.post(p))  # 커밋판과 같다
+        self.handoff(GOOD)
+        ctx = self.post(p)["hookSpecificOutput"]["additionalContext"]
+        self.assertTrue(ctx.startswith("[baton] 방금 쓴 HANDOFF.md 검사 경고(막지 않음):\n- 경고: 결정·제약으로 보이는 줄 1개"), ctx)
+        self.assertIn("\n- 경고: 마지막 커밋판에 있던 줄 2개가 새 인계서에 없다", ctx)
+        self.assertIn("\n    - [실패한 접근법] rtk가 감싼 diff 출력을 믿기 — md5로 확인", ctx)
+        en = self.post(p, extra_env={"BATON_LANG": "en"})["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("\n- warning: 2 line(s) from the last committed version are not in the new handoff", en)
+        self.assertIn("\n    - [Failed approaches] rtk가 감싼 diff", en)
+        self.handoff("# Session Handoff\n")  # 막는 문제가 있으면 빠진 줄 경고도 같은 reason에 붙는다
+        out = self.post(p)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("결정·제약으로 보이는 줄", out["reason"])
+
+    def test_output_is_capped(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_check_hook", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        for lang in ("ko", "en"):
+            t = hook.handoff_check.tr(lang)
+            out = hook.capped("x" * 20000, t)
+            self.assertEqual(len(out), hook.OUT_MAX)
+            self.assertTrue(out.endswith("python3 lib/handoff_check.py HANDOFF.md" + ("" if lang == "ko" else " for all of it")), out[-80:])
+            self.assertEqual(hook.capped("짧다", t), "짧다")
 
     def test_locale_fallback_reaches_the_hook(self):
         self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py")])

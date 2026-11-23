@@ -410,6 +410,153 @@ class EnglishHandoffTest(unittest.TestCase):
         self.assertEqual(self.cli(GOOD_EN, {"LANG": "C.UTF-8"}), (0, "HANDOFF.md: no problems\n"))
 
 
+def git_repo(root):
+    subprocess.run(["git", "init", "-q", root], check=True)
+    return lambda *a: subprocess.run(["git", "-C", root, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                                      "-c", "commit.gpgsign=false", *a], check=True, capture_output=True)
+
+
+class DropCheckTest(unittest.TestCase):
+    """저장 때 마지막 커밋판보다 빠진 줄을 경고한다(막지 않음). 이어 가야 하는 절은 모두, 사실·다음 행동은 결정·제약 표지가 있는 줄만."""
+    OLD = GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "## 확인된 사실과 결정\n- [V] 테스트 168개 통과(11-23)\n"
+                       "- [V] 소유자 결정: 배포는 사람이 한다\n").replace(
+        "## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n"
+        "- 세션 기억 파일을 잠금 없이 동시에 쓰기\n").replace(
+        "## 남은 리스크와 다음 행동\n- 다음 행동: 설치\n", "## 남은 리스크와 다음 행동\n- 다음 행동: 설치 스크립트 고치기\n")
+
+    def test_dropped_lines_by_section_rule(self):
+        new = self.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "").replace(
+            "- [V] 테스트 168개 통과(11-23)\n", "").replace("- [V] 소유자 결정: 배포는 사람이 한다\n", "")
+        self.assertEqual(handoff_check.dropped(self.OLD, new),
+                         [(0, "[V] 소유자 결정: 배포는 사람이 한다"), (1, "rtk가 감싼 diff 출력을 믿기 — md5로 확인")])
+        # 표지 없는 끝난 사실(테스트 통과)은 지워도 알리지 않는다. 고쳐 쓴 줄·다른 절로 옮긴 줄·DECISIONS.md로 올린 줄은 빠진 것이 아니다
+        moved = new.replace("## 이미 한 변경\n- 없음\n", "## 이미 한 변경\n- 다음 행동이던 설치 스크립트를 고쳤다\n").replace(
+            "- 다음 행동: 설치 스크립트 고치기\n", "- 다음 행동: 배포\n") + "- rtk가 감싼 diff 출력은 믿지 않는다 — md5로\n"
+        self.assertEqual(handoff_check.dropped(self.OLD, moved, decisions="## 배포는 사람이 한다(소유자 결정)\n"), [])
+        self.assertEqual(handoff_check.dropped(GOOD, GOOD.replace("## 실패한 접근법 (다시 시도 금지)\n- 없음\n",
+                                                                  "## 실패한 접근법 (다시 시도 금지)\n")), [])  # 자리표시는 줄이 아니다
+
+    def test_english_sections_and_markers(self):
+        old = GOOD_EN.replace("## Failed approaches (do not retry)\n- None\n",
+                              "## Failed approaches (do not retry)\n- Trusting the wrapped diff output — check with md5\n").replace(
+            "### Rejected (do not raise again)\n- None\n", "### Rejected (do not raise again)\n- Retry loop / 2026-10-03 / owner said no\n"
+        ).replace("## Risks and next actions\n- Next action: install\n",
+                  "## Risks and next actions\n- Never push to main directly\n- Next action: install the hook\n")
+        self.assertEqual(handoff_check.dropped(old, GOOD_EN),
+                         [(1, "Trusting the wrapped diff output — check with md5"), (2, "Never push to main directly"),
+                          (4, "Retry loop / 2026-10-03 / owner said no")])
+        self.assertEqual(handoff_check.dropped(old, old.replace("Trusting the wrapped diff output", "Trusted wrapped diff outputs")), [])
+
+    def test_warning_messages(self):
+        many = self.OLD.replace("## 실패한 접근법 (다시 시도 금지)\n", "## 실패한 접근법 (다시 시도 금지)\n"
+                                + "".join(f"- 실패 사례 번호{i:02d} 다른 내용{i:02d}\n" for i in range(10)) + "- 경로 /Users/someone/x 에서 실패\n")
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "HANDOFF.md")  # 옆에 DECISIONS.md가 없는 곳 — 저장소의 진짜 DECISIONS.md를 읽지 않게
+        out = handoff_check.drop_warnings(path, GOOD, lang="ko", old=many, private_terms=[])
+        self.assertEqual(len(out), 2, out)
+        self.assertTrue(out[0].startswith("경고: 결정·제약으로 보이는 줄 1개가 마지막 커밋판에서 빠졌다 — DECISIONS.md로 옮겼는지"), out[0])
+        self.assertIn("\n    - [확인된 사실과 결정] [V] 소유자 결정: 배포는 사람이 한다", out[0])
+        self.assertTrue(out[1].startswith("경고: 마지막 커밋판에 있던 줄 13개가 새 인계서에 없다 — 아직 참이면 되살리고"), out[1])
+        self.assertEqual(out[1].count("\n    - [실패한 접근법]"), 7)  # 내용은 모두 합쳐 8줄까지
+        self.assertTrue(out[1].endswith("\n    - … 외 6개"), out[1])
+        self.assertNotIn("someone", "\n".join(out))
+        en = handoff_check.drop_warnings(path, GOOD, lang="en", old=many, private_terms=[])
+        self.assertTrue(en[0].startswith("warning: 1 line(s) that look like a decision or constraint are gone since the last "
+                                         "committed version — check that they moved to DECISIONS.md, otherwise restore them:"))
+        self.assertIn("\n    - [Verified facts and decisions] [V] 소유자 결정", en[0])
+        self.assertTrue(en[1].endswith("\n    - … and 6 more"), en[1])
+        hidden = handoff_check.drop_warnings(path, GOOD, lang="en", old=GOOD.replace(
+            "## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n- 경로 /Users/someone/x 에서 실패\n"), private_terms=[])
+        self.assertIn("(content hidden — looks like a secret or a path)", hidden[0])
+        self.assertEqual(handoff_check.drop_warnings(path, GOOD, old=""), [])
+        with open(os.path.join(tmp.name, "DECISIONS.md"), "w", encoding="utf-8") as f:
+            f.write("## 11-23 배포는 사람이 한다 (소유자 결정)\n")
+        self.assertEqual(len(handoff_check.drop_warnings(path, GOOD, lang="ko", old=many, private_terms=[])), 1)  # 결정 기록으로 올라갔다
+
+    def test_against_git_head_and_silent_without_history(self):
+        with tempfile.TemporaryDirectory() as root:
+            p = os.path.join(root, "HANDOFF.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(self.OLD)
+            self.assertIsNone(handoff_check.committed(p))  # git 저장소가 아니다 — 말하지 않는다
+            self.assertEqual(handoff_check.drop_warnings(p, GOOD), [])
+            g = git_repo(root)
+            self.assertEqual(handoff_check.drop_warnings(p, GOOD), [])  # 미추적
+            g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+            out = handoff_check.drop_warnings(p, GOOD)
+            self.assertEqual(len(out), 2, out)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(GOOD)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "handoff_check.py"), p], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout)  # 경고만 — 막지 않는다
+            self.assertIn("마지막 커밋판에 있던 줄 2개", r.stdout)
+            self.assertIn("경고만 있음", r.stdout)
+
+
+class MustReadTest(unittest.TestCase):
+    """"관련 파일·심볼"(Files and symbols) 절의 (필독)·(must read) 표시 — 최대 3개, 주입 머리말에 한 줄로 다시 들어간다."""
+    def files(self, body, base=GOOD, head="## 관련 파일·심볼\n- `lib/handoff_check.py`\n"):
+        return base.replace(head, head.split("\n", 1)[0] + "\n" + body)
+
+    def test_marked_entries_both_languages(self):
+        text = self.files("- `lib/a.py` (필독): parse / 이유\n- `lib/b.py`: 그냥\n- `hooks/c.py`(Must Read): run\n")
+        self.assertEqual(handoff_check.must_read(text), ["`lib/a.py`: parse / 이유", "`hooks/c.py`: run"])
+        self.assertEqual(handoff_check.must_read_line(text, "ko"),
+                         "[baton] 행동 전에 먼저 읽는다(인계서의 필독 표시): `lib/a.py`: parse / 이유 · `hooks/c.py`: run")
+        self.assertEqual(handoff_check.must_read_line(text, "en"),
+                         "[baton] Read before acting (marked must read in the handoff): `lib/a.py`: parse / 이유 · `hooks/c.py`: run")
+        self.assertEqual(handoff_check.must_read_line(GOOD + "- `x` (필독)\n", "ko"), "")  # 다른 절의 표시는 아니다
+        en = self.files("- `a.py` (must read): x\n", base=GOOD_EN, head="## Files and symbols\n- `lib/handoff_check.py`\n")
+        self.assertEqual(handoff_check.must_read(en), ["`a.py`: x"])
+
+    def test_more_than_three_warns_and_only_three_shown(self):
+        text = self.files("".join(f"- `f{i}.py` (필독): {'x' * 200}\n" for i in range(4)))
+        self.assertEqual(handoff_check.warnings(text), ["경고: 필독 표시가 4개 — 주입 맨 앞에는 앞의 3개만 올라간다. "
+                                                        "행동 전에 꼭 읽을 3개만 남긴다"])
+        self.assertIn("warning: 4 entries are marked must read", handoff_check.warnings(text, lang="en")[0])
+        line = handoff_check.must_read_line(text, "en")
+        self.assertEqual(line.count("`f"), 3)
+        self.assertNotIn("f3.py", line)
+        self.assertTrue(all(len(p) <= handoff_check.MUST_ENTRY for p in line.split(": ", 1)[1].split(" · ")))
+        self.assertEqual(handoff_check.warnings(self.files("- `a` (필독)\n- `b` (필독)\n- `c` (필독)\n")), [])
+
+    def test_char_limit_counts_the_must_read_line(self):
+        marked = self.files("- `lib/a.py` (필독): 먼저 읽는다\n")
+        extra = max(len(handoff_check.must_read_line(marked, "ko")), len(handoff_check.must_read_line(marked, "en"))) + 1
+        fits = marked + "가" * (handoff_check.MAX_CHARS - extra - len(marked))
+        self.assertFalse(any("자 — 상한" in x for x in handoff_check.check(fits)))
+        out = handoff_check.check(fits + "가")
+        self.assertTrue(any(x.endswith(f"— 필독 줄 {extra:,}자 포함") for x in out), out)
+        self.assertTrue(any(x.endswith(f"— including the {extra:,}-char must-read line") for x in handoff_check.check(fits + "a", lang="en")))
+        over = GOOD + "가" * (handoff_check.MAX_CHARS + 1 - len(GOOD))
+        self.assertIn(f"{handoff_check.MAX_CHARS + 1:,}자 — 상한 8,700자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)",
+                      handoff_check.check(over))  # 표시가 없으면 예전 문장 그대로
+
+
+class PluginRootTest(unittest.TestCase):
+    """스킬·명령 본문은 중괄호 ${CLAUDE_PLUGIN_ROOT}만 쓴다 — Claude Code는 그 꼴만 본문에 바꿔 넣고, Bash 환경에는 변수가 없다
+    (code.claude.com/docs/en/plugins-reference "Environment variables", docs/en/skills "String substitutions").
+    allowed-tools의 Bash(…) 패턴은 본문이 시키는 명령과 앞머리가 같아야 미리 허용된다."""
+    FILES = ("skills/baton/SKILL.md", "commands/promote.md", "commands/baton-explain.md")
+
+    def test_braced_root_and_matching_allowed_tools(self):
+        import re
+        for rel in self.FILES:
+            with open(os.path.join(os.path.dirname(HERE), rel), encoding="utf-8") as f:
+                text = f.read()
+            self.assertNotRegex(text, r"\$CLAUDE_PLUGIN_ROOT", rel)
+            front, body = text.split("\n---\n", 1)
+            tools = re.search(r"^allowed-tools: (.+)$", front, re.M)
+            self.assertTrue(tools, rel)
+            prefixes = re.findall(r"Bash\(([^)]*?) \*\)", tools.group(1))
+            self.assertTrue(prefixes, rel)
+            for pre in prefixes:
+                self.assertIn("${CLAUDE_PLUGIN_ROOT}/lib/", pre)
+                self.assertIn(pre + " ", body, (rel, pre))  # 본문 명령이 같은 앞머리로 시작한다
+            for cmd in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/lib/[\w.]+", body):  # 본문이 부르는 스크립트는 모두 미리 허용된다
+                self.assertTrue(any(cmd in pre for pre in prefixes), (rel, cmd))
+
+
 class InjectBudgetTest(unittest.TestCase):
     """검사를 통과한 인계서는 주입에서 잘리지 않는다 — 두 상한이 따로 박혀 있어 갈라지면 여기서 깨진다."""
 

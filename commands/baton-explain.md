@@ -1,12 +1,13 @@
 ---
-description: Shows what the baton rules decide for this prompt — whether the handoff goes in, which concepts are candidates, and the task type. It only shows the verdict and changes nothing. 이 프롬프트에 baton 규칙이 무엇을 판단하는지 보여 준다 — 판단만 보여 주고 아무것도 바꾸지 않는다.
+description: Shows what the baton rules decide for this prompt — whether the handoff goes in, which concepts are candidates, and the task type. It only shows the verdict and changes nothing. 이 프롬프트에 baton 규칙이 무엇을 판단하는지 보여 준다 — 인계서를 넣을지, 어느 개념이 후보인지, 작업 종류. 판단만 보여 주고 아무것도 바꾸지 않는다.
+allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/rules.py explain *)
 ---
 
 Run it in the current repository with **the prompt passed on standard input** as below, and copy the output as it is.
 Do not put the argument directly into a shell string — a prompt with quotes, `$(…)` or backticks would break or run.
 
 ```bash
-python3 "$CLAUDE_PLUGIN_ROOT/lib/rules.py" explain - <<'BATON_PROMPT'
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/rules.py explain - <<'BATON_PROMPT'
 $ARGUMENTS
 BATON_PROMPT
 ```

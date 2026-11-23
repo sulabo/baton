@@ -5,13 +5,14 @@
 긴 코드 블록 · 전체 diff · 비밀값 · 홈 절대경로(10-01 공개 사고에서 새어 나간 종류) ·
 개인 자료 목록(/baton-setup에서 사용자가 고른 이름·이메일 등, 설정 파일의 private_terms).
 찾은 값 자체는 출력하지 않는다 — 줄 번호와 종류만. 비밀값을 로그·맥락에 다시 옮기지 않으려고.
-경고(막지 않음): "확인된 사실과 결정" 절의 목록 줄마다 [V](직접 확인함)·[?](기억·추정) 표시가 있는지.
+경고(막지 않음): "확인된 사실과 결정" 절의 목록 줄마다 [V](직접 확인함)·[?](기억·추정) 표시가 있는지 ·
+필독 표시가 3개를 넘는지 · 마지막 커밋판(git HEAD)에 있던 줄이 빠졌는지(drop_warnings — 미추적이면 말하지 않는다).
 절 제목은 한국어·영어 템플릿 둘 다 읽는다(BATON_LANG과 무관). 메시지 언어는 lib/i18n.py가 정한다.
 
 쓰기: python3 lib/handoff_check.py [HANDOFF.md 경로] — 문제가 있으면 한 줄씩 출력하고 종료 코드 1.
 경고만 있으면 "경고:"로 시작하는 줄을 출력하고 종료 코드 0.
 """
-import os, re, sys, unicodedata
+import os, re, subprocess, sys, unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config, i18n, rules
@@ -158,10 +159,14 @@ def check(text, strict=True, private_terms=(), lang=None):
         out.append(t(f"{len(lines)}줄 — 상한 {MAX_LINES}줄을 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)",
                      f"{len(lines)} lines — over the {MAX_LINES}-line limit (the part past it will not be injected into "
                      f"the next session)"))
-    if len(text) > MAX_CHARS:
-        out.append(t(f"{len(text):,}자 — 상한 {MAX_CHARS:,}자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)",
-                     f"{len(text):,} chars — over the {MAX_CHARS:,}-char limit (the part past it will not be injected into "
-                     f"the next session)"))
+    # 필독 줄은 주입 머리말에 한 번 더 들어간다 — 그 몫까지 상한에 센다(통과한 인계서는 늘 전부 들어간다는 약속, HookOutputBudgetTest)
+    extra = max(len(must_read_line(text, "ko")), len(must_read_line(text, "en")))
+    size = len(text) + (extra + 1 if extra else 0)
+    if size > MAX_CHARS:
+        out.append(t(f"{size:,}자 — 상한 {MAX_CHARS:,}자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)"
+                     + (f" — 필독 줄 {extra + 1:,}자 포함" if extra else ""),
+                     f"{size:,} chars — over the {MAX_CHARS:,}-char limit (the part past it will not be injected into "
+                     f"the next session)" + (f" — including the {extra + 1:,}-char must-read line" if extra else "")))
     if diff_lines:
         out.append(t(f"전체 diff로 보이는 줄 {len(diff_lines)}개(첫 줄 {diff_lines[0]}) — 바뀐 파일과 동작 변화만 적는다",
                      f"{len(diff_lines)} lines look like a full diff (first at line {diff_lines[0]}) — write only the "
@@ -215,8 +220,12 @@ def warnings(text, strict=True, lang=None):
         elif facts_depth:
             section.append((i, ln))
     missing = [s for s in SECTIONS if not has_section(heads, s[0], s[1])]
+    n = len(must_read(text))
+    too_many = [t(f"경고: 필독 표시가 {n}개 — 주입 맨 앞에는 앞의 {MUST_MAX}개만 올라간다. 행동 전에 꼭 읽을 {MUST_MAX}개만 남긴다",
+                  f"warning: {n} entries are marked must read — only the first {MUST_MAX} are shown at the top of the "
+                  f"injection. Keep only the {MUST_MAX} that must be read before acting")] if n > MUST_MAX else []
     if section is None or not is_ours(lines, missing, strict):
-        return []
+        return too_many
 
     items, loose, cur = [], [], None  # items: [첫 줄 번호, 항목 글]. loose: 목록에 안 속한 줄 번호
     for i, ln in section:
@@ -249,6 +258,183 @@ def warnings(text, strict=True, lang=None):
                      f"({at}줄) — 직접 확인했으면 [V], 기억·추정이면 [?]를 붙인다",
                      f"warning: {len(unmarked)} of {len(claims)} items in the Verified facts and decisions section have no "
                      f"[V]/[?] mark (lines {at}) — add [V] if you checked it directly, [?] if it is from memory or a guess"))
+    return out + too_many
+
+
+def section_items(text, specs):
+    """specs([(한국어 머리말, 영어 머리말)]) 절마다의 목록 항목 [(spec 번호, 줄 번호, 항목 글)]. 코드 블록·주석 안은 건너뛴다.
+    절보다 깊은 제목(### 하위 절)은 그 절 안으로 보되, 다른 spec에 맞으면(승격 후보 아래 ### 기각됨) 그 spec으로 바꾼다.
+    들여쓴 이어 쓴 줄은 앞 항목에 붙인다."""
+    out, fence, comment, cur, depth, item = [], None, False, None, 0, None
+    for i, ln in enumerate(text.splitlines(), 1):
+        f = FENCE.match(ln)
+        if fence is not None:
+            if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
+                fence = None
+            continue
+        if f:
+            fence, item = (f.group(1)[0], len(f.group(1))), None
+            continue
+        if comment:
+            comment = "-->" not in ln
+            continue
+        if COMMENT.match(ln):
+            continue
+        if "<!--" in ln and "-->" not in ln.split("<!--", 1)[1]:
+            comment, ln = True, ln.split("<!--", 1)[0]
+        d, h = DEPTH.match(ln), HEADING.match(ln)
+        if d:
+            item, level = None, len(d.group(1))
+            hit = next((n for n, (ko, en) in enumerate(specs)
+                        if h and (h.group(1).startswith(ko) or h.group(1).casefold().startswith(en))), None)
+            if hit is not None:
+                cur, depth = hit, level
+            elif cur is not None and level <= depth:
+                cur = None
+            continue
+        if cur is None:
+            continue
+        m = ITEM.match(ln)
+        if m:
+            item = [cur, i, (m.group(1) or "").strip()]
+            out.append(item)
+        elif item is not None and ln[:1].isspace() and ln.strip():
+            item[2] += " " + ln.strip()
+        elif not ln.strip():
+            item = None
+    return [tuple(x) for x in out]
+
+
+# ── 필독 표시 ─────────────────────────────────────────────────────────
+# "관련 파일·심볼"(Files and symbols) 절의 항목에 (필독)·(must read)를 붙이면 주입 훅이 신선도 줄 바로 뒤에 한 줄로 올린다 —
+# 인계서가 잘려도 남고, 읽는 쪽이 건너뛰지 않게. 최대 MUST_MAX개(넘으면 경고). 항목은 MUST_ENTRY자에서 자른다
+MUST = re.compile(r"\s*\((?:필독|must[ -]?read)\)", re.I)
+MUST_MAX = 3
+MUST_ENTRY = 120
+
+
+def must_read(text):
+    """필독 표시가 붙은 항목 글(표시는 뺀 것) 목록, 순서대로."""
+    return [MUST.sub("", body).strip() for _, _, body in section_items(text, [SECTIONS[2][:2]]) if MUST.search(body)]
+
+
+def must_read_line(text, lang=None):
+    """주입 머리말에 붙일 필독 한 줄. 표시가 없으면 "". 길이는 앞 MUST_MAX개 × MUST_ENTRY자 + 머리말로 묶인다."""
+    items = must_read(text)[:MUST_MAX]
+    if not items:
+        return ""
+    parts = [x if len(x) <= MUST_ENTRY else x[:MUST_ENTRY - 1] + "…" for x in items]
+    return tr(lang)("[baton] 행동 전에 먼저 읽는다(인계서의 필독 표시): ",
+                    "[baton] Read before acting (marked must read in the handoff): ") + " · ".join(parts)
+
+
+# ── 저장 때 빠진 줄 검사(경고) ─────────────────────────────────────────
+# 마지막 커밋판의 사실·실패·다음 행동·승격 후보·기각 절 목록 줄마다, 새 인계서(와 DECISIONS.md) 어느 줄에든 비슷한 줄이 있는지 본다.
+# 다른 절로 옮긴 줄(끝난 다음 행동 → 이미 한 변경)·결정 기록으로 올린 줄은 빠진 것이 아니다 — 그래서 같은 절이 아니라 전체에서 찾는다.
+# 비슷함: 옛 줄의 낱말 열쇠(line_keys) 중 DROP_KEEP 이상이 한 줄에 있다.
+# 어느 절의 줄을 알리나: 이어 가야 하는 절(실패한 접근법·승격 후보·기각됨)은 빠진 줄 모두, 끝난 일을 지우는 게 보통인 절
+# (확인된 사실·다음 행동)은 결정·제약 표지(DECISION_MARK)가 있는 줄만.
+# 근거(11-23, ~/baton 인계서 커밋판 12개·연속 쌍 11개, 추적 줄 245개): 모든 절·문턱 0.6이면 127줄이 걸렸고 표본 20줄 중 진짜 빠짐은
+# 12줄(사실 절은 9줄 중 3줄만 — 대부분 끝난 일). 위 규칙·문턱 0.5·DECISIONS.md 포함이면 64줄, 새 표본에서 오탐 약 20%.
+# 0.5~0.6 사이 7줄은 모두 고쳐 쓴 줄이나 끝난 일(오탐), 0.4~0.5 사이에는 진짜 빠짐이 섞였다 — 그래서 0.5.
+# ponytail: 한 사람·한 저장소 이력으로 맞춘 값이다. 다른 저장소의 오탐률은 모른다
+DROP_SPECS = [s[:2] for s in (SECTIONS[1], SECTIONS[4], SECTIONS[6], SECTIONS[7])] + [(("기각",), ("rejected",))]
+DROP_NAMES = [s[2:] for s in (SECTIONS[1], SECTIONS[4], SECTIONS[6], SECTIONS[7])] + [("기각됨", "Rejected")]
+DROP_CARRY = {1, 3, 4}  # DROP_SPECS 번호 — 실패한 접근법·승격 후보·기각됨. 나머지 절은 표지가 있는 줄만
+DROP_KEEP = 0.5
+DROP_LIST = 8  # 경고에 내용을 적는 줄 수. 나머지는 개수만
+DROP_SHOW = 100  # 한 줄을 이 글자에서 자른다
+DECISION_MARK = re.compile(r"소유자|결정|금지|절대|확정|정본|(?i:\bowner\b|\bdecided\b|\bdecision\b|\bnever\b|\bmust not\b|\bdo not\b|\bdon't\b|\bforbidden\b)")
+TOKEN = re.compile(r"[0-9a-z가-힣]+")
+
+
+def line_keys(line):
+    """줄의 낱말 열쇠 — 소문자, 두 글자 이상. 한글 낱말은 앞 두 글자(조사·어미가 붙어도 같은 열쇠), 영어는 끝 s를 뗀다.
+    [V]·[?] 표시와 마크다운 기호는 무시한다."""
+    out = set()
+    for w in TOKEN.findall(unicodedata.normalize("NFC", MARK.sub(" ", line)).casefold()):
+        if len(w) < 2:
+            continue
+        if len(w) > 2 and re.fullmatch(r"[가-힣]+", w):
+            w = w[:2]
+        elif len(w) > 3 and w.endswith("s") and w.isascii() and w.isalpha():
+            w = w[:-1]
+        out.add(w)
+    return out
+
+
+def dropped(old, new, decisions=""):
+    """old(마지막 커밋판)의 항목 중 new·decisions(DECISIONS.md 본문)에 비슷한 줄이 없는 것 [(DROP_SPECS 번호, 항목 글)].
+    이어 가야 하는 절(DROP_CARRY)은 모두, 나머지 절은 결정·제약 표지가 있는 줄만. 자리표시("- 없음")는 뺀다."""
+    cands = [line_keys(ln) for ln in (new + "\n" + decisions).splitlines() if ln.strip()]
+    out, seen = [], set()
+    for n, _, body in section_items(old, DROP_SPECS):
+        keys = line_keys(body)
+        if not keys or NOTHING.match(body) or body in seen or not (n in DROP_CARRY or DECISION_MARK.search(body)):
+            continue
+        seen.add(body)
+        if not any(len(keys & c) >= DROP_KEEP * len(keys) for c in cands):
+            out.append((n, body))
+    return out
+
+
+def committed(path):
+    """git HEAD에 있는 같은 파일 내용. 미추적·이력 없음·git 실패면 None(그때는 아무 말도 안 한다)."""
+    d = os.path.dirname(os.path.abspath(path))
+    try:
+        r = subprocess.run(["git", "--no-optional-locks", "-C", d, "show", "HEAD:./" + os.path.basename(path)],
+                           capture_output=True, timeout=3)
+    except Exception:
+        return None
+    return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
+
+
+def drop_warnings(path, text, lang=None, old=None, private_terms=None):
+    """마지막 커밋판보다 빠진 줄 경고(막지 않음). 결정·제약 표지가 있는 줄은 따로 더 세게 말한다. 내용은 DROP_LIST줄까지.
+    같은 폴더의 DECISIONS.md(지금 파일)에 옮긴 줄은 빠진 것이 아니다.
+    줄에 비밀값·홈 경로·개인 자료 목록 단어가 있으면 내용을 적지 않는다(맥락에 다시 옮기지 않으려고)."""
+    old = committed(path) if old is None else old
+    if not old:
+        return []
+    try:
+        decisions = read(os.path.join(os.path.dirname(os.path.abspath(path)), "DECISIONS.md"))
+    except OSError:
+        decisions = ""
+    gone = dropped(old, text, decisions)
+    if not gone:
+        return []
+    t = tr(lang)
+    en = t(False, True)
+    if private_terms is None:
+        repo = repo_of(path)
+        private_terms = config.terms("private_terms", repo) if repo else []
+
+    def show(group, room):
+        lines = []
+        for n, body in group[:room]:
+            shown = (t("(내용 생략 — 비밀값·경로 의심)", "(content hidden — looks like a secret or a path)")
+                     if leaks(body, private_terms) else body if len(body) <= DROP_SHOW else body[:DROP_SHOW - 1] + "…")
+            lines.append(f"\n    - [{DROP_NAMES[n][1 if en else 0]}] {shown}")
+        if len(group) > room:
+            lines.append(t(f"\n    - … 외 {len(group) - room}개", f"\n    - … and {len(group) - room} more"))
+        return "".join(lines)
+
+    marked = [g for g in gone if DECISION_MARK.search(g[1])]
+    plain = [g for g in gone if not DECISION_MARK.search(g[1])]
+    out, room = [], DROP_LIST
+    if marked:
+        out.append(t(f"경고: 결정·제약으로 보이는 줄 {len(marked)}개가 마지막 커밋판에서 빠졌다 — DECISIONS.md로 옮겼는지 "
+                     f"확인하고, 아니면 되살린다:",
+                     f"warning: {len(marked)} line(s) that look like a decision or constraint are gone since the last "
+                     f"committed version — check that they moved to DECISIONS.md, otherwise restore them:")
+                   + show(marked, min(len(marked), room)))
+        room -= min(len(marked), room)
+    if plain:
+        out.append(t(f"경고: 마지막 커밋판에 있던 줄 {len(plain)}개가 새 인계서에 없다 — 아직 참이면 되살리고, 끝난 일이면 "
+                     f"'이미 한 변경'으로 옮기고, 아니면 알고 지운다:",
+                     f"warning: {len(plain)} line(s) from the last committed version are not in the new handoff — keep each "
+                     f"one that is still true, move finished work to 'Changes made', or delete it on purpose:")
+                   + show(plain, room))
     return out
 
 
@@ -282,6 +468,10 @@ if __name__ == "__main__":
     text = read(p)
     problems = check_file(p, text=text, lang=lang)
     warned = warnings(text, lang=lang)
+    try:
+        warned += drop_warnings(p, text, lang)
+    except Exception:
+        pass  # 빠진 줄 검사가 깨져도 나머지 검사는 그대로
     for x in problems + warned:
         print(x)
     if not problems:

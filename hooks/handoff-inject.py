@@ -16,6 +16,8 @@
 # 검사기 상한 8,700자(PR #14)를 늘 넘는다. 영어는 머리말이 길어 신선도 상한이 rules.FRESHNESS_MAX_EN이고 최소 8,712자다.
 # hooks/test_handoff_inject.py HookOutputBudgetTest가 두 언어의 셈을 묶는다.
 # 넘치면 잘랐다는 것을 한 줄로 말한다 — 조용히 자르면 뒤쪽에 있는 다음 행동을 "없음"으로 읽는다.
+# 필독 줄: "관련 파일·심볼" 절에서 (필독)·(must read) 표시가 붙은 항목(최대 3개)을 신선도 줄 바로 뒤 한 줄로 올린다
+# (lib/handoff_check.py must_read_line) — 잘려도 남고 건너뛰지 않게. 검사기가 이 줄 길이까지 8,700자에 세므로 통과한 인계서는 그대로 전부 들어간다.
 # 한 세션에 같은 인계서는 한 번만 넣는다 — 파일이 바뀌었거나 그 뒤 세션이 압축됐을 때만 다시 넣는다. 사람이 친 프롬프트가 아닌 것
 # (다른 세션의 <agent-message>, <task-notification>)에는 넣지 않는다. 11-18 실사용 로그: 주입 263번 중 226번이 같은 세션의 재주입,
 # 세션 기록과 대조하니 최소 152번은 다른 세션 메시지가 계기였다(한 세션에 41번, 매번 8~9천 자).
@@ -244,6 +246,12 @@ def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None, reserv
     deadline = None if hook_deadline is None else min(time.monotonic() + rules.GIT_BUDGET, hook_deadline)
     fresh = rules.safe_freshness(repo, text, deadline, lang)
     head = (HEAD if lang == "ko" else HEAD_EN) + "\n" + rules.freshness_line(fresh, lang)
+    try:
+        must = handoff_check.must_read_line(text, lang)
+    except Exception:
+        must = ""  # 필독 줄이 깨져도 인계서는 그대로 넣는다
+    if must:
+        head += "\n" + must
     full = LIMIT_CHARS - len(head) - TAIL_RESERVE  # 신선도 한 줄을 먼저 만들고 실제 길이를 뺀다
 
     def cut(budget):

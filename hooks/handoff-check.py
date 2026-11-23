@@ -3,7 +3,9 @@
 #
 # PostToolUse(Write|Edit|MultiEdit): 고친 파일이 HANDOFF.md면 lib/handoff_check.py로 검사하고,
 #   문제가 있으면 모델에게 돌려준다(decision: block — 쓰기는 이미 됐고, 이유를 보고 고치게 한다).
-#   경고만 있으면(확인 표시 [V]·[?] 빠짐) 막지 않고 additionalContext로 알리기만 한다.
+#   경고만 있으면(확인 표시 [V]·[?] 빠짐·필독 3개 초과·마지막 커밋판에 있던 줄이 빠짐) 막지 않고 additionalContext로 알리기만 한다.
+#   빠진 줄은 git HEAD의 HANDOFF.md와 비교한다(lib/handoff_check.py drop_warnings). 미추적·이력 없음이면 아무 말도 안 한다.
+#   출력은 OUT_MAX자에서 자른다(Claude Code 훅 출력 상한 10,000자 — 넘으면 파일로 빠진다, hooks/handoff-inject.py 머리 주석).
 # Stop: 이 세션이 마지막으로 인계서(HANDOFF.md 또는 HANDOFF_*.md)를 쓴 뒤 다른 파일을 N개(기본 3) 이상 고쳤으면, 세션에 한 번
 #   모델에게 지금 인계서를 쓰라고 한다(BATON_HANDOFF_AUTO, 기본 켬 — 소유자 결정 2026-11-23). Stop 훅이 decision "block"과
 #   reason을 내면 Claude가 멈추지 않고 reason을 받아 이어서 일한다. https://code.claude.com/docs/en/hooks Stop(2026-11-23 확인):
@@ -25,6 +27,7 @@ sys.path.insert(0, os.path.join(PLUGIN, "lib"))
 import config, handoff_check, i18n, rules, runlog
 
 LIST_MAX = 10  # 자동 쓰기 요청에 이름을 적는 파일 수. 나머지는 개수만
+OUT_MAX = 9600  # 검사 결과(reason·additionalContext)의 상한 — 주입 훅과 같은 여유
 
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}  # 제안 문턱에 세는 편집. 검사 matcher에 NotebookEdit가 없는 것은 HANDOFF.md를 못 고쳐서다
 
@@ -77,18 +80,31 @@ def on_edit(data):
         warned = handoff_check.warnings(text, strict=False, lang=lang)
     except Exception:
         warned = []  # 경고 규칙이 깨져도 막아야 할 문제는 그대로 돌려준다
+    try:
+        warned += handoff_check.drop_warnings(path, text, lang)
+    except Exception:
+        pass  # 빠진 줄 검사가 깨져도 나머지는 그대로
     runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_check",
                    "session_id": data.get("session_id"), "problems": len(problems), "warnings": len(warned)})
     if problems:
         reason = (t("[baton] 방금 쓴 HANDOFF.md에 인계서 검사 문제가 있다. 고친 뒤 다시 저장한다:\n- ",
                     "[baton] The HANDOFF.md you just wrote has handoff-check problems. Fix them and save again:\n- ")
                   + "\n- ".join(problems + warned))
-        print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+        print(json.dumps({"decision": "block", "reason": capped(reason, t)}, ensure_ascii=False))
     elif warned:  # 경고만이면 막지 않는다 — 맥락에 알리기만 한다(Codex도 이 JSON 모양만 받는다)
         ctx = t("[baton] 방금 쓴 HANDOFF.md 검사 경고(막지 않음):\n- ",
                 "[baton] Handoff-check warnings for the HANDOFF.md you just wrote (not blocking):\n- ") + "\n- ".join(warned)
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ctx}},
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": capped(ctx, t)}},
                          ensure_ascii=False))
+
+
+def capped(text, t):
+    """OUT_MAX자를 넘으면 자르고 잘랐다고 한 줄 붙인다. 나머지는 검사기를 직접 돌려 본다."""
+    if len(text) <= OUT_MAX:
+        return text
+    note = t("\n[baton] 검사 결과가 길어 잘랐다 — 전체는 python3 lib/handoff_check.py HANDOFF.md",
+             "\n[baton] The check output was too long and was cut — run python3 lib/handoff_check.py HANDOFF.md for all of it")
+    return text[:OUT_MAX - len(note)] + note
 
 
 def edit_paths(path):
@@ -148,12 +164,16 @@ def auto_reason(files, cwd, lang):
     if lang == "ko":
         return (f"[baton] 이 세션에서 인계서(HANDOFF.md·HANDOFF_*.md)를 마지막으로 쓴 뒤 파일 {len(files)}개를 고쳤다: {listed}. "
                 f"지금 baton 인계서 스킬({skill}의 'When the Stop hook asks' 절)대로 저장소 루트의 HANDOFF.md를 쓰거나 갱신한다 — "
-                f"짧게 쓰고 검사기를 돌린다: python3 \"{checker}\" HANDOFF.md. 승격 검토는 건너뛰고 커밋하지 않는다. "
+                f"기억으로 새로 쓰지 말고 지금 HANDOFF.md에서 시작해 아직 참인 줄은 그대로 옮긴다. "
+                f"짧게 쓰고 검사기를 돌린다: python3 \"{checker}\" HANDOFF.md — 마지막 커밋판에서 빠진 줄을 알려 준다. "
+                f"승격 검토는 건너뛰고 커밋하지 않는다. "
                 f"그다음 사용자에게 인계서를 갱신했다는 것과 BATON_HANDOFF_AUTO=off로 끌 수 있다는 것을 한 줄로 알리고 턴을 끝낸다. "
                 f"이 요청은 세션에 한 번만 나온다.")
     return (f"[baton] You edited {len(files)} files in this session since the handoff (HANDOFF.md or HANDOFF_*.md) was last "
             f"written: {listed}. Write or update HANDOFF.md at the repo root now, following the baton handoff skill ({skill}, "
-            f"section 'When the Stop hook asks'). Keep it short, then run the checker: python3 \"{checker}\" HANDOFF.md. "
+            f"section 'When the Stop hook asks'). Start from the current HANDOFF.md and carry forward every line that is still "
+            f"true; do not rewrite it from memory. Keep it short, then run the checker: python3 \"{checker}\" HANDOFF.md — it "
+            f"lists lines that were dropped since the last committed version. "
             f"Skip the promotion review and do not commit. "
             f"Then end your turn with one line to the user saying the handoff was updated and that BATON_HANDOFF_AUTO=off "
             f"turns this off. baton asks for this once per session.")

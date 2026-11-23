@@ -612,6 +612,36 @@ class HookOutputBudgetTest(unittest.TestCase):
             self.assertIn(text, reserved)
             self.assertLessEqual(len(out), hook.LIMIT_CHARS)
 
+    def must_handoff(self, root, chars, lang):
+        """필독 항목 3개(각 MUST_ENTRY자를 넘겨 잘리는 길이)를 단 인계서 — 검사기 상한(필독 줄 몫 포함)을 꽉 채운다."""
+        hc = self.load().handoff_check
+        files = "## 관련 파일·심볼\n" + "".join(f"- `src/f{i}.py` (필독): {'가' * 200}\n" for i in range(3))
+        last = "- 마지막 줄: 다음 행동\n"
+        extra = max(len(hc.must_read_line(files, "ko")), len(hc.must_read_line(files, "en"))) + 1
+        room = hc.MAX_CHARS - extra - len(files) - len(last)
+        text = files + ("나" * 79 + "\n") * (room // 80) + ("다" * (room % 80 - 1) + "\n" if room % 80 else "") + last
+        self.assertFalse(any("자 — 상한" in x for x in hc.check(text, lang="ko")), len(text))
+        self.assertTrue(any("자 — 상한" in x for x in hc.check(text + "a", lang="ko")))  # 꽉 찼다
+        with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write(text)
+        return text
+
+    def test_largest_handoff_with_must_read_goes_in_whole_in_both_languages(self):
+        # 필독 줄은 머리말에 한 번 더 들어간다 — 검사기가 그 몫까지 세므로 통과한 인계서는 신선도 줄이 가장 길어도 전부 들어간다
+        hook = self.load()
+        for lang, cap in (("ko", hook.rules.FRESHNESS_MAX), ("en", hook.rules.FRESHNESS_MAX_EN)):
+            with tempfile.TemporaryDirectory() as root, mock.patch.dict(os.environ, {"BATON_LANG": lang}):
+                text = self.must_handoff(root, hook.handoff_check.MAX_CHARS, lang)
+                longest = "F" * cap
+                with mock.patch.object(hook.rules, "freshness_line", return_value=longest):
+                    out, h, _ = hook.inject_handoff(root, "이어서", {})
+                    reserved, h2, _ = hook.inject_handoff(root, "이어서", {}, reserve=hook.concepts.INDEX_LIMIT_CHARS + 1)
+                must = hook.handoff_check.must_read_line(text, lang)
+                self.assertTrue(out.startswith((hook.HEAD if lang == "ko" else hook.HEAD_EN) + "\n" + longest + "\n" + must
+                                               + "\n\n" + text), lang)
+                self.assertEqual((h["lines"], h2["lines"]), (h["total"], h2["total"]), lang)
+                self.assertLessEqual(len(out), hook.LIMIT_CHARS, lang)
+
     def test_truncation_note_fits_its_reserve_in_both_languages(self):
         hook = self.load()
         for lang, mark in (("ko", "까지만 넣었다"), ("en", "went in (limit 200 lines, 9,600 chars)")):
@@ -689,6 +719,20 @@ class EnglishInjectTest(unittest.TestCase):
                                            "the prompt (experimental feature BATON_CONCEPT_INJECT=on)."), ctx)
             self.assertIn("## 1. Ending verdict", ctx)
             self.assertNotIn("Save slots", ctx)
+
+    def test_must_read_line_follows_freshness_line(self):
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+                f.write("# Session Handoff (written: 2026-11-23)\n\n## Files and symbols\n- `lib/rules.py` (must read): freshness_line\n"
+                        "- `lib/x.py`: other\n\n## Risks and next actions\n- Next action: x\n")
+            lines = self.run_hook(root, "where were we", BATON_LANG="en").splitlines()
+            self.assertEqual(lines[2], "[baton] Read before acting (marked must read in the handoff): `lib/rules.py`: freshness_line")
+            self.assertEqual((lines[3], lines[4]), ("", "# Session Handoff (written: 2026-11-23)"))
+            ko = self.run_hook(root, "이어서", BATON_LANG="ko").splitlines()
+            self.assertEqual(ko[2], "[baton] 행동 전에 먼저 읽는다(인계서의 필독 표시): `lib/rules.py`: freshness_line")
+            with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+                f.write("# Session Handoff\n- `x` (must read) 다른 절의 표시\n")
+            self.assertEqual(self.run_hook(root, "where were we", BATON_LANG="en").splitlines()[2], "")  # 필독 줄 없음
 
     def test_locale_fallback_reaches_the_hook(self):
         with tempfile.TemporaryDirectory() as root:
