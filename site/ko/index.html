@@ -155,6 +155,7 @@ p { margin: 0; }
 .card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: 12px 16px; border-bottom: 1px solid var(--line);
   font-size: var(--text-xs); color: var(--ink-2); }
 .card-top strong { color: var(--ink); font-weight: 600; }
+.hero .card-top { flex-wrap: wrap; } /* 좁은 화면에서는 실행 표시가 제목 아래로 내려간다 */
 .tag { font: 500 0.6875rem/1 var(--font-mono); letter-spacing: 0.02em; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; white-space: nowrap; }
 .rows { display: grid; }
 .row { padding: 14px 16px; display: grid; gap: 6px; border-bottom: 1px solid var(--line); min-width: 0; }
@@ -376,7 +377,7 @@ body { word-break: keep-all; }
         <p class="note enter d3"><span class="nw">Claude Code</span>와 Codex에서 써요. git과 python3가 필요해요. 무료 오픈소스예요(MIT).</p>
       </div>
       <figure class="card enter d4" style="margin:0">
-        <div class="card-top"><span><strong>새 대화의 첫 순간</strong> · <span class="nw">데모 저장소</span></span><span class="tag">실제 출력 · 줄임</span></div>
+        <div class="card-top"><span><strong>새 대화의 첫 순간</strong> · <span class="nw">데모 저장소</span></span><span class="tag">실제 출력(beta.3) · 줄임</span></div>
         <div class="rows">
           <div class="row"><div class="row-head"><span>나</span></div><div>어디까지 했지?</div></div>
           <div class="row"><div class="row-head"><span>baton 없이</span><span class="tag">파일 6개부터 읽음</span></div><p class="note">인계서 주입을 끈 같은 설정</p>
