@@ -6,10 +6,24 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import notes
+
+# 실제 설정 파일(~/.config/baton/config.json의 private_terms·BATON_LANG)을 읽지 않게 — CliTest의 check가 설정을 읽는다
+_CFG = tempfile.TemporaryDirectory()
+_PIN = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name})
+
+
+def setUpModule():
+    _PIN.start()
+
+
+def tearDownModule():
+    _PIN.stop()
+    _CFG.cleanup()
 
 MAP = """# 지도
 
