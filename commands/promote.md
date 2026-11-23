@@ -1,14 +1,14 @@
 ---
-description: 인계서 승격 검토. 여러 날 살아남은 제약과 조용히 빠진 결정을 찾는다.
+description: Handoff promotion review. Finds constraints that survived several days and decisions that quietly dropped out. 인계서 승격 검토. 여러 날 살아남은 제약과 조용히 빠진 결정을 찾는다.
 ---
 
-`$CLAUDE_PLUGIN_ROOT/lib/promote.sh`를 현재 저장소에 돌려라.
+Run `$CLAUDE_PLUGIN_ROOT/lib/promote.sh` on the current repository. Reply in the user's language.
 
-1. `promote.sh <저장소 경로>`를 돌린다.
-2. **형식 불일치로 못 센 판이 있으면 그 줄을 먼저 보고한다.** 0건이 "없음"인지
-   "못 셌음"인지 구분하지 않으면 이 검토는 거짓말이 된다.
-3. 후보를 종류별로 정리한다. 반복 실패는 제약, 탈락은 새어 나간 결정이다.
-4. **`DECISIONS.md`를 대신 쓰지 않는다.** 결정문 초안까지만 만들고
-   "버린 대안"과 "이유"는 빈칸으로 둔다. 소유자가 말해 주면 그때 적는다.
+1. Run `promote.sh <repo path>`.
+2. **If some versions could not be counted because of a format mismatch, report that line first.** If you do not
+   tell "none" apart from "could not count" for a 0, this review becomes a lie.
+3. Sort the candidates by kind. A repeated failure is a constraint; a dropped item is a decision that leaked out.
+4. **Do not write `DECISIONS.md` for the owner.** Go only as far as a draft of the decision, and leave "rejected
+   alternatives" and "reason" blank. Write them down when the owner tells you.
 
-`$ARGUMENTS`가 있으면 그 저장소를 대상으로 삼는다.
+If `$ARGUMENTS` is given, use that repository.

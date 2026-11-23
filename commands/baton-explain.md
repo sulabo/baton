@@ -1,8 +1,9 @@
 ---
-description: 이 프롬프트에 baton 규칙이 무엇을 판단하는지 보여 준다 — 인계서를 넣을지, 어느 개념이 후보인지, 작업 종류. 판단만 보여 주고 아무것도 바꾸지 않는다.
+description: Shows what the baton rules decide for this prompt — whether the handoff goes in, which concepts are candidates, and the task type. It only shows the verdict and changes nothing. 이 프롬프트에 baton 규칙이 무엇을 판단하는지 보여 준다 — 판단만 보여 주고 아무것도 바꾸지 않는다.
 ---
 
-아래처럼 **프롬프트를 표준 입력으로** 넘겨 현재 저장소에서 돌리고, 출력을 그대로 옮겨라. 인자를 셸 문자열에 직접 넣지 않는다 — 따옴표·`$(…)`·백틱이 든 프롬프트가 깨지거나 실행된다.
+Run it in the current repository with **the prompt passed on standard input** as below, and copy the output as it is.
+Do not put the argument directly into a shell string — a prompt with quotes, `$(…)` or backticks would break or run.
 
 ```bash
 python3 "$CLAUDE_PLUGIN_ROOT/lib/rules.py" explain - <<'BATON_PROMPT'
@@ -10,7 +11,14 @@ $ARGUMENTS
 BATON_PROMPT
 ```
 
-- `$ARGUMENTS`가 비어 있으면 "판단할 프롬프트를 인자로 달라"고만 말하고 멈춘다.
-- 판단 상태는 MATCHED(규칙 하나만 맞음) · AMBIGUOUS(둘 이상) · NO_MATCH(없음), 재료가 없으면 NO_MAP(개념 지도 없음) · UNCONFIGURED(도메인 미설정) — 뒤의 둘은 0건이 아니라 못 셈. MACHINE은 다른 세션·작업 알림이 보낸 메시지라 개념·작업 종류를 일부러 세지 않았다는 뜻이다. 해석을 덧붙이지 않는다.
-- 지금 실제로 넣는 것은 인계서와 개념 색인이다(개념 절은 `BATON_CONCEPT_INJECT=on`일 때만). 나머지는 관찰이다 — 북극성 길 단계 1.
-- `개념 색인` 줄은 이 프롬프트가 세션의 첫 사람 프롬프트라면 색인을 넣을지와 그 크기(글자·개념 수)를 보여 준다. 이 명령은 세션 기억을 보지 않으므로, 이미 넣은 세션에서는 실제로 넣지 않는다.
+- If `$ARGUMENTS` is empty, only say "give me the prompt to judge as the argument" (in the user's language) and stop.
+- The verdict states are MATCHED (exactly one rule matched) · AMBIGUOUS (two or more) · NO_MATCH (none); when the
+  material is missing, NO_MAP (no concept map) · UNCONFIGURED (no domain set) — the last two are not 0, they mean
+  "could not count". MACHINE means the message came from another session or a task notification, so concepts and the
+  task type were deliberately not counted. Do not add an interpretation.
+- What actually goes in today is the handoff and the concept index (a concept section only with
+  `BATON_CONCEPT_INJECT=on`). The rest is observation — step 1 of the North Star roadmap.
+- The `concept index` line (`개념 색인` in Korean output) shows whether the index would go in, and its size (characters
+  and concepts), if this prompt were the session's first human prompt. This command does not look at the session's
+  memory, so in a session that already has the index, it does not actually go in.
+- The output language follows `BATON_LANG` (or the system locale). Reply to the user in their language.

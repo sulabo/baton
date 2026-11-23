@@ -1,135 +1,204 @@
 ---
 name: handoff
-description: 세션 인계서(HANDOFF.md) 작성. 작업 하나가 끝났거나 주제를 바꾸거나 대화가 길어졌을 때, 다음 세션이 이어받을 수 있게 현재 작업 상태를 파일로 남긴다. 쓰기 전에 과거 인계서를 훑어 DECISIONS.md로 승격할 것이 있는지 함께 판정한다. "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토"에도 발동. Also triggers on English requests such as "write a handoff", "leave a handoff for the next session", "update HANDOFF.md", "review what to promote to DECISIONS.md".
+description: Write a session handoff (HANDOFF.md). When a piece of work is done, the topic changes, or the conversation gets long, leave the current state in a file so the next session can pick it up. Before writing, scan past handoffs to decide whether anything should be promoted to DECISIONS.md. Triggers on English requests such as "write a handoff", "leave a handoff for the next session", "update HANDOFF.md", "review what to promote to DECISIONS.md", and on Korean requests such as "핸드오프 작성해줘", "인계서 남겨줘", "승격 검토". The baton Stop hook can also ask for it once per session.
 ---
 
-# Handoff — 세션 인계서 작성과 승격 검토
+# Handoff — writing a session handoff and reviewing promotions
 
-## 목적
+Reply in the user's language. Write HANDOFF.md in the language of the existing file; if there is none, in the
+language the user writes in. Both templates are at the end of this file.
 
-긴 대화를 계속 끌고 가는 대신, 작업 상태를 짧은 파일로 남기고 새 세션에서 이어받는다.
-실측 근거: 콜드 스타트 대비 비용 -44.7%, 정답률 동등 이상 (내부 통제실험 기록).
-핵심 가치는 "실패한 접근법" 항목 — 다음 세션이 같은 삽질을 반복하지 않게 한다.
+## Purpose
 
-**두 번째 목적: 승격 검토.**
-인계서는 매번 덮어쓰므로 개별 판은 휘발성이다. 그런데 **판을 가로질러 반복되는 것**은 휘발성이
-아니다. 같은 판단을 세 번 다시 했다면 그것은 세션 상태가 아니라 상시 규칙이고,
-`HANDOFF.md`가 아니라 `DECISIONS.md`에 있어야 한다. 매번 다시 판단하는 비용을 내고 있다는 뜻이다.
+Instead of dragging a long conversation on, leave the work state in a short file and pick it up in a new session.
+Measured: cost -44.7% compared with a cold start, with accuracy equal or better (internal controlled experiment).
+The core value is the "Failed approaches" item — it keeps the next session from repeating the same dead ends.
 
-과거 판은 따로 보관하지 않는다. **git 이력이 곧 보관소다.**
+**Second purpose: promotion review.**
+The handoff is overwritten every time, so each version is short-lived. But **what repeats across versions** is not.
+If the same judgment was made three times over, it is not session state but a standing rule, and it belongs in
+`DECISIONS.md`, not `HANDOFF.md`. It means you are paying to make that judgment again every time.
 
-## 실행 절차
+Past versions are not archived separately. **The git history is the archive.**
 
-### 1. 승격 검토 (쓰기 전에 한다)
+## Procedure
 
-**스크립트가 한다. 손으로 git 명령을 조합하지 않는다.**
+### 1. Promotion review (do this before writing)
+
+**The script does it. Do not put git commands together by hand.**
 
 ```bash
-$CLAUDE_PLUGIN_ROOT/lib/promote.sh [저장소 경로] [판수(기본 8)]
+$CLAUDE_PLUGIN_ROOT/lib/promote.sh [repo path] [versions (default 8)]
 ```
 
-추적되고 있지 않으면 스크립트가 그렇게 말하고 멈춘다. 그 사실과 `git add HANDOFF.md` 권고를
-보고에 적는다. 추적이 안 되면 이 검토는 영원히 불가능하다.
+If HANDOFF.md is not tracked, the script says so and stops. Put that fact and the advice to run `git add HANDOFF.md`
+in your report. While it is untracked, this review can never work.
 
-신호는 셋인데 **성격이 다르다.**
+There are three signals, and **they are different in kind.**
 
-| 신호 | 무엇을 보나 | 자동 탐지 |
+| Signal | What it looks at | Detected automatically |
 |---|---|---|
-| **반복 실패** | 같은 "실패한 접근법"이 **서로 다른 3일 이상** 살아남음 | 된다 |
-| **탈락** | 앞선 판에 2판 이상 있던 상시 제약이 최신판에서 사라짐 | 된다 |
-| **번복** | 결정이 반대로 뒤집힘 | **안 된다.** 소유자가 알려줄 때만 |
+| **Repeated failure** | The same "Failed approaches" item survives on **3 or more different days** | Yes |
+| **Dropped** | A standing constraint that was in 2 or more earlier versions is gone from the latest | Yes |
+| **Reversal** | A decision is turned around | **No.** Only when the owner points it out |
 
-**번복을 자동 탐지에서 뺀 것은 해 보고 안 돼서다.** 의미 대조라 문자열 집계로 안 잡힌다.
-대신 실측에서 **탈락이 더 값진 신호**로 드러났다. 어떤 저장소에서 이런 종류의 줄들이
-인계서에만 살다가 조용히 빠져 있었다.
+**Reversal was left out of automatic detection because we tried it and it did not work.** It is a comparison of
+meaning, so counting strings cannot catch it. Measurement showed instead that **dropped items are the more valuable
+signal**. In one repository, lines like these lived only in the handoff and had quietly dropped out:
 
 ```
-- 이 수치는 반올림해서만 공개한다 (소유자 결정, 날짜)
-- 상위 저장소에 직접 푸시하지 않는다
-- 개인 식별 정보는 산출물에 넣지 않는다
+- These figures are published only rounded (owner decision, date)
+- Never push directly to the upstream repository
+- Do not put personally identifying information in outputs
 ```
 
-셋 다 **소유자가 내린 결정**이고 `DECISIONS.md`에 있어야 할 것들이다. 번복 기록조차
-그렇게 탈락해 있었다.
+All three are **decisions the owner made** and belong in `DECISIONS.md`. Even a record of a reversal had dropped out
+that way.
 
-탈락 후보는 결정 표지(소유자 결정·확정·금지·절대·채택·해제·정본·결정 ID)가 붙은 것을 위로
-올려 보여 준다. 전부가 승격감은 아니다. **끝난 일인지 살아 있는 제약인지는 사람이 가른다.**
+Dropped candidates that carry a decision marker (owner decision, final, forbidden, never, adopted, lifted, canonical,
+a decision ID; in Korean handoffs 소유자 결정·확정·금지·절대·채택·해제·정본) are listed first. Not all of them are worth
+promoting. **A person decides which are finished work and which are live constraints.**
 
-**판이 아니라 날로 센다. 이것 하나가 신호의 거의 전부를 가른다.**
+**Count days, not versions. This one choice decides almost the whole signal.**
 
-인계서는 하루에 여러 번 커밋되고, 그때 "실패한 접근법" 절이 통째로 복붙된다.
-2026-09-15 실측: 어떤 저장소의 최근 8판 중 **3판이 이전 판과 완전히 동일**했다.
-커밋 단위로 세면 그 복붙이 그대로 "반복"으로 잡힌다.
+A handoff is committed several times a day, and each time the "Failed approaches" section is copied over whole.
+Measured 2026-09-15: of one repository's last 8 versions, **3 were identical to the version before.**
+Counted by commit, that copying shows up as "repetition".
 
-| 세는 단위 | 3회 이상 살아남은 항목 |
+| Unit counted | Items that survived 3 or more times |
 |---|---|
-| 커밋 8판 | 8건 |
-| **서로 다른 8일** | **1건** |
+| 8 commits | 8 |
+| **8 different days** | **1** |
 
-(2026-09-15 측정. 인계서 이력이 쌓이면 최근 8판의 창이 밀려 같은 수치가 다시 나오지 않는다.
-숫자가 아니라 **커밋 단위가 같은 날 복붙을 반복으로 부풀린다**는 기제가 근거다.)
+(Measured 2026-09-15. As the handoff history grows, the window of the last 8 versions moves and the same numbers will
+not come back. The evidence is the mechanism, not the number: **counting by commit inflates same-day copies into
+repetition.**)
 
-**8건 중 7건이 같은 날 여러 번 커밋한 부산물이었다.** 남은 1건은 "톤 핑계로 수치·귀속 변경
-금지"라는 진짜 상시 제약이다. 게임 저장소에서도 13건이 9건으로 줄었다.
+**7 of the 8 were by-products of committing several times on the same day.** The remaining one is a real standing
+constraint: "do not change figures or attribution in the name of tone". In a game repository, too, 13 went down to 9.
 
-그래서 스크립트는 **날짜당 최신 한 판만** 쓴다. 서로 다른 날에 살아남았다는 것은
-여러 작업 세션을 건너뛰고도 남았다는 뜻이고, 그게 상시 규칙의 증거다.
+So the script uses **only the latest version of each day**. Surviving on different days means surviving across
+several work sessions, and that is the evidence of a standing rule.
 
-| 반복 | 처리 |
+| Repeated | Action |
 |---|---|
-| 서로 다른 3일 이상 | 승격 후보로 올린다 |
-| 2일 | 승격하지 않는다. 인계서에서 **한 줄로 줄인다** |
-| 1일 | 그대로 둔다 |
+| 3 or more different days | Raise it as a promotion candidate |
+| 2 days | Do not promote it. **Shorten it to one line** in the handoff |
+| 1 day | Leave it |
 
-**0건은 "없음"이 아니라 "못 셌음"일 수 있다.** 저장소마다 인계서 절 제목이 다르다. 어떤 판은
-`## E. 실패한 접근법`이고, 어떤 판은 그 절이 아예 없다. 스크립트는 추출이 빈 판을
-"형식 불일치"로 따로 세어 분모에서 빼고 그 사실을 출력한다. **그 줄을 보고에 옮긴다.**
+**0 can mean "could not count", not "none".** Handoff section headings differ between repositories. One version has
+`## E. 실패한 접근법`, another has no such section at all. The script counts the versions where extraction came back
+empty as "format mismatch", takes them out of the denominator, and prints that. **Copy that line into your report.**
+The script reads both the English and the Korean template headings.
 
-### 2. 인계서 작성
+### 2. Write the handoff
 
-저장소 루트에 `HANDOFF.md`를 쓴다(이미 있으면 덮어쓴다 — 인계서는 최신 1부만 유지).
-저장소가 아니면 현재 작업 디렉토리에 쓴다.
+Write `HANDOFF.md` at the repo root (overwrite it if it exists — keep only the latest copy). If there is no
+repository, write it in the current working directory.
 
-아래 템플릿의 8항목을 채운다. 짧게 유지한다 — 대화 전문, 반복 설명, 도구 원출력은 넣지 않는다.
-**200줄·8,700자를 넘기지 않는다**(줄은 소유자 결정 2026-09-22, 글자는 검사기 상한 — 주입 훅이 머리말·신선도 한 줄·개념 색인까지 붙여도 전문이 들어가는 양. 훅 출력은 Claude Code 문서 상한 10,000자를 넘으면 파일로 빠지므로 훅은 머리말·신선도 한 줄까지 합쳐 9,600자 안에서 넣는다). 인계·상태 질문이 오면 플러그인 훅이 이 파일을
-200줄·훅 출력 9,600자까지 컨텍스트에 넣는다 — 넘친 뒤쪽은 넣지 않는다. 다음 행동은 앞쪽에 둔다.
-**비용 -44.7% 실측은 승격 후보 절이 없던 7항목 판에서 나온 수치다.** 8번째 항목은 그 뒤 추가분이다.
+Fill in the 8 items of the template below. Keep it short — no full conversation, no repeated explanations, no raw
+tool output. **Stay within 200 lines and 8,700 characters** (lines: owner decision 2026-09-22; characters: the checker
+limit, the amount that still goes in whole after the injection hook adds its header, the freshness line and the
+concept index. Hook output over the 10,000-character cap in the Claude Code docs is moved to a file, so the hook keeps
+everything, header and freshness line included, within 9,600 characters). When a handoff or status question comes in,
+the plugin hook puts this file into context up to 200 lines and 9,600 characters of hook output — anything past that
+is left out. Put the next actions near the top.
+**The -44.7% cost figure was measured on the 7-item version, before the promotion candidates section existed.** The
+8th item was added later.
 
-정직성 원칙: 검증 안 된 것은 "미검증"으로, 부분 완료는 어느 부분이 남았는지 구체적으로 적는다.
-요약·기억이 아니라 실제 파일/실행 결과를 근거로 적는다.
+Honesty: write what is not verified as "unverified", and for partial completion say exactly which part is left. Base
+what you write on actual files and command results, not on summaries or memory.
 
-**인계서는 사실이 아니라 작성 시점의 가설이다.** 다음 세션은 며칠 뒤, 다른 폴더, 그 사이 커밋이 쌓인 저장소에서
-이 파일을 읽을 수 있다. 훅은 주입할 때 작성일·며칠 전·그 뒤 커밋 수를 붙이고, 읽는 쪽은 다음 행동이 기대는
-주장 한두 개만 확인한다. 쓰는 쪽이 할 일은 셋이다.
+**A handoff is a hypothesis from the time it was written, not a fact.** The next session may read this file days
+later, in another folder, in a repository with commits piled up in between. When it injects the file, the hook adds
+the written date, how many days ago that was, and the number of commits since; the reader checks only the one or two
+claims the next action depends on. The writer has three jobs.
 
-- **첫 줄에 작성일을 둔다**(`작성: YYYY-MM-DD`). 훅이 이 날짜로 나이를 센다. 없으면 HANDOFF.md의 마지막 커밋일로 센다.
-- **다음 행동은 "지금 상태(근거) → 할 일" 짝으로 쓴다.** 명령만 남기면 상태가 바뀐 뒤에도 그대로 실행된다.
-  짝이 있으면 읽는 쪽이 상태부터 확인하고, 다르면 그 행동을 다시 판단한다.
-  예: "`split-notice.py`는 등록만 됐고 실제 창에서 울린 적 없음(설치본이 10-04 판) → 재설치 뒤 새 창에서 확인".
-- **확인된 사실에는 어떻게 확인했는지를 붙인다**(명령·파일·날짜). 읽는 쪽이 같은 방법으로 다시 확인할 수 있게.
+- **Put the written date in the first line** (`written: YYYY-MM-DD`; `작성: YYYY-MM-DD` in a Korean handoff). The hook
+  counts the age from this date. Without it, the hook uses the last commit date of HANDOFF.md.
+- **Write each next action as a pair: "current state (evidence) → what to do".** A bare command gets run as it is even
+  after the state has changed. With the pair, the reader checks the state first and decides the action again if the
+  state is different.
+  Example: "`split-notice.py` is registered but has never fired in a real window (the installed copy is the 10-04
+  version) → reinstall, then check in a new window".
+- **Add how each verified fact was checked** (command, file, date), so the reader can check it again the same way.
 
-쓴 뒤 검사기를 돌리고, 나온 문제를 고친 다음 커밋한다.
+After writing, run the checker, fix what it reports, then commit.
 
 ```bash
 python3 $CLAUDE_PLUGIN_ROOT/lib/handoff_check.py HANDOFF.md
 ```
 
-필수 8절·200줄·8,700자·20줄 넘는 코드 블록·전체 diff·비밀값·홈 절대경로를 본다. "확인된 사실과 결정" 목록 줄에 [V]·[?] 표시가 없으면 막지 않고 경고만 한다. Claude Code에서는
-`Write`/`Edit`로 저장하면 훅이 같은 검사를 자동으로 돌려 문제를 돌려준다. Codex의 `apply_patch`는 훅이
-경로를 못 받으므로 직접 돌린다.
+It checks the 8 required sections, 200 lines, 8,700 characters, code blocks over 20 lines, full diffs, secrets and
+absolute home paths. If a list item under "Verified facts and decisions" ("확인된 사실과 결정" in the Korean template)
+has no [V] or [?] mark, it warns without blocking. On Claude Code, saving with `Write`/`Edit` makes a hook run the same
+check automatically and hand the problems back. Codex's `apply_patch` gives the hook no path, so run it yourself there.
 
-### 3. 커밋
+### 3. Commit
 
-`HANDOFF.md`를 커밋한다. 커밋하지 않으면 다음 판이 이 판을 못 보고, 승격 검토가 성립하지 않는다.
+Commit `HANDOFF.md`. Without a commit, the next version cannot see this one, and the promotion review does not work.
 
-### 4. 안내
+### 4. Tell the user
 
-사용자에게 두 줄로 알린다.
+Tell the user in two lines.
 
-- "새 세션에서 'HANDOFF.md 읽고 이어서 해줘'라고 시작하세요."
-- 승격 후보가 있으면: 무엇을, 왜, 어느 파일에 올릴지. **초안까지만 만들고 직접 쓰지 않는다.**
+- "In a new session, start with 'read HANDOFF.md and continue'." (Korean: "새 세션에서 'HANDOFF.md 읽고 이어서 해줘'라고
+  시작하세요.")
+- If there are promotion candidates: what, why, and which file they go to. **Make a draft only; do not write it
+  yourself.**
 
-## 템플릿
+## When the Stop hook asks
+
+When 3 or more files (`BATON_HANDOFF_NUDGE_FILES`) were edited since the last handoff, the baton Stop hook keeps your
+turn going once per session and asks you to write the handoff (`BATON_HANDOFF_AUTO`, on by default; not on Codex).
+Then:
+
+- Do step 2 only: write or update `HANDOFF.md` and run the checker. Keep it short; the changes made and the next
+  actions matter most.
+- Skip the promotion review and do not commit — the user did not ask for either.
+- End the turn with one line to the user: the handoff was updated (not committed), and `BATON_HANDOFF_AUTO=off`
+  turns this off.
+
+## Templates
+
+English:
+
+```markdown
+# Session Handoff (written: YYYY-MM-DD)
+
+## Goal and done criteria
+- Goal:
+- Done when:
+
+## Verified facts and decisions
+<!-- Mark each line [V] (checked directly with a file or command) or [?] (from memory or a guess), and say how you checked it (command, file, date) -->
+-
+
+## Files and symbols
+- `path` (`path:line` if needed): symbol / why — line numbers shift soon, so put the symbol first
+
+## Changes made
+- None, or the exact file + the change in behavior
+
+## Failed approaches (do not retry)
+- Approach: why it failed
+
+## Verification evidence
+- Command/check:
+- Result:
+
+## Risks and next actions
+- Risks/blockers:
+- Next action: current state (evidence) → what to do
+
+## Promotion candidates (to DECISIONS.md)
+- None, or: what / signal (repeated failure in N versions · dropped · reversal the owner mentioned) / hash of the version it rests on
+
+### Rejected (do not raise again)
+- None, or: what / date rejected / reason
+```
+
+Korean (한국어):
 
 ```markdown
 # Session Handoff (작성: YYYY-MM-DD)
@@ -166,78 +235,79 @@ python3 $CLAUDE_PLUGIN_ROOT/lib/handoff_check.py HANDOFF.md
 - 없음, 또는: 무엇 / 기각일 / 사유
 ```
 
-**기각 목록을 절차 1에서 가장 먼저 읽는다.** 안 그러면 같은 후보가 매 판 다시 올라온다.
-실제 이력을 보면 한 저장소의 실패 항목 수가 아홉 판 연속 같은 값이었다. 한 번 문턱을 넘은
-항목은 그대로 눌러앉는다는 뜻이다. 매번 같은 여덟 건이 올라오면 그 절은 곧 안 읽힌다 —
-관계도 문서가 죽은 것과 정확히 같은 경로다.
+**Read the rejected list first, in step 1.** Otherwise the same candidates come back in every version.
+In real history, one repository's count of failure items stayed the same for nine versions in a row. Once an item
+crosses the threshold, it stays put. If the same eight items come up every time, nobody reads that section any more —
+exactly the way the relationship-map document died.
 
-## 승격은 제안까지만 한다
+## Promotion stops at a proposal
 
-**금지하는 것은 "대신 쓰기"가 아니라 "추측으로 채우기"다.**
+**What is forbidden is not "writing it for the owner" but "filling it in by guessing".**
 
-결정 기록의 값은 "무엇을 정했나"가 아니라 **"왜, 무엇을 버렸나"**에 있다.
-버린 대안과 그 이유는 결정한 사람 머릿속에만 있고, 인계서에서 역산할 수 없다.
-추측으로 채우면 6개월 뒤에 읽을 때 가장 중요한 줄이 거짓이 된다.
+The value of a decision record is not "what was decided" but **"why, and what was rejected"**.
+The rejected alternatives and the reasons exist only in the head of the person who decided; they cannot be worked out
+backwards from the handoff. Filled in by guessing, the most important line is false when someone reads it six months
+later.
 
-그러니 선은 여기다. **소유자가 이유와 버린 대안을 말해 주면 `/decision` 스킬로 적는다.
-그 둘이 비어 있으면 쓰지 않는다.** 이 스킬이 혼자 판단해서 등재하지 않는다는 뜻이지,
-받아 적는 것까지 막는 것이 아니다.
+So the line is here. **When the owner tells you the reason and the rejected alternatives, record them with the
+`/decision` skill. If either is missing, do not write the entry.** This means the skill does not add entries on its
+own judgment; it does not stop you from writing down what the owner says.
 
-그래서 승격 후보는 이렇게 올린다.
+So raise promotion candidates like this.
 
-- **무엇을** — 한 줄로 정리한 결정문 초안
-- **왜 승격인가** — 어느 판에서 몇 번 반복됐는지, 해시와 함께
-- **비어 있는 칸** — "버린 대안"과 "이유"는 빈칸으로 두고 소유자가 채우게 한다
+- **What** — a one-line draft of the decision
+- **Why promote** — in which versions and how many times it repeated, with hashes
+- **Blank fields** — leave "rejected alternatives" and "reason" blank for the owner to fill in
 
-소유자가 결정을 적을 때 `- 관련:` 한 줄을 함께 붙이도록 안내한다
-(다른 프로젝트 `[[이름]]`·방향 / 바꾸는 개념 / 근거 경로, 없으면 `없음`).
-그 줄이 개념 지도와 이어지는 지점이다 — `/ontology` 스킬이 그 줄을 읽어
-어느 개념이 재확인 대상인지 역산한다.
+When the owner writes the decision, suggest adding one `- 관련:` (related) line with it (other projects as `[[name]]`
+and direction / the concepts it changes / evidence paths, or `없음` (none) if there are none). That line is where the
+decision connects to the concept map — the `/ontology` skill reads it and works out which concepts need a re-check.
 
-## 언제 쓰나
+## When to use it
 
-- 작업 하나 완료 시 / 주제가 바뀔 때 / 컨텍스트가 70%쯤 찼다 싶을 때.
-- 승격 검토만 따로 돌려도 된다. "승격 검토해줘"면 절차 1만 하고 보고한다.
+- When a piece of work is done / when the topic changes / when the context feels about 70% full.
+- The promotion review can be run on its own. For "review what to promote", do step 1 only and report.
 
-## HANDOFF와 DECISIONS의 경계
+## Where HANDOFF ends and DECISIONS begins
 
 | | HANDOFF.md | DECISIONS.md |
 |---|---|---|
-| 수명 | 이번 작업이 끝나면 쓸모없어진다 | 6개월 뒤에도 "왜?"의 답이 된다 |
-| 판수 | 최신 1부, 덮어쓴다 | 누적, 지우지 않는다 |
-| 대상 | 지금 어디까지 했나 | 왜 이 길을 골랐나 |
-| 쓰는 이 | 에이전트가 쓴다 | **소유자가 쓴다** |
+| Lifetime | Useless once this piece of work is done | Still answers "why?" six months later |
+| Copies | Latest one only, overwritten | Accumulates, never deleted |
+| About | How far we got | Why we chose this path |
+| Written by | The agent | **The owner** |
 
-애매하면 기준은 하나다. **이 문장이 다음 주에도 참인가.**
-참이면 DECISIONS, 아니면 HANDOFF.
+When in doubt, there is one test. **Will this sentence still be true next week?**
+If yes, DECISIONS; if not, HANDOFF.
 
-## 하지 말 것
+## Do not
 
-- `DECISIONS.md`를 대신 쓰기
-- 버린 대안을 추측으로 채우기
-- 3판 이상 살아남은 실패 항목을 승격 후보로 올리지 않고 계속 불리기
-- 기각된 후보를 다음 판에서 또 올리기 (기각 목록을 먼저 읽는다)
-- 과거 판 전문을 통독하기 (`promote.sh`가 절만 뽑는다)
-- 스크립트가 낸 0건을 그대로 "없음"으로 보고하기 (형식 불일치 줄을 먼저 본다)
-- `HANDOFF.md`를 커밋하지 않고 두기 (다음 판이 이 판을 못 본다)
-- 대화 전문·도구 원출력을 인계서에 붙이기
+- Write `DECISIONS.md` for the owner
+- Fill in rejected alternatives by guessing
+- Keep growing a failure item that survived 3 or more versions instead of raising it as a promotion candidate
+- Raise a rejected candidate again in the next version (read the rejected list first)
+- Read past versions in full (`promote.sh` extracts only the sections)
+- Report a 0 from the script as "none" (look at the format-mismatch line first)
+- Leave `HANDOFF.md` uncommitted (the next version cannot see this one)
+- Paste the full conversation or raw tool output into the handoff
 
-## 한계 (정직하게)
+## Limits (honestly)
 
-- 승격 검토는 `promote.sh`로 구현돼 있고 저장소 두 곳에서 돌려 확인했다.
-  **2026-09-15에 세는 단위를 커밋에서 날짜로 바꿨다** — 커밋 단위는 같은 날 복붙을
-  반복으로 오인해 문서 저장소에서 8건 중 7건이 가짜였다. 지금은 문서 저장소 1건, 게임 9건.
-  **"그래서 무엇을 승격할지"의 판단까지 끝까지 돌려 본 적은 없고, 스킬로 호출해 검증한 적도 없다.**
-- **번복 자동 탐지는 실패했다.** 문자열 집계로는 안 잡힌다는 것을 확인하고 신호에서 뺐다.
-  소유자가 알려줄 때만 후보로 올린다.
-- **탈락 신호는 인계서 절 제목이 판마다 같아야 동작한다.** 게임 저장소는 최근 8판 중 5판의
-  절 구조가 달라 못 셌다(스크립트가 그 사실을 출력한다). 구조가 자주 바뀌는 저장소에서는
-  이 신호의 분모가 작다.
-- **문턱 3판은 저장소 한 곳의 분포로 정했다.** 다른 저장소에서도 같은 지점에서 갈리는지는
-  아직 모른다. 후보가 15건을 넘으면 문턱을 올리는 쪽을 검토한다.
-- git 미추적 저장소에서는 승격 검토가 아예 동작하지 않는다. 2026-09-14 확인 기준으로
-  대상 프로젝트 셋 중 한 곳(앱 저장소)과 다른 저장소 한 곳의 `HANDOFF.md`가 추적되지 않고 있다.
-  먼저 `git add`가 필요하다.
-- "같은 판단인가"의 판정은 문자열 일치가 아니라 의미 판단이라 놓칠 수 있다.
-  놓친 것은 다음 판에서 또 보이므로 치명적이지는 않지만, 확실하지 않으면 후보로 올리고
-  소유자가 기각하게 한다. 빠뜨리는 쪽이 더 비싸다.
+- The promotion review is implemented as `promote.sh` and was checked by running it on two repositories.
+  **On 2026-09-15 the counting unit changed from commits to days** — counting by commit mistook same-day copies for
+  repetition, and 7 of 8 items in the docs repository were false. Now it is 1 in the docs repository and 9 in the game
+  repository. **The judgment of "so what should be promoted" has never been run end to end, and it has never been
+  verified by calling it as a skill.**
+- **Automatic reversal detection failed.** We confirmed that string counting cannot catch it and took it out of the
+  signals. Raise one only when the owner points it out.
+- **The dropped signal works only when the handoff section headings stay the same across versions.** In the game
+  repository, 5 of the last 8 versions had a different section layout and could not be counted (the script prints
+  that). In repositories whose layout changes often, the denominator of this signal is small.
+- **The threshold of 3 versions was set from the distribution of one repository.** Whether other repositories split
+  at the same point is not known yet. If there are more than 15 candidates, consider raising the threshold.
+- In a repository where git does not track the handoff, the promotion review does not work at all. As checked on
+  2026-09-14, `HANDOFF.md` was untracked in one of the three target projects (the app repository) and in one other
+  repository. `git add` comes first.
+- Deciding "is this the same judgment" is a judgment of meaning, not string matching, so it can miss things.
+  What it misses shows up again in the next version, so this is not fatal, but if you are not sure, raise it as a
+  candidate and let the owner reject it. Leaving one out costs more.
