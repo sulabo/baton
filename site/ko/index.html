@@ -344,6 +344,8 @@ body { word-break: keep-all; }
 .tabpanel .note { max-width: 32em; }
 .faq details p { max-width: 36em; }
 .foot-statement { max-width: 15em; }
+.cost-head { flex-wrap: nowrap; column-gap: 0.1em; } /* "85%는"이 한 덩어리로 읽히게 */
+.cost-head span { min-width: 0; }
 </style>
 </head>
 <body>
@@ -386,7 +388,7 @@ body { word-break: keep-all; }
             <div class="out">$ <span class="nw">git status ·</span> <span class="nw">git log ·</span> <span class="nw">cat src/levels.ts src/game.ts</span></div>
             <div>레벨 데이터를 넣기 직전에서 멈춰 있습니다. … 다음에 할 일: <code>src/levels.ts</code>에 1~3레벨을 넣습니다.</div></div>
         </div>
-        <div class="summary"><span class="nw">호출 3번 → 2번 ·</span> <span class="nw">비용 $0.38 → $0.34 ·</span> <span class="nw">입력 토큰 152K → 102K</span><br><span class="nw">같은 질문,</span> <span class="nw">각 1번 실행.</span> 실제 사용에서 토큰 합계는 아직 줄지 않았어요.</div>
+        <div class="summary"><span class="nw">호출 3번 → 2번 ·</span> <span class="nw">비용 $0.38 → $0.34 ·</span> <span class="nw">입력 토큰 152K → 102K</span><br><span class="nw">각 1번 실행,</span> 비용은 <span class="nw">API 가격 환산.</span> 실제 사용에서는 토큰이 아직 <span class="nw">줄지 않았어요.</span></div>
       </figure>
     </div>
   </section>
@@ -394,7 +396,7 @@ body { word-break: keep-all; }
   <section class="problem gutter" aria-labelledby="problem-title">
     <div class="container problem-inner" data-rise="120">
       <figure class="cost">
-        <p class="cost-head"><b>85%</b><span>전체 비용의 85%를, 대화 양이 점선을 넘은 뒤에 썼어요.</span></p>
+        <p class="cost-head"><b>85%</b><span>는 대화 양이 점선을 넘은 뒤에 쓴 비용이에요.</span></p>
         <div>
           <p class="cost-title">AI를 부를 때마다 다시 읽는 대화 양</p>
           <div class="cost-plot">
@@ -411,7 +413,7 @@ body { word-break: keep-all; }
         <p class="label">문제</p>
         <h2 id="problem-title"><span class="nw">대화가 길어질수록,</span> <span class="nw">비용은 대부분</span> <span class="nw">후반에 나가요.</span></h2>
         <p class="muted">AI를 부를 때마다, 그때까지 나눈 대화가 전부 다시 들어가요. 그래서 대화가 길어질수록 같은 일도 비싸져요. <span class="nw">새 대화를</span> 열면 가벼워지지만, AI는 어디까지 했는지 찾느라 지난 기록부터 다시 열어요.</p>
-        <p class="flip"><span class="flip-n"><span class="nw">42개 중 41개</span> → <span class="nw">11개 중 3개</span></span><span class="flip-t">진행 상황을 물으며 시작한 대화 중, AI가 <span class="nw">첫 5번 호출 안에</span> 인계서를 다시 연 대화예요. <span class="nw">baton 설치 전 → 설치 후.</span> 설치 후 3개 중 2개는 일부만 읽었어요.</span></p>
+        <p class="flip"><span class="flip-n"><span class="nw">42개 중 41개</span> → <span class="nw">11개 중 3개</span></span><span class="flip-t">진행 상황을 물으며 시작한 대화 중, AI가 <span class="nw">첫 5번 호출 안에</span> 인계서를 다시 연 대화예요. <span class="nw">baton 설치 전 → 설치 후.</span> 일부만 읽은 대화는 <span class="nw">설치 전 3개,</span> <span class="nw">설치 후 2개예요.</span></span></p>
         <p class="note">실제 사용, 설치 전 <span class="nw">08-31~10-04</span> · 설치 후 <span class="nw">10-19~11-20</span>. 설치 후는 대화가 11개뿐이라 방향만 보여 줘요. 같은 대화들에서 첫 5번 호출의 입력 토큰은 오히려 <span class="nw">339–404K → 446–494K</span>로 늘었어요(주별 중앙값). 자세한 숫자는 아래 <span class="nw">"지금까지 잰 것"에</span> 있어요.</p>
       </div>
     </div>
@@ -468,7 +470,7 @@ body { word-break: keep-all; }
             <li class="step">
               <span class="step-num">3 · 코드가 바뀐 뒤</span>
               <h3><span class="nw">코드가 바뀌면,</span> <span class="nw">다시 볼 곳을</span> <span class="nw">알려 줘요.</span></h3>
-              <p><span class="nw">새 대화를</span> 열 때, 지난번 확인 뒤 바뀐 곳이 <span class="nw">몇 군데인지</span> <span class="nw">한 줄로</span> <span class="nw">보여 줘요.</span></p>
+              <p><span class="nw">새 대화를</span> 열 때, <span class="nw">다시 볼 곳이</span> <span class="nw">몇 군데인지</span> <span class="nw">한 줄로</span> <span class="nw">보여 줘요.</span></p>
               <p class="fine">아래에서 설명하는 <span class="nw">개념 지도(CONCEPTS.md)에</span> 이름마다 파일과 마지막으로 확인한 커밋을 적어 두고, git 기록으로 세어 봐요. 자세한 표는 <code>/drift</code>.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
@@ -516,12 +518,12 @@ body { word-break: keep-all; }
       <div class="measured-head" data-rise="80">
         <p class="label">지금까지 잰 것</p>
         <h2 id="measured-title"><span class="sent"><span class="nw">실험에서는</span> <span class="nw">토큰이 줄었어요.</span></span> <span class="sent"><span class="nw">실제 사용에서는</span> <span class="nw">아직이에요.</span></span></h2>
-        <p>모두 만든 사람 한 명이 자기 저장소에서 잰 숫자예요. 실제 사용은 평소에 쓴 대화의 기록이고, 실험은 <span class="nw">같은 저장소 상태에서</span> 조건만 바꿔 되풀이한 결과예요. 근거와 출처는 가이드의 <a class="nw" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.ko.md#지금까지-잰-것">지금까지 잰 것</a>에 있어요.</p>
+        <p>모두 만든 사람 한 명이 자기 저장소에서 잰 숫자예요. 실제 사용은 평소에 쓴 대화의 기록이고, 실험은 <span class="nw">같은 저장소 상태에서</span> 조건만 바꿔 되풀이한 결과예요. 조건과 출처는 <a class="nw" href="https://github.com/sulabo/baton/blob/main/README.ko.md#baton을-쓰고-달라진-것">README의 결과 표</a>에 있어요.</p>
       </div>
       <div class="stats" data-rise="160">
         <div class="stat"><div class="n">40–54%</div><p>진행 상황을 물을 때 인계서를 넣었더니 줄어든 <span class="nw">입력 토큰이에요.</span> AI가 일을 마치기까지 주고받은 횟수도 중앙값 <span class="nw">5–6번</span>에서 3번으로 줄었어요.</p><p class="scope">실험. 저장소 3곳, 조건마다 <span class="nw">3~5번</span>.</p></div>
         <div class="stat"><div class="n">+11%</div><p>관련 없는 작업에 인계서를 넣었더니, <span class="nw">입력 토큰이</span> 오히려 이만큼 늘었어요.</p><p class="scope">실험. 저장소 1곳, 5번. 그래서 물어볼 때만 넣어요.</p></div>
-        <div class="stat"><div class="n"><span class="nw">$1.00 →</span> <span class="nw">$0.68</span></div><p>대화 한 번의 평균 비용이에요. 인계서 없이는 $1.00이었고, <span class="nw">인계서 한 장</span> 전체를 넣으면 $0.68이었어요. 줄인 <span class="nw">요약 카드만</span> 넣으면 <span class="nw">$0.88–1.05였고,</span> AI가 5번 모두 파일을 다시 열었어요.</p><p class="scope">실험, API 가격 환산. 저장소 1곳, 조건마다 5번, <span class="nw">2026-09</span>. 그래서 baton은 요약이 아니라 <span class="nw">한 장 전체를</span> 넣어요.</p></div>
+        <div class="stat"><div class="n"><span class="nw">$1.00 →</span> <span class="nw">$0.68</span></div><p>대화 한 번의 평균 비용이에요. 인계서 없이는 $1.00이었고, <span class="nw">인계서 한 장</span> 전체를 넣으면 $0.68이었어요. 줄인 <span class="nw">요약 카드만</span> 넣으면 <span class="nw">$0.88–1.05였고,</span> AI가 5번 모두 파일을 다시 열었어요.</p><p class="scope">실험, API 가격 환산. 저장소 1곳, 조건마다 5번, <span class="nw">2026-09</span>. 전체·카드 실험은 기준 실험 뒤에 따로 돌렸어요. 그래서 baton은 요약이 아니라 <span class="nw">한 장 전체를</span> 넣어요.</p></div>
         <div class="stat"><div class="n"><span class="nw">61–71K →</span> <span class="nw">77–87K</span></div><p>실제 사용에서 대화 첫 호출에 담긴 대화 양이에요. 줄지 않고 늘었어요. <span class="nw">같은 기간에</span> 다른 플러그인이 처음부터 차지하는 양도 커져서, baton 몫을 떼어 보지 못했어요.</p><p>따로 찾은 문제도 있었어요. 같은 인계서가 대화 39개에 269번 들어갔어요(대화를 시작할 때 들어간 건 32번). 지금은 대화마다 <span class="nw">한 번만</span> 넣고, 그 효과는 아직 재지 못했어요.</p><p class="scope">주별 중앙값, 설치 전 <span class="nw">08-31~10-04</span> · 설치 후 <span class="nw">10-19~11-20</span>. 인계서 횟수는 <span class="nw">10-04~11-19</span>.</p></div>
       </div>
     </div>

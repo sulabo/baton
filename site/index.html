@@ -372,7 +372,7 @@ html.lenis, html.lenis body { height: auto; }
             <div class="out">$ <span class="nw">git status ·</span> <span class="nw">git log ·</span> <span class="nw">cat src/levels.ts src/game.ts</span></div>
             <div>Work stopped right before adding the level data. … Next: add levels 1–3 to <code>src/levels.ts</code>.</div></div>
         </div>
-        <div class="summary"><span class="nw">Calls 3 → 2 ·</span> <span class="nw">cost $0.38 → $0.34 ·</span> <span class="nw">input tokens 152K → 102K</span><br><span class="nw">Same question,</span> <span class="nw">one run each.</span> Real-use token totals aren't <span class="nw">lower yet.</span></div>
+        <div class="summary"><span class="nw">Calls 3 → 2 ·</span> <span class="nw">cost $0.38 → $0.34 ·</span> <span class="nw">input tokens 152K → 102K</span><br><span class="nw">One run each;</span> cost is an <span class="nw">API-price equivalent.</span> In real use, tokens aren't <span class="nw">lower yet.</span></div>
       </figure>
     </div>
   </section>
@@ -380,7 +380,7 @@ html.lenis, html.lenis body { height: auto; }
   <section class="problem gutter" aria-labelledby="problem-title">
     <div class="container problem-inner" data-rise="120">
       <figure class="cost">
-        <p class="cost-head"><b>85%</b><span>of the cost came after the conversation passed the <span class="nw">dashed line.</span></span></p>
+        <p class="cost-head"><b>85%</b><span>of the cost was spent after the conversation passed the <span class="nw">dashed line.</span></span></p>
         <div>
           <p class="cost-title">What the agent re-reads on every call</p>
           <div class="cost-plot">
@@ -397,7 +397,7 @@ html.lenis, html.lenis body { height: auto; }
         <p class="label">The problem</p>
         <h2 id="problem-title">Most of a session's cost comes after it gets long.</h2>
         <p class="muted">Every call sends the whole conversation so far again, so the same work costs more the longer a session runs. A new session is light again, but the agent first digs through old notes to find where it left off.</p>
-        <p class="flip"><span class="flip-n"><span class="nw">41 of 42</span> → <span class="nw">3 of 11</span></span><span class="flip-t">Sessions that opened with a progress question in which the agent reopened the handoff within its <span class="nw">first 5 calls.</span> <span class="nw">Before → after</span> installing baton; 2 of the 3 read only <span class="nw">part of it.</span></span></p>
+        <p class="flip"><span class="flip-n"><span class="nw">41 of 42</span> → <span class="nw">3 of 11</span></span><span class="flip-t">Sessions that opened with a progress question in which the agent reopened the handoff within its <span class="nw">first 5 calls.</span> <span class="nw">Before → after</span> installing baton; some read only <span class="nw">part of it</span> <span class="nw">(3 before, 2 after).</span></span></p>
         <p class="note">Real use, <span class="nw">08-31</span> to <span class="nw">10-04</span> before, <span class="nw">10-19</span> to <span class="nw">11-20</span> after. Eleven sessions show a direction, not a size. In the same sessions, input tokens over the first 5 calls rose from <span class="nw">339–404K</span> to <span class="nw">446–494K</span> (weekly medians). The numbers are in "Measured so far" below.</p>
       </div>
     </div>
@@ -453,8 +453,8 @@ html.lenis, html.lenis body { height: auto; }
             <li class="step">
               <span class="step-num">3 · after code changes</span>
               <h3>When code changes, <span class="nw">baton flags</span> what to re‑check.</h3>
-              <p>A new session opens with one line: <span class="nw">what changed</span> since the last check.</p>
-              <p class="fine">The concept map below (<code>CONCEPTS.md</code>) keeps each part's files and last-checked commit; baton counts git commits.</p>
+              <p>A new session opens with one line: <span class="nw">how much to re‑check.</span></p>
+              <p class="fine">The concept map below (<code>CONCEPTS.md</code>) keeps each concept's files and last-checked commit; baton counts git commits.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
                   <div class="card-top"><span><strong>/drift</strong> · <span class="nw">demo repo</span></span><span class="tag">real output</span></div>
@@ -501,12 +501,12 @@ html.lenis, html.lenis body { height: auto; }
       <div class="measured-head" data-rise="80">
         <p class="label">Measured so far</p>
         <h2 id="measured-title"><span class="sent">Fewer tokens <span class="nw">in snapshot runs.</span></span> <span class="sent">Not yet <span class="nw">in real use.</span></span></h2>
-        <p>All numbers come from one person's own repositories. Real use means everyday sessions; snapshot runs repeat the same task on a fixed repo state, changing one condition. Sources and commands: the guide's <a class="nw" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.md#measured-so-far">Measured so far</a>.</p>
+        <p>All numbers come from one person's own repositories. Real use means everyday sessions; snapshot runs repeat the same task on a fixed repo state, changing one condition. Conditions and sources: the <a class="nw" href="https://github.com/sulabo/baton/blob/main/README.md#what-changed-with-baton">results table in the README</a>.</p>
       </div>
       <div class="stats" data-rise="160">
         <div class="stat"><div class="n">40–54%</div><p>Fewer input tokens on a progress question with the handoff injected. Median turns went from <span class="nw">5–6 to 3.</span></p><p class="scope">Snapshot runs, 3 repos, 3–5 runs per condition.</p></div>
         <div class="stat"><div class="n">+11%</div><p>More input tokens when the handoff was loaded for an unrelated task.</p><p class="scope">Snapshot runs, 1 repo, 5 runs. That is why it goes in only when you ask.</p></div>
-        <div class="stat"><div class="n"><span class="nw">$1.00 →</span> <span class="nw">$0.68</span></div><p>Average cost per session: $1.00 with no handoff, $0.68 with the whole page. With a summary card it was <span class="nw">$0.88–1.05;</span> the agent reopened the file in <span class="nw">5 of 5 runs.</span></p><p class="scope">Snapshot runs at API-price equivalent, 1 repo, 5 runs per condition, <span class="nw">2026-09</span>. This is why baton injects the whole page.</p></div>
+        <div class="stat"><div class="n"><span class="nw">$1.00 →</span> <span class="nw">$0.68</span></div><p>Average cost per session: $1.00 with no handoff, $0.68 with the whole page. With a summary card it was <span class="nw">$0.88–1.05;</span> the agent reopened the file in <span class="nw">5 of 5 runs.</span></p><p class="scope">Snapshot runs at API-price equivalent, 1 repo, 5 runs per condition, <span class="nw">2026-09</span>. The whole-page and card runs came after the baseline, not alternating with it. This is why baton injects the whole page.</p></div>
         <div class="stat"><div class="n"><span class="nw">61–71K →</span> <span class="nw">77–87K</span></div><p>First-call context in real use. It did not go down; it went up. Other plugins' fixed context grew in the same period, so baton's share can't be separated.</p><p>A separate problem: the same handoff went in 269 times across 39 sessions (32 of them at a session's start). It now goes in once per session; that fix isn't <span class="nw">measured yet.</span></p><p class="scope">Weekly medians, <span class="nw">08-31</span> to <span class="nw">10-04</span> before install, <span class="nw">10-19</span> to <span class="nw">11-20</span> after; handoff count <span class="nw">10-04</span> to <span class="nw">11-19</span>.</p></div>
       </div>
     </div>
