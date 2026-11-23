@@ -19,7 +19,8 @@ VERSION = 1
 LIST_KEYS = ("private_terms", "BATON_HANDOFF_TRIGGERS_EXTRA")
 SCALAR_KEYS = ("BATON_SPLIT_NOTICE", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_INJECT", "BATON_CONCEPT_INJECT",
                "BATON_CONCEPT_INDEX",
-               "BATON_HANDOFF_CHECK", "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_NUDGE_FILES", "BATON_OBSERVE", "BATON_LOG")
+               "BATON_HANDOFF_CHECK", "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_NUDGE_FILES", "BATON_OBSERVE", "BATON_LOG",
+               "BATON_LANG")
 GLOBAL_ONLY = ("BATON_OBSERVE", "BATON_LOG")  # 관찰 로그는 저장소를 모르는 자리에서도 쓰여 전역만 읽는다
 SWITCH_KEYS = ("BATON_SPLIT_NOTICE", "BATON_HANDOFF_INJECT", "BATON_CONCEPT_INJECT", "BATON_CONCEPT_INDEX", "BATON_HANDOFF_CHECK",
                "BATON_HANDOFF_NUDGE", "BATON_OBSERVE")
@@ -89,6 +90,9 @@ def invalid(key, value):
     elif key in SWITCH_KEYS:
         if v.lower() not in SWITCH_VALUES:
             return f"{'/'.join(SWITCH_VALUES)} 중 하나여야 한다"
+    elif key == "BATON_LANG":
+        if v.lower() not in ("ko", "en", "auto"):
+            return "ko, en, auto 중 하나여야 한다"
     elif key == "BATON_LOG":
         if not os.path.isabs(os.path.expanduser(v)):
             return "절대 경로여야 한다"

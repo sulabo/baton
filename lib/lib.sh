@@ -51,3 +51,6 @@ diagnose_path() {
   fi
   return 1
 }
+
+# 메시지 언어(ko/en). 순서는 lib/i18n.py 참조. 실패하면 en.
+baton_lang() { python3 "$HERE/i18n.py" "${ROOT:-.}" 2>/dev/null || echo en; }
