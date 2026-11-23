@@ -203,6 +203,7 @@ html.lenis, html.lenis body { height: auto; }
 .cost-bar i { display: block; height: 10px; border-radius: 2px; width: var(--v);
   background: linear-gradient(to right, var(--ink-quiet) 0 var(--c, 100%), var(--accent) var(--c, 100%) 100%); }
 .cost-v { justify-self: end; font: 400 clamp(1.25rem, 1rem + 0.8vw, 1.625rem)/1 var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.cost-nudge { max-width: 34em; font-size: var(--text-sm); color: var(--ink-2); }
 .flip { display: grid; gap: var(--space-1); padding-top: var(--space-4); border-top: 1px solid var(--line); }
 .flip-n { font: 400 clamp(1.5rem, 1.15rem + 1.2vw, 2.125rem)/1.15 var(--font-display); letter-spacing: -0.02em; color: var(--ink); }
 .flip-t { font-size: var(--text-sm); color: var(--ink-2); }
@@ -370,7 +371,7 @@ html.lenis, html.lenis body { height: auto; }
             <div class="out">$ git status · git log<br>$ cat src/levels.ts src/game.ts</div>
             <div>Work stopped right before adding the level data. … Next: add levels 1–3 to <code>src/levels.ts</code>.</div></div>
         </div>
-        <div class="summary">Input tokens, total: 152K → 102K · <span class="nw">same question,</span> <span class="nw">one run each</span></div>
+        <div class="summary"><span class="nw">Calls 3 → 2 ·</span> <span class="nw">cost $0.38 → $0.34 ·</span> <span class="nw">input tokens 152K → 102K</span><br><span class="nw">Same question,</span> <span class="nw">one run each.</span> Real-use token totals aren't <span class="nw">lower yet.</span></div>
       </figure>
     </div>
   </section>
@@ -388,14 +389,15 @@ html.lenis, html.lenis body { height: auto; }
             <span class="cost-k">100th</span><span class="cost-bar" style="--v:100%;--c:46.4%"><i></i></span><b class="cost-v">289K</b>
           </div>
         </div>
-        <figcaption class="note">A call is one request to the model; K is 1,000 tokens, the unit models read text in. Medians over 60 of the author's sessions with 20+ calls, <span class="nw">2026-08-31</span> to <span class="nw">09-30</span>. Cost at API prices.</figcaption>
+        <p class="cost-nudge">baton suggests starting fresh when the conversation passes 2× and 3× its first-call size <span class="nw">(Claude Code).</span> How much that saves in real use isn't <span class="nw">measured yet.</span></p>
+        <figcaption class="note">A call is one request to the model; K is 1,000 tokens, the unit models read text in. Medians over 60 of the author's sessions with 20+ calls, main thread only; the 100th-call value is over 37 of them. <span class="nw">2026-08-31</span> to <span class="nw">09-30</span>, cost at API prices.</figcaption>
       </figure>
       <div style="display:grid;gap:var(--space-4)">
         <p class="label">The problem</p>
         <h2 id="problem-title">Most of a session's cost comes after it gets long.</h2>
         <p class="muted">Every call sends the whole conversation so far again, so the same work costs more the longer a session runs. A new session is light again, but the agent first digs through old notes to find where it left off.</p>
-        <p class="flip"><span class="flip-n"><span class="nw">41 of 42</span> → <span class="nw">3 of 11</span></span><span class="flip-t">New sessions in which the agent reopened the handoff first. <span class="nw">Before → after</span> installing baton.</span></p>
-        <p class="note">Real use: sessions that opened with a progress question, counted within the agent's first 5 calls (<span class="nw">08-31</span> to <span class="nw">10-04</span> before, <span class="nw">10-19</span> to <span class="nw">11-20</span> after). Eleven sessions show a direction, not a size. Token totals in real use are not lower yet; the numbers are in "Measured so far" below.</p>
+        <p class="flip"><span class="flip-n"><span class="nw">41 of 42</span> → <span class="nw">3 of 11</span></span><span class="flip-t">Sessions that opened with a progress question in which the agent reopened the handoff within its <span class="nw">first 5 calls.</span> <span class="nw">Before → after</span> installing baton; 2 of the 3 read only <span class="nw">part of it.</span></span></p>
+        <p class="note">Real use, <span class="nw">08-31</span> to <span class="nw">10-04</span> before, <span class="nw">10-19</span> to <span class="nw">11-20</span> after. Eleven sessions show a direction, not a size. In the same sessions, input tokens over the first 5 calls rose from <span class="nw">339–404K</span> to <span class="nw">446–494K</span> (weekly medians). The numbers are in "Measured so far" below.</p>
       </div>
     </div>
   </section>
@@ -415,9 +417,9 @@ html.lenis, html.lenis body { height: auto; }
           <ol class="steps" id="steps">
             <li class="step is-active">
               <span class="step-num">1 · end of a session</span>
-              <h3>When work ends, <span class="nw">the agent</span> leaves one page.</h3>
+              <h3>When work ends, <span class="nw">the agent</span> leaves a <span class="nw">one‑page handoff.</span></h3>
               <p>Saving it runs a check for secrets and gaps.</p>
-              <p class="fine">In <span class="nw">Claude Code</span>, baton asks for it once 3+ files were edited, or say "write a handoff". A hook (a small script) runs the check.</p>
+              <p class="fine">In <span class="nw">Claude Code</span>, baton asks the agent to update it after 3 or more files are edited; you can also say "write a handoff". A hook (a small script) runs the check.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
                   <div class="card-top"><span><strong>Saved HANDOFF.md</strong> · <span class="nw">demo repo</span></span><span class="tag">shortened</span></div>
@@ -450,8 +452,8 @@ html.lenis, html.lenis body { height: auto; }
             <li class="step">
               <span class="step-num">3 · after code changes</span>
               <h3>When code changes, <span class="nw">baton flags</span> what to re‑check.</h3>
-              <p>A new session opens with one line: <span class="nw">how many concepts changed.</span></p>
-              <p class="fine"><code>CONCEPTS.md</code> keeps each concept's files and last-checked commit; baton counts commits in git. <code>/drift</code> shows the table.</p>
+              <p>A new session opens with one line: <span class="nw">what changed</span> since the last check.</p>
+              <p class="fine">The concept map below (<code>CONCEPTS.md</code>) keeps each part's files and last-checked commit; baton counts git commits.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
                   <div class="card-top"><span><strong>/drift</strong> · <span class="nw">demo repo</span></span><span class="tag">real output</span></div>
@@ -478,7 +480,7 @@ html.lenis, html.lenis body { height: auto; }
       <div class="map-copy" data-rise="80">
         <p class="label">Concept map</p>
         <h2 id="map-title"><span class="sent">Re‑check only the concepts that changed.</span> <span class="sent">Skip the rest.</span></h2>
-        <p class="muted">For each name your project uses, like "lives" or "score" in a game, the map lists its files and when it was last checked (<code>CONCEPTS.md</code>). A new session gets this list first. Each name carries one of four marks.</p>
+        <p class="muted">For each name your project uses, like "lives" or "score" in a game, the map lists its files and when it was last checked (<code>CONCEPTS.md</code>). A new session gets this list first. Each name <span class="nw">usually carries</span> one of four marks.</p>
         <ul class="facts">
           <li><b>fresh</b><span>Its files haven't changed since the check. Skip it.</span></li>
           <li><b>N commits</b><span>N commits touched its files since the check. <span class="nw">Look again.</span></span></li>
@@ -489,11 +491,6 @@ html.lenis, html.lenis body { height: auto; }
       <figure class="card" style="margin:0" id="map-card" data-rise="200">
         <div class="card-top"><span><strong>When a session starts</strong> · <span class="nw">demo repo</span></span><span class="tag">≤ 1,500 chars · shortened</span></div>
         <div class="row"><div class="out"><span class="b">[baton]</span> Index of this repo's concept map (CONCEPTS.md). Open the files of the concept that fits the task first.<br>1. lives — starting number of lives · files: src/lives.ts<br>2. score — points per coin · files: src/score.ts<br>3. levels — level list, still empty · files: src/levels.ts</div></div>
-        <div class="table-wrap"><table class="drift"><thead><tr><th>#</th><th>Concept</th><th>Verdict</th></tr></thead><tbody>
-          <tr><td>1</td><td>lives</td><td class="v-re">needs a re-check — 1 commit</td></tr>
-          <tr><td>2</td><td>score</td><td class="v-fresh">fresh</td></tr>
-          <tr><td>3</td><td>levels</td><td class="v-re">needs a re-check — no baseline</td></tr>
-        </tbody></table></div>
       </figure>
     </div>
   </section>
@@ -503,13 +500,13 @@ html.lenis, html.lenis body { height: auto; }
       <div class="measured-head" data-rise="80">
         <p class="label">Measured so far</p>
         <h2 id="measured-title"><span class="sent">Fewer tokens <span class="nw">in snapshot runs.</span></span> <span class="sent">Not yet <span class="nw">in real use.</span></span></h2>
-        <p>All numbers come from one person's own repositories. Real use means everyday sessions; snapshot runs repeat the same task on a fixed repo state, changing one condition. Commands and sources are in the <a href="https://github.com/sulabo/baton/blob/main/CHANGELOG.md">CHANGELOG</a>.</p>
+        <p>All numbers come from one person's own repositories. Real use means everyday sessions; snapshot runs repeat the same task on a fixed repo state, changing one condition. Sources and commands: the guide's <a class="nw" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.md#measured-so-far">Measured so far</a>.</p>
       </div>
       <div class="stats" data-rise="160">
         <div class="stat"><div class="n">40–54%</div><p>Fewer input tokens on a progress question with the handoff injected. Median turns went from <span class="nw">5–6 to 3.</span></p><p class="scope">Snapshot runs, 3 repos, 3–5 runs per condition.</p></div>
         <div class="stat"><div class="n">+11%</div><p>More input tokens when the handoff was loaded for an unrelated task.</p><p class="scope">Snapshot runs, 1 repo, 5 runs. That is why it goes in only when you ask.</p></div>
-        <div class="stat"><div class="n"><span class="nw">$1.00 →</span> <span class="nw">$0.68</span></div><p>Average cost per session with the handoff shrunk to a summary card versus the whole page. With the card the agent reopened the file in 5 of 5 runs; with the whole page, in none.</p><p class="scope">Snapshot runs, 1 repo, 5 runs per condition, <span class="nw">2026-09</span>. This is why baton injects the whole page.</p></div>
-        <div class="stat"><div class="n"><span class="nw">61–71K →</span> <span class="nw">77–87K</span></div><p>First-call context in real use. Tokens have not gone down; they went up. One cause was baton: the same handoff went in 269 times across 39 sessions. It now goes in once per session, and that fix isn't <span class="nw">measured yet.</span></p><p class="scope">Weekly medians, <span class="nw">08-31</span> to <span class="nw">10-04</span> before install, <span class="nw">10-19</span> to <span class="nw">11-20</span> after; handoff count <span class="nw">10-04</span> to <span class="nw">11-19</span>. Other plugins' fixed context grew in the same period, and we couldn't separate the two.</p></div>
+        <div class="stat"><div class="n"><span class="nw">$1.00 →</span> <span class="nw">$0.68</span></div><p>Average cost per session: $1.00 with no handoff, $0.68 with the whole page. With a summary card it was <span class="nw">$0.88–1.05;</span> the agent reopened the file in <span class="nw">5 of 5 runs.</span></p><p class="scope">Snapshot runs at API-price equivalent, 1 repo, 5 runs per condition, <span class="nw">2026-09</span>. This is why baton injects the whole page.</p></div>
+        <div class="stat"><div class="n"><span class="nw">61–71K →</span> <span class="nw">77–87K</span></div><p>First-call context in real use. It did not go down; it went up. Other plugins' fixed context grew in the same period, so baton's share can't be separated.</p><p>A separate problem: the same handoff went in 269 times across 39 sessions (32 of them at a session's start). It now goes in once per session; that fix isn't <span class="nw">measured yet.</span></p><p class="scope">Weekly medians, <span class="nw">08-31</span> to <span class="nw">10-04</span> before install, <span class="nw">10-19</span> to <span class="nw">11-20</span> after; handoff count <span class="nw">10-04</span> to <span class="nw">11-19</span>.</p></div>
       </div>
     </div>
   </section>
@@ -526,7 +523,7 @@ html.lenis, html.lenis body { height: auto; }
           <li><h3>Rules check it, not the agent</h3><p>It also warns when lines from the last committed version are gone, so a failed approach or a decision doesn't drop out silently.</p></li>
           <li><h3>Flags where decisions, code and docs disagree</h3><p>For example, a decision that isn't built yet shows up on its concept.</p></li>
         </ol>
-        <p class="aside">None of the tools we reviewed documented these on <span class="nw">2026-11-21</span> and <span class="nw">11-22</span>. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.md#how-it-compares">Full comparison</a></p>
+        <p class="aside">We read other tools' docs on <span class="nw">2026-11-21</span> and <span class="nw">11-22</span>; none documented these three. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.md#how-it-compares">Full comparison</a></p>
       </div>
     </div>
   </section>
@@ -561,7 +558,7 @@ html.lenis, html.lenis body { height: auto; }
         <details><summary>How is this different from /compact or /resume?</summary><p><code>/compact</code> summarizes the current conversation and keeps going; <code>/resume</code> reopens an earlier one. Both continue a single conversation. baton is for opening a new session: it suggests starting fresh when the context passes 2× and 3× its first-call size (Claude Code), and gives the next session one page you can read and edit. Which of these costs less is still being compared.</p></details>
         <details><summary>Can I use it in English?</summary><p>Yes. Messages are in English unless your locale is Korean; set <code>BATON_LANG=en</code> to choose English. English requests start the skills, and handoff loading answers phrases such as "where were we" or "pick up where we left off". Add more trigger words with <code>/baton-setup</code>.</p></details>
         <details><summary>Do I need DECISIONS.md?</summary><p>No. Whether a concept's files changed comes from git history alone. Without a decision log, baton can't catch "decided but not built yet", and concepts without files aren't tracked.</p></details>
-        <details><summary>Does it change my files?</summary><p>No hook edits your files. They print notices and hand problems and requests back to the agent. The agent writes <code>CONCEPTS.md</code> and <code>HANDOFF.md</code> when you ask, and in Claude Code it also updates <code>HANDOFF.md</code> at the end of a turn once 3 or more files were edited. Nothing is committed.</p></details>
+        <details><summary>Does it change my files?</summary><p>Yes, <code>HANDOFF.md</code> can change. In <span class="nw">Claude Code</span>, after 3 or more files are edited, baton asks the agent to update it; set <code>BATON_HANDOFF_AUTO=off</code> to get a suggestion instead. <code>CONCEPTS.md</code> is written only when you ask. No hook edits files itself, and nothing is committed.</p></details>
       </div>
     </div>
   </section>
