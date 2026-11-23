@@ -306,6 +306,7 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertLess(took, 5.0, took)  # 훅 시한 10초 훨씬 안
         self.assertEqual(out["decision"], "block")
         self.assertIn("API 토큰 의심 값", out["reason"])
+        self.assertTrue(out["reason"].endswith("\n- 빠진 줄은 확인하지 못했어요(이전 판을 읽지 못함)."), out["reason"])  # 막기가 먼저, 못 읽음은 한 줄
         time.sleep(0.2)
         self.assertEqual(subprocess.run(["pgrep", "-f", "sleep 29.75"], capture_output=True, text=True).stdout.split(), [])
 

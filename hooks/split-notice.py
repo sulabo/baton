@@ -85,13 +85,13 @@ def notice(lang, band, first, last):
     """사용자에게 보이는 알림(systemMessage). 문턱마다 한 번."""
     saving = SAVING.get(band)
     if lang == "ko":
-        lines = [f"[baton] 대화가 처음보다 {band:g}배 길어졌어요({man(first)} → {man(last)} 토큰).",
+        lines = [f"[baton] 대화가 처음보다 {band:g}배 넘게 길어졌어요({man(first)} → {man(last)} 토큰).",
                  "하던 일이 끝났다면 새 대화로 넘어가 보세요."
                  + (f" 지난 대화로 계산해 보면 비용을 {saving} 아낄 수 있어요." if saving else ""),
                  '넘어가는 법: "인계서 써 줘" → /clear → "이어서"',
                  "이 알림은 한 번만 나와요."]
     else:
-        lines = [f"[baton] This conversation is now {band:g}× as long as at the start ({first // 1000}K → {last // 1000}K tokens).",
+        lines = [f"[baton] This conversation is now more than {band:g}× as long as at the start ({first // 1000}K → {last // 1000}K tokens).",
                  "If you're done with the current task, try moving to a new conversation."
                  + (f" Based on past conversations, that can save {saving.replace('~', '–')} of the cost." if saving else ""),
                  'To move: "write a handoff" → /clear → "where were we"',

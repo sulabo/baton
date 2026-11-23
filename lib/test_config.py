@@ -309,7 +309,7 @@ class HooksReadConfigTest(unittest.TestCase):
         self.config({"BATON_SPLIT_RATIOS": "5"})
         self.assertIsNone(self.stop("split-notice.py", "s1"))  # 4.5배 < 5
         self.config({"BATON_SPLIT_RATIOS": "4"})
-        self.assertIn("대화가 처음보다 4배 길어졌어요", self.stop("split-notice.py", "s2")["systemMessage"])
+        self.assertIn("대화가 처음보다 4배 넘게 길어졌어요", self.stop("split-notice.py", "s2")["systemMessage"])
         self.config({"BATON_SPLIT_NOTICE": "off"})
         self.assertIsNone(self.stop("split-notice.py", "s3"))
 
@@ -337,7 +337,7 @@ class HooksReadConfigTest(unittest.TestCase):
         for i, bad in enumerate(["{깨진", "[" * 200000, json.dumps(dict(off, pad="x" * (1024 * 1024)))]):
             self.config(bad)  # 깨진 JSON · 깊은 중첩(RecursionError) · 1MB 넘는 파일(안의 off는 무시돼야 한다)
             self.assertIn("[baton] 아래는", self.hook("handoff-inject.py", {"prompt": "이어서"})["hookSpecificOutput"]["additionalContext"])
-            self.assertIn("대화가 처음보다 3배 길어졌어요", self.stop("split-notice.py", f"b{i}")["systemMessage"])  # 기본 문턱 2,3 그대로
+            self.assertIn("대화가 처음보다 3배 넘게 길어졌어요", self.stop("split-notice.py", f"b{i}")["systemMessage"])  # 기본 문턱 2,3 그대로
             out = self.hook("handoff-check.py", {"hook_event_name": "PostToolUse", "tool_input": {"file_path": p}, "cwd": self.repo})
             self.assertIn("홈 절대경로", out["reason"])
 
