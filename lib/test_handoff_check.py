@@ -350,6 +350,27 @@ class EnglishHandoffTest(unittest.TestCase):
                          "Failed approaches, Verification evidence, Risks and next actions, Promotion candidates")
         self.assertIn("목표와 완료 조건", handoff_check.check("# Session Handoff (작성: 2026-10-01)\n")[0])
 
+    def test_generic_headings_do_not_make_a_file_ours(self):
+        # 리뷰(11-23): 흔한 영어 제목을 앞머리로 세어 남의 HANDOFF.md를 저장할 때마다 "missing required sections"로 막았다
+        foreign_en = "# Project notes\n## Goal\n- ship it\n## Related files\n- a.py\n## Next steps\n- review\n"
+        foreign_ko = "# 메모\n## 목표\n- 출시\n## 관련 파일\n- a.py\n## Risks\n- 없음\n"
+        for text in (foreign_en, foreign_ko):
+            for lang in ("ko", "en"):
+                self.assertEqual(handoff_check.check(text, strict=False, lang=lang), [], (text, lang))
+                self.assertEqual(handoff_check.warnings(text, strict=False, lang=lang), [], (text, lang))
+            self.assertFalse(handoff_check.looks_ours(text))
+            self.assertEqual(handoff_check.drop_warnings("x/HANDOFF.md", text, old=text + "## Failed approaches\n- x y z\n",
+                                                         private_terms=[], strict=False), [])
+        # 한국어 판정은 main과 같다 — 한국어 템플릿 절 앞머리 3개면 baton 형식
+        self.assertTrue(handoff_check.check("# 메모\n## 목표\n## 관련 파일\n## 다음 행동\n", strict=False)[0].startswith("missing"))
+        # 진짜 영어 인계서는 제목이 없어도 템플릿 제목 그대로 3개면 검사한다(굵게·뒤 괄호 허용)
+        real = "# Handoff\n## Goal and done criteria\n## **Verified facts and decisions**\n## Failed approaches (do not retry)\n"
+        self.assertTrue(handoff_check.looks_ours(real))
+        self.assertEqual(handoff_check.check(real, strict=False),
+                         ["missing required sections: Files and symbols, Changes made, Verification evidence, "
+                          "Risks and next actions, Promotion candidates"])
+        self.assertTrue(handoff_check.check("# Session Handoff (written: 2026-11-23)\n", strict=False))  # 제목만으로도 baton 형식
+
     def test_problem_messages_in_english(self):
         token = "gh" + "p_" + "A1b2" * 9
         out = handoff_check.check(GOOD_EN + f"- token {token}\n- path /Users/someone/x\n- api_key = abcdef123456\n")

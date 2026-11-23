@@ -70,6 +70,18 @@ def tr(lang):
     return lambda k, e: k if ko else e
 
 
+# 영어 템플릿의 절 제목 그대로(대소문자 무시, 뒤 괄호 설명·굵게 표시는 허용). baton 형식인지 가를 때는 이것만 센다 —
+# "## Goal"·"## Related files"·"## Next steps" 같은 흔한 영어 제목은 남의 HANDOFF.md에도 있어, 앞머리로 세면 남의 파일을
+# 저장할 때마다 "필수 절 없음"으로 막았다(리뷰 11-23). 형식이 정해진 뒤 절이 있는지는 has_section(앞머리)로 본다. 한국어는 main 그대로 앞머리
+EN_EXACT = ("goal and done criteria", "verified facts and decisions", "files and symbols", "changes made",
+            "failed approaches", "verification evidence", "risks and next actions", "promotion candidates")
+
+
+def template_heading(h, name):
+    h = h.strip().rstrip("*").strip().casefold()
+    return h == name or h.startswith(name + " (")
+
+
 def has_section(heads, keys_ko, keys_en):
     return any(h.startswith(keys_ko) or h.casefold().startswith(keys_en) for h in heads)
 
@@ -151,7 +163,7 @@ def check(text, strict=True, private_terms=(), lang=None):
                      f"{len(term_hits)} word(s) from your private-words list found (lines {at}) — remove them or write them "
                      f"generically"))
     missing = [s for s in SECTIONS if not has_section(heads, s[0], s[1])]
-    if missing and is_ours(lines, missing, strict):
+    if missing and is_ours(lines, heads, strict):
         i = 2 if names_lang(lines, heads, lang) == "ko" else 3
         out.insert(0, t("필수 절 없음: ", "missing required sections: ") + ", ".join(s[i] for s in missing))
 
@@ -174,9 +186,31 @@ def check(text, strict=True, private_terms=(), lang=None):
     return out
 
 
-def is_ours(lines, missing, strict):
-    """baton 형식 인계서로 볼지. 다른 형식의 HANDOFF.md에는 템플릿 규칙(필수 절·확인 표시)을 들이밀지 않는다."""
-    return strict or "Session Handoff" in (lines[0] if lines else "") or len(SECTIONS) - len(missing) >= 3
+def is_ours(lines, heads, strict):
+    """baton 형식 인계서로 볼지. 다른 형식의 HANDOFF.md에는 템플릿 규칙(필수 절·확인 표시·빠진 줄)을 들이밀지 않는다.
+    제목 "Session Handoff", 또는 템플릿 절 3개 이상 — 한국어는 앞머리(main과 같다), 영어는 템플릿 제목 그대로(EN_EXACT)."""
+    found = sum(1 for (ko, _, _, _), en in zip(SECTIONS, EN_EXACT) if any(h.startswith(ko) or template_heading(h, en) for h in heads))
+    return strict or "Session Handoff" in (lines[0] if lines else "") or found >= 3
+
+
+def headings(text):
+    """코드 블록 밖의 절 제목 글(HEADING 그룹 1) 목록."""
+    heads, fence = [], None
+    for ln in text.splitlines():
+        f = FENCE.match(ln)
+        if fence is None:
+            if f:
+                fence = (f.group(1)[0], len(f.group(1)))
+            elif HEADING.match(ln):
+                heads.append(HEADING.match(ln).group(1))
+        elif f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
+            fence = None
+    return heads
+
+
+def looks_ours(text):
+    """훅처럼 너그럽게(strict=False) 볼 때 baton 형식 인계서인가."""
+    return is_ours(text.splitlines(), headings(text), False)
 
 
 def warnings(text, strict=True, lang=None):
@@ -219,12 +253,12 @@ def warnings(text, strict=True, lang=None):
                 facts_depth, section = depth, []
         elif facts_depth:
             section.append((i, ln))
-    missing = [s for s in SECTIONS if not has_section(heads, s[0], s[1])]
     n = len(must_read(text))
+    ours = is_ours(lines, heads, strict)
     too_many = [t(f"경고: 필독 표시가 {n}개 — 주입 맨 앞에는 앞의 {MUST_MAX}개만 올라간다. 행동 전에 꼭 읽을 {MUST_MAX}개만 남긴다",
                   f"warning: {n} entries are marked must read — only the first {MUST_MAX} are shown at the top of the "
-                  f"injection. Keep only the {MUST_MAX} that must be read before acting")] if n > MUST_MAX else []
-    if section is None or not is_ours(lines, missing, strict):
+                  f"injection. Keep only the {MUST_MAX} that must be read before acting")] if n > MUST_MAX and ours else []
+    if section is None or not ours:
         return too_many
 
     items, loose, cur = [], [], None  # items: [첫 줄 번호, 항목 글]. loose: 목록에 안 속한 줄 번호
@@ -389,10 +423,13 @@ def committed(path):
     return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
 
 
-def drop_warnings(path, text, lang=None, old=None, private_terms=None):
+def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=True):
     """마지막 커밋판보다 빠진 줄 경고(막지 않음). 결정·제약 표지가 있는 줄은 따로 더 세게 말한다. 내용은 DROP_LIST줄까지.
+    strict=False(훅)면 baton 형식으로 보이는 인계서에만 한다(looks_ours).
     같은 폴더의 DECISIONS.md(지금 파일)에 옮긴 줄은 빠진 것이 아니다.
     줄에 비밀값·홈 경로·개인 자료 목록 단어가 있으면 내용을 적지 않는다(맥락에 다시 옮기지 않으려고)."""
+    if not strict and not looks_ours(text):
+        return []
     old = committed(path) if old is None else old
     if not old:
         return []

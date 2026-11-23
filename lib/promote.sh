@@ -11,8 +11,21 @@ WIDTH=55             # 문구가 조금씩 다듬어진 같은 항목을 묶기 
 
 die() { printf '%s\n' "$@"; exit 2; }
 
-# 메시지 언어(ko/en, lib/i18n.py) — 한 번만 정한다. 인계서 절 제목은 언어와 무관하게 한국어·영어 둘 다 읽는다
-UI=$(python3 "$(dirname "${BASH_SOURCE[0]}")/i18n.py" "$R" 2>/dev/null || echo en)
+# 메시지 언어(ko/en, lib/i18n.py) — 한 번만 정한다. 인계서 절 제목은 언어와 무관하게 한국어·영어 둘 다 읽는다.
+# python3이 없거나 실패하면 셸에서 같은 순서로 본다: BATON_LANG 환경변수(ko/en) > LC_ALL·LC_MESSAGES·LANG 중 처음 비지 않은 값.
+# 로캘이 "ko" 뒤에 끝·_·.·@·- 가 오면 한국어("kok" 같은 다른 언어는 아니다). 설정 파일의 BATON_LANG은 python 없이는 못 읽는다.
+# 이 스크립트는 그 밖에는 python이 필요 없어서다(main은 python 없이 한국어로 돌았다 — 리뷰 11-23)
+UI=$(python3 "$(dirname "${BASH_SOURCE[0]}")/i18n.py" "$R" 2>/dev/null) || UI=""
+if [ "$UI" != ko ] && [ "$UI" != en ]; then
+  case "$(printf '%s' "${BATON_LANG:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+    ko) UI=ko ;;
+    en) UI=en ;;
+    *) case "$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | tr '[:upper:]' '[:lower:]')" in
+         ko|ko_*|ko.*|ko@*|ko-*) UI=ko ;;
+         *) UI=en ;;
+       esac ;;
+  esac
+fi
 t() { if [ "$UI" = ko ]; then printf '%s' "$1"; else printf '%s' "$2"; fi; }   # $1=한국어 $2=영어
 
 git -C "$R" rev-parse --is-inside-work-tree >/dev/null 2>&1 \

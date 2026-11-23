@@ -16,7 +16,10 @@ from test_handoff_check import GOOD, GOOD_EN
 
 
 _CFG = tempfile.TemporaryDirectory()  # 실제 설정 파일(~/.config/baton/config.json)을 읽지 않는다 — 훅 자식 프로세스도 이 환경을 물려받는다
-_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name, "BATON_LANG": "ko"})  # 한국어 단언은 ko로 고정
+# 한국어 단언은 ko로 고정. 캐시(세션당 한 번 상태 파일·관찰 로그)도 모듈 전체를 임시 폴더로 — 실제 ~/.cache/baton에 남기지 않는다
+_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name, "BATON_LANG": "ko",
+                                        "XDG_CACHE_HOME": os.path.join(_CFG.name, "cache"),
+                                        "BATON_LOG": os.path.join(_CFG.name, "cache", "runs.jsonl")})
 
 
 def setUpModule():
@@ -46,6 +49,7 @@ class HandoffCheckHookTest(unittest.TestCase):
         env = os.environ.copy()
         env["XDG_CACHE_HOME"] = os.path.join(self.root, "cache")  # 실제 캐시에 쓰지 않는다
         env["BATON_LOG"] = self.log
+        env["CLAUDE_PROJECT_DIR"] = self.root  # Stop의 저장소 루트(HANDOFF.md 형식 확인) — 테스트를 돌리는 세션의 저장소를 보지 않게
         for k in ("BATON_HANDOFF_CHECK", "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_NUDGE_FILES", "BATON_HANDOFF_AUTO"):
             env.pop(k, None)
         env.update(extra_env or {})
@@ -110,6 +114,10 @@ class HandoffCheckHookTest(unittest.TestCase):
 
     def test_other_format_handoff_not_forced_into_template(self):
         self.assertIsNone(self.post(self.handoff("# Handoff\n## Status\n- done\n")))
+        for text in ("# Project notes\n## Goal\n- ship\n## Related files\n- a.py\n## Next steps\n- review\n",
+                     "# 메모\n## 목표\n- 출시\n## 관련 파일\n- a.py\n## Risks\n- 없음\n"):
+            for lang in ("ko", "en"):
+                self.assertIsNone(self.post(self.handoff(text), extra_env={"BATON_LANG": lang}), (text, lang))  # 리뷰 11-23
         out = self.post(self.handoff("# Handoff\n- path /Users/someone/x\n"))
         self.assertIn("홈 절대경로", out["reason"])  # 형식이 달라도 비밀값·경로는 본다
 
@@ -161,6 +169,20 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIsNone(self.auto())  # 세션에 한 번
         self.assertIsNone(self.stop())  # 자동 쓰기를 했으면 같은 세션에 제안도 없다
         self.assertEqual(self.auto(sid="s2")["decision"], "block")
+
+    def test_auto_write_only_for_absent_or_baton_handoff(self):
+        # 리뷰(11-23): 저장소 루트의 HANDOFF.md가 남의 형식이면 모델에게 다시 쓰라고 하지 않는다 — 사용자에게 제안만
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py")])
+        self.assertEqual(self.auto(sid="none")["decision"], "block")  # 인계서 없음 → 자동 쓰기
+        self.handoff(GOOD_EN)
+        self.assertEqual(self.auto(sid="ours")["decision"], "block")  # baton 형식 → 자동 쓰기
+        self.handoff("# Project notes\n## Goal\n- ship\n## Next steps\n- review\n")
+        out = self.auto(sid="foreign")
+        self.assertEqual(set(out), {"systemMessage"})
+        self.assertIn("파일 3개를 고쳤는데", out["systemMessage"])
+        self.assertEqual([(e["event"], e.get("fallback")) for e in self.events()],
+                         [("handoff_auto", None), ("handoff_auto", None), ("handoff_nudge", "foreign_handoff")])
+        self.assertIsNone(self.auto(sid="foreign"))  # 세션에 한 번은 그대로
 
     def test_auto_write_never_blocks_while_stop_hook_active(self):
         self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py")])
