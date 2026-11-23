@@ -89,13 +89,14 @@ class ZeroGuardTest(unittest.TestCase):
                     "    Concepts: 12 · metadata lines: 0", "No metadata lines at all (3 concepts).",
                     "Decision and instruction changes: 0 commits since the oldest check (abc1234)",
                     "Related entries ... — **this is not 0, they could not be counted**:",
-                    "    ── Without a marker: 0 (usually notes on finished work)", "    → 0 items", "    → 0 dropped in total.",
-                    "    The latest version has no section — this signal cannot be counted (not 0: uncounted)"):
+                    "    ── Without a marker: 0 (usually notes on finished work)", "    → 0 found", "    → 0 dropped in total.",
+                    "    The latest version has no 'Verified facts and decisions' section — this signal cannot be counted "
+                    "(not 0: uncounted)", "    (no rejected list)"):
             with self.subTest(out=out):
                 self.assertIsNotNone(run("bash lib/fresh.sh CONCEPTS.md .", stdout=out))
 
     def test_english_nonzero_output_is_silent(self):
-        for out in ("Summary: re-check 2 · fresh 3 · rule concepts 0", "Total findings: 10", "    → 2 items",
+        for out in ("Summary: re-check 2 · fresh 3 · rule concepts 0", "Total findings: 10", "    → 2 found",
                     "    Concepts: 12 · metadata lines: 12", "Total findings: 3", "    ── Without a marker: 3",
                     "checked at 2026-11-23 10:05 (`9cd1928`)", "    References: 26 · one way only: 0"):
             with self.subTest(out=out):
