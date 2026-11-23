@@ -86,7 +86,7 @@ class ZeroGuardTest(unittest.TestCase):
 
     def test_english_zero_signals_fire(self):  # 검사 스크립트의 영어 출력(BATON_LANG=en)
         for out in ("Total findings: 0", "    No findings", "Summary: re-check 0 · fresh 3 · rule concepts 0",
-                    "    12 concepts, 0 metadata lines", "Warning: 0 metadata lines for 3 concepts. The rest are not in the table.",
+                    "    Concepts: 12 · metadata lines: 0", "No metadata lines at all (3 concepts).",
                     "Decision and instruction changes: 0 commits since the oldest check (abc1234)",
                     "Related entries ... — **this is not 0, they could not be counted**:",
                     "    ── Without a marker: 0 (usually notes on finished work)", "    → 0 items", "    → 0 dropped in total.",
@@ -96,7 +96,7 @@ class ZeroGuardTest(unittest.TestCase):
 
     def test_english_nonzero_output_is_silent(self):
         for out in ("Summary: re-check 2 · fresh 3 · rule concepts 0", "Total findings: 10", "    → 2 items",
-                    "    12 concepts, 12 metadata lines", "Total findings: 3", "    ── Without a marker: 3",
+                    "    Concepts: 12 · metadata lines: 12", "Total findings: 3", "    ── Without a marker: 3",
                     "checked at 2026-11-23 10:05 (`9cd1928`)", "    References: 26 · one way only: 0"):
             with self.subTest(out=out):
                 self.assertIsNone(run("bash lib/check.sh CONCEPTS.md", stdout=out))
@@ -129,7 +129,8 @@ class ZeroGuardTest(unittest.TestCase):
                 self.assertIsNotNone(run("bash lib/fresh.sh CONCEPTS.md .", stdout=out))
         # 못 셈 신호는 머리 결과가 0이 아니어도 울린다
         for out in ("[6] 메타 줄 (신선도 계산의 전제)\n    개념 15개 중 메타 줄 0개\n\n지적 총 2건",
-                    "Warning: 0 metadata lines for 3 concepts.\nSummary: re-check 3 · fresh 0 · rule concepts 0",
+                    "[6] Metadata lines (needed to compute freshness)\n    Concepts: 3 · metadata lines: 0\n\nTotal findings: 2",
+                    "No metadata lines at all (3 concepts). Freshness can't be computed.",
                     "요약: 재확인 4 · 신선 1 · 규칙 개념 0\n새 결정의 '관련' 중 개념 절과 못 이은 것 — **0건이 아니라 못 셌다**:"):
             with self.subTest(out=out[-24:]):
                 self.assertIsNotNone(run("bash lib/check.sh CONCEPTS.md", stdout=out))
