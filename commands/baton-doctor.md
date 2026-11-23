@@ -9,7 +9,7 @@ user's language.
 ```bash
 git rev-parse --show-toplevel                                    # is this a git repo
 find . -maxdepth 2 -name CONCEPTS.md                             # is there a concept map
-grep -c -E '^- \*\*(메타|meta|Meta)\*\*:' <that file>            # does it have metadata lines (none: freshness can't be computed)
+grep -c -E '^- \*\*(메타|Meta)\*\*:' <that file>                 # does it have metadata lines (none: freshness can't be computed)
 git ls-files --error-unmatch HANDOFF.md                          # is the handoff tracked (not tracked: no promotion review)
 ls DECISIONS.md                                                  # is there a decision log
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/config.py                      # was /baton-setup run, can the config file be read, output language

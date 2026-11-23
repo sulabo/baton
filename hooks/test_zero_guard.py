@@ -91,12 +91,18 @@ class ZeroGuardTest(unittest.TestCase):
                     "Related entries ... — **this is not 0, they could not be counted**:",
                     "    ── Without a marker: 0 (usually notes on finished work)", "    → 0 found", "    → 0 dropped in total.",
                     "    The latest version has no 'Verified facts and decisions' section — this signal cannot be counted "
-                    "(not 0: uncounted)", "    (no rejected list)"):
+                    "(not 0: uncounted)", "    (no rejected list)",
+                    "  Format: dated headings · new decisions 0 · Related: lines 0 · gaps 0",
+                    "  Format: table (decision IDs) · new decision rows 0",
+                    "No metadata lines at all (concepts: 3). **Freshness can't be computed — this is not 0, it could not be counted.**",
+                    "    No findings (evidence paths: 0, all tracked relative to the repo root)"):
             with self.subTest(out=out):
                 self.assertIsNotNone(run("bash lib/fresh.sh CONCEPTS.md .", stdout=out))
 
     def test_english_nonzero_output_is_silent(self):
         for out in ("Summary: re-check 2 · fresh 3 · rule concepts 0", "Total findings: 10", "    → 2 found",
+                    "  Format: dated headings · new decisions 0 · gaps 0\nSummary: re-check 3 · fresh 1 · rule concepts 0",
+                    "  형식: 날짜 헤딩 · 새 결정 0건 · 구멍 0건\n요약: 재확인 3 · 신선 1 · 규칙 개념 0",
                     "    Concepts: 12 · metadata lines: 12", "Total findings: 3", "    ── Without a marker: 3",
                     "checked at 2026-11-23 10:05 (`9cd1928`)", "    References: 26 · one way only: 0"):
             with self.subTest(out=out):

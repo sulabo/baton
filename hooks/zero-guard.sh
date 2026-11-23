@@ -96,7 +96,7 @@ ALWAYS = r"메타 줄 0개|0건이 아니라 못 셌|0건이 아니라 못 셈|m
 HEAD = r"^\s*(?:요약: 재확인|지적 총|Summary: re-check|Total findings:) ?([0-9]+)"
 ZERO = (r"(?<![0-9])0건|없음|재확인 0(?![0-9])"
         r"|(?i:\bno findings\b|re-check 0(?![0-9])|(?<![0-9])0 (?:commits?|found|dropped)\b|[:→] ?0(?![0-9.,])"
-        r"|\(no rejected list\))")
+        r"|\(no rejected list\)|\b(?:new decisions|new decision rows|lines|gaps) 0(?![0-9]))")
 NONZERO = r"(?<![\w.])[1-9][0-9]*(?![0-9.])"
 lines = out.splitlines()
 heads = [int(m.group(1)) for m in (re.match(HEAD, ln) for ln in lines) if m]
