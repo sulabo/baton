@@ -60,10 +60,17 @@ class SplitNoticeTest(unittest.TestCase):
         self.write([call(40000), call(70000)])
         self.assertIsNone(self.message(self.run_hook()))
 
+    def test_band_is_a_floor_not_the_real_ratio(self):
+        # 리뷰(11-24): 5만 → 14만 5천(2.9배)인데 "2배 길어졌어요"라고 했다 — 넘은 문턱이라 "2배 넘게"로 말한다
+        self.write([call(50000), call(145000)])
+        self.assertTrue(self.message(self.run_hook()).startswith("[baton] 대화가 처음보다 2배 넘게 길어졌어요(5만 → 14만 5천 토큰).\n"))
+        self.assertTrue(self.message(self.run_hook(sid="e", extra_env={"BATON_LANG": "en"})).startswith(
+            "[baton] This conversation is now more than 2× as long as at the start (50K → 145K tokens).\n"))
+
     def test_each_band_notifies_once(self):
         self.write([call(40000), call(85000)])
         first = self.message(self.run_hook())
-        self.assertEqual(first, "[baton] 대화가 처음보다 2배 길어졌어요(4만 → 8만 5천 토큰).\n"
+        self.assertEqual(first, "[baton] 대화가 처음보다 2배 넘게 길어졌어요(4만 → 8만 5천 토큰).\n"
                                 "하던 일이 끝났다면 새 대화로 넘어가 보세요. 지난 대화로 계산해 보면 비용을 35~45% 아낄 수 있어요.\n"
                                 "넘어가는 법: \"인계서 써 줘\" → /clear → \"이어서\"\n"
                                 "이 알림은 한 번만 나와요.")
@@ -71,7 +78,7 @@ class SplitNoticeTest(unittest.TestCase):
 
         self.write([call(40000), call(85000), call(130000)])
         third = self.message(self.run_hook())
-        self.assertEqual(third, "[baton] 대화가 처음보다 3배 길어졌어요(4만 → 13만 토큰).\n"
+        self.assertEqual(third, "[baton] 대화가 처음보다 3배 넘게 길어졌어요(4만 → 13만 토큰).\n"
                                 "하던 일이 끝났다면 새 대화로 넘어가 보세요. 지난 대화로 계산해 보면 비용을 30~34% 아낄 수 있어요.\n"
                                 "넘어가는 법: \"인계서 써 줘\" → /clear → \"이어서\"\n"
                                 "이 알림은 한 번만 나와요.")
@@ -129,7 +136,7 @@ class SplitNoticeTest(unittest.TestCase):
         self.assertIsNone(self.message(self.run_hook(extra_env={"BATON_SPLIT_NOTICE": "off"})))
         self.assertIsNone(self.message(self.run_hook(extra_env={"BATON_SPLIT_RATIOS": "4"})))
         msg = self.message(self.run_hook(extra_env={"BATON_SPLIT_RATIOS": "1.5,4"}))
-        self.assertTrue(msg.startswith("[baton] 대화가 처음보다 1.5배 길어졌어요(4만 → 9만 토큰).\n"), msg)
+        self.assertTrue(msg.startswith("[baton] 대화가 처음보다 1.5배 넘게 길어졌어요(4만 → 9만 토큰).\n"), msg)
         self.assertNotIn("아낄 수 있어요", msg)  # 1.5배는 재계산한 적이 없다 — 절감 몫을 말하지 않는다
 
     def test_bad_input_fails_open(self):
@@ -141,14 +148,14 @@ class SplitNoticeTest(unittest.TestCase):
     def test_english_notice(self):
         self.write([call(40000), call(85000)])
         msg = self.message(self.run_hook(extra_env={"BATON_LANG": "en"}))
-        self.assertEqual(msg, "[baton] This conversation is now 2× as long as at the start (40K → 85K tokens).\n"
+        self.assertEqual(msg, "[baton] This conversation is now more than 2× as long as at the start (40K → 85K tokens).\n"
                               "If you're done with the current task, try moving to a new conversation. Based on past "
                               "conversations, that can save 35–45% of the cost.\n"
                               "To move: \"write a handoff\" → /clear → \"where were we\"\n"
                               "You'll see this notice only once.")
         self.write([call(40000), call(85000), call(130000)])
         third = self.message(self.run_hook(extra_env={"BATON_LANG": "en"}))
-        self.assertTrue(third.startswith("[baton] This conversation is now 3× as long as at the start (40K → 130K tokens).\n"))
+        self.assertTrue(third.startswith("[baton] This conversation is now more than 3× as long as at the start (40K → 130K tokens).\n"))
         self.assertIn("that can save 30–34% of the cost.", third)
         self.write([call(40000), call(85000), call(130000), call(170000)])
         self.assertNotIn("save", self.message(self.run_hook(sid="en4", extra_env={"BATON_LANG": "en", "BATON_SPLIT_RATIOS": "4"})))
@@ -164,8 +171,8 @@ class SplitNoticeTest(unittest.TestCase):
     def test_locale_decides_without_baton_lang(self):
         self.write([call(40000), call(90000)])
         drop = ("BATON_LANG", "LC_ALL", "LC_MESSAGES")
-        self.assertIn("대화가 처음보다 2배 길어졌어요", self.message(self.run_hook(sid="k", extra_env={"LANG": "ko_KR.UTF-8"}, unset=drop)))
-        self.assertIn("2× as long as at the start", self.message(self.run_hook(sid="e", extra_env={"LANG": "C.UTF-8"}, unset=drop)))
+        self.assertIn("대화가 처음보다 2배 넘게 길어졌어요", self.message(self.run_hook(sid="k", extra_env={"LANG": "ko_KR.UTF-8"}, unset=drop)))
+        self.assertIn("more than 2× as long as at the start", self.message(self.run_hook(sid="e", extra_env={"LANG": "C.UTF-8"}, unset=drop)))
 
     def test_non_claude_transcript_is_silent(self):
         # Codex 기록 모양(type=response_item)에는 맥락 정보가 없어 아무것도 내지 않는다

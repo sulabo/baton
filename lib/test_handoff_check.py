@@ -552,12 +552,44 @@ class CommittedTimeoutTest(unittest.TestCase):
             self.assertEqual(handoff_check.committed(p), GOOD)
             with mock.patch.dict(os.environ, {"PATH": stalling_git(root)}):
                 t = time.monotonic()
-                self.assertIsNone(handoff_check.committed(p, 1.0))
+                with self.assertRaises(handoff_check.ReadFailed):  # 시한 초과는 "이전 판 없음"이 아니다
+                    handoff_check.committed(p, 1.0)
                 took = time.monotonic() - t
+                warned = {lang: handoff_check.drop_warnings(p, GOOD, lang, private_terms=[], deadline=time.monotonic() + 1)
+                          for lang in ("ko", "en")}
             self.assertLess(took, 1.8, took)
+            self.assertEqual(warned, {"ko": ["빠진 줄은 확인하지 못했어요(이전 판을 읽지 못함)."],
+                                      "en": ["Dropped lines weren't checked (couldn't read the previous version)."]})
             time.sleep(0.2)
             left = subprocess.run(["pgrep", "-f", "sleep 17.25"], capture_output=True, text=True).stdout.split()
             self.assertEqual(left, [])  # 손자까지 묶음째 끝냈다
+
+    def test_no_previous_version_is_silent_but_failures_are_not(self):
+        with tempfile.TemporaryDirectory() as root:
+            p = os.path.join(root, "HANDOFF.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(GOOD)
+            self.assertIsNone(handoff_check.committed(p))  # 저장소 아님
+            g = git_repo(root)
+            self.assertIsNone(handoff_check.committed(p))  # 커밋 없음
+            with open(os.path.join(root, "a"), "w") as f:
+                f.write("a")
+            g("add", "a"); g("commit", "-qm", "a")
+            self.assertIsNone(handoff_check.committed(p))  # 미추적
+            self.assertIsNone(handoff_check.committed(os.path.join(root, "NOPE.md")))  # 디스크에도 HEAD에도 없는 경로
+            for env in ({"LC_ALL": "ko_KR.UTF-8", "LANG": "ko_KR.UTF-8"}, {}):  # git 메시지 언어와 무관하다
+                with mock.patch.dict(os.environ, env):
+                    self.assertEqual(handoff_check.drop_warnings(p, GOOD, "ko", private_terms=[]), [])
+            bin_ = os.path.join(root, "badbin"); os.mkdir(bin_)
+            with open(os.path.join(bin_, "git"), "w") as f:
+                f.write('#!/bin/sh\necho "fatal: unable to read 1234abcd: corrupt loose object" >&2\nexit 128\n')
+            os.chmod(os.path.join(bin_, "git"), 0o755)
+            with mock.patch.dict(os.environ, {"PATH": bin_ + os.pathsep + os.environ["PATH"]}):
+                with self.assertRaises(handoff_check.ReadFailed):  # 알 수 없는 실패는 못 읽음
+                    handoff_check.committed(p)
+            with mock.patch.dict(os.environ, {"PATH": os.path.join(root, "nowhere")}):
+                self.assertEqual(handoff_check.drop_warnings(p, GOOD, "en", private_terms=[]),
+                                 ["Dropped lines weren't checked (couldn't read the previous version)."])  # git이 없다
 
 
 class DropCostTest(unittest.TestCase):

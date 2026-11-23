@@ -434,21 +434,35 @@ def dropped(old, new, decisions="", deadline=None):
     return out, len(items), len(items)
 
 
+class ReadFailed(Exception):
+    """마지막 커밋판을 못 읽었다 — git이 시한 안에 답하지 않았거나, 못 띄웠거나, 알 수 없는 까닭으로 실패했다.
+    미추적·이력 없음(그때는 committed가 None)과 다르다: 못 본 것을 "빠진 줄 없음"으로 말하지 않으려고 따로 알린다."""
+
+
+# 비교할 이전 판이 원래 없는 경우의 git 메시지(LC_ALL=C로 띄워 영어로 고정). 이것들은 조용히 넘어간다(None).
+# 실제 메시지(git 2.x, 11-24 확인): 저장소 아님 · 커밋 없음 · 미추적 · HEAD에 없는 경로
+ABSENT = ("not a git repository", "invalid object name", "not a valid object name", "exists on disk, but not in",
+          "does not exist in")
+
+
 def committed(path, timeout=3.0):
     """git HEAD에 있는 같은 파일 내용(앞 DROP_READ_MAX + 1바이트까지 — 넘쳤는지는 부르는 쪽이 길이로 안다).
-    미추적·이력 없음·git 실패·시한 초과면 None(그때는 아무 말도 안 한다). cat-file이라 textconv를 타지 않는다.
-    큰 blob을 통째로 메모리에 올리지 않으려고 필요한 만큼만 읽고 git을 끝낸다.
+    미추적·이력 없음·저장소 아님이면 None(그때는 아무 말도 안 한다). 시한 초과·git을 못 띄움·그 밖의 실패면 ReadFailed.
+    cat-file이라 textconv를 타지 않는다. 큰 blob을 통째로 메모리에 올리지 않으려고 필요한 만큼만 읽고 git을 끝낸다.
     시한은 timeout초를 넘기지 않는다: git을 새 프로세스 묶음으로 띄우고 select로 시한까지만 읽은 뒤 묶음째 죽인다.
     직계 자식만 죽이면 exec하지 않는 git 감싸개(#!/bin/sh … git "$@") 밑의 손자가 파이프를 잡고 있어 읽기가 시한을 넘겼다
-    (리뷰 11-23 재현: 시한 3초에 30.2초 — 훅 시한 10초를 넘겨 비밀값 막기가 사라졌다)."""
-    import select, signal
+    (리뷰 11-23 재현: 시한 3초에 30.2초 — 훅 시한 10초를 넘겨 비밀값 막기가 사라졌다). stderr는 임시 파일로 받는다(파이프처럼 막히지 않게)."""
+    import select, signal, tempfile
     d = os.path.dirname(os.path.abspath(path))
     end = time.monotonic() + max(timeout, 0.0)
+    err = tempfile.TemporaryFile()
     try:
         p = subprocess.Popen(["git", "--no-optional-locks", "-C", d, "cat-file", "blob", "HEAD:./" + os.path.basename(path)],
-                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
-    except Exception:
-        return None
+                             stdout=subprocess.PIPE, stderr=err, start_new_session=True,
+                             env=dict(os.environ, LC_ALL="C", LANGUAGE=""))
+    except Exception as e:
+        err.close()
+        raise ReadFailed(type(e).__name__) from None  # git이 없거나 못 띄운다
     chunks, size, eof = [], 0, False
     try:
         fd = p.stdout.fileno()
@@ -467,7 +481,8 @@ def committed(path, timeout=3.0):
     except Exception:
         pass
     finally:
-        if p.returncode is None:  # 시한 초과·넉넉히 읽음·wait 시한 — 묶음째 끝낸다
+        killed = p.returncode is None  # 시한 초과·넉넉히 읽음·wait 시한 — 묶음째 끝낸다
+        if killed:
             try:
                 os.killpg(p.pid, signal.SIGKILL)
             except OSError:
@@ -478,9 +493,20 @@ def committed(path, timeout=3.0):
         except Exception:
             pass
     data = b"".join(chunks)
-    if size > DROP_READ_MAX:
-        return data[:DROP_READ_MAX + 1].decode("utf-8", "replace")
-    return data.decode("utf-8", "replace") if eof and p.returncode == 0 else None
+    try:
+        if size > DROP_READ_MAX:
+            return data[:DROP_READ_MAX + 1].decode("utf-8", "replace")
+        if killed or not eof:
+            raise ReadFailed("timeout")
+        if p.returncode == 0:
+            return data.decode("utf-8", "replace")
+        err.seek(0)
+        msg = err.read(4096).decode("utf-8", "replace")
+        if any(a in msg.lower() for a in ABSENT):
+            return None
+        raise ReadFailed(msg.strip()[:200] or f"exit {p.returncode}")
+    finally:
+        err.close()
 
 
 def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=True, deadline=None):
@@ -492,11 +518,15 @@ def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=Tr
     if not strict and not looks_ours(text):
         return []
     deadline = time.monotonic() + DROP_BUDGET if deadline is None else deadline
+    t = tr(lang)
     if old is None:
-        old = committed(path, max(0.0, min(3.0, deadline - time.monotonic())))
+        try:
+            old = committed(path, max(0.0, min(3.0, deadline - time.monotonic())))
+        except ReadFailed:  # 못 읽은 것은 0개가 아니다 — 미추적·이력 없음과 달리 한 줄로 알린다
+            return [t("빠진 줄은 확인하지 못했어요(이전 판을 읽지 못함).",
+                      "Dropped lines weren't checked (couldn't read the previous version).")]
     if not old:
         return []
-    t = tr(lang)
     cut_old = len(old.encode("utf-8", "replace")) > DROP_READ_MAX
     old = old.encode("utf-8", "replace")[:DROP_READ_MAX].decode("utf-8", "ignore")
     try:
