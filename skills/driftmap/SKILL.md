@@ -1,5 +1,6 @@
 ---
 name: ontology
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/lib/fresh.sh *) Bash(${CLAUDE_PLUGIN_ROOT}/lib/check.sh *) Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/concepts.py *) Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/candidates.py scan *)
 description: Builds a concept-level graph of the project's knowledge and keeps it fresh. Checks where decisions, code and docs say different things, where there are two sources of truth, and where references are broken, then creates or updates CONCEPTS.md. The output is an LLM wiki that an AI can quote directly. Triggers on English requests such as "build a concept map", "map the concepts in this repo", "find where the docs and code disagree", "check this repo for drift", "concept graph", "is CONCEPTS.md still fresh", "show concept candidates", "alias candidates". Also triggers on Korean requests such as "개념 지도 만들어줘", "지식 정리해줘", "문서랑 코드 안 맞는 거 찾아줘", "온톨로지 점검", "개념 그래프", "신선도 점검", "개념 후보 보여줘", "별칭 후보".
 ---
 
@@ -287,16 +288,16 @@ if the format changes, only that file changes.
 |---|---|
 | `concepts.py` | `CONCEPTS.md` parser. Prints sections, summary table, metadata lines, references and evidence paths as tab-separated lines |
 | `lib.sh` | Shared helpers. Repo root, whether a path is tracked, the four-way diagnosis of evidence paths |
-| `check.sh` | Six checks |
+| `check.sh` | Seven checks |
 | `fresh.sh` | Freshness verdicts and decision changes |
 
 
 ```bash
-$CLAUDE_PLUGIN_ROOT/lib/check.sh <path to CONCEPTS.md>
+${CLAUDE_PLUGIN_ROOT}/lib/check.sh <path to CONCEPTS.md>
 ```
 
-It looks at six things: whether summary-table rows and body sections match one to one, whether evidence paths have a form
-that can be used to compute freshness, whether references between concepts go both ways, whether status words are inside the closed set, whether instruction or decision files are mixed into `files`, and whether metadata lines exist.
+It looks at seven things: whether summary-table rows and body sections match one to one, whether evidence paths have a form
+that can be used to compute freshness, whether references between concepts go both ways, whether status words are inside the closed set, whether instruction or decision files are mixed into `files`, whether metadata lines exist, and whether the parser read the file to the end (no code fence left open).
 
 Evidence-path findings come in four kinds — **incomplete path** (fix it to a path from the repo root),
 **short name** (a shortened name like `main.md`; fix it to the real file name), **not tracked** (a nested repo),
@@ -409,7 +410,7 @@ This is how the map is read. baton's prompt hook adds a **concept index** once t
 one line per concept, `N. name — one line · files: first three files (+N)` (`파일:` in Korean output), at most 1,500 characters (`lib/concepts.py index`, turn it off with `BATON_CONCEPT_INDEX=off`).
 The agent picks the concept that fits the task from that index and opens its files first (the index is a navigation anchor — check actual behavior in the code). So make names show what the concept is about,
 and write **the first file of `files=` as the concept's entry point** (the file to open first). The one-line summary is only what follows ` — ` (a dash with spaces on both sides) in the concept heading (if there is none, only the name) — the summary table's `One line` column records how a mismatch went, so it is not read. To say in one line what a concept is about, add `— description` to its heading.
-A concept whose status starts with the word `retired` (or `폐기됨`, `폐기`) is left out of the index, and home-directory absolute paths and `~/` paths are left out of its file list. See the current index with `python3 lib/concepts.py CONCEPTS.md index`.
+A concept whose status starts with the word `retired` (or `폐기됨`, `폐기`) is left out of the index, and home-directory absolute paths and `~/` paths are left out of its file list. See the current index with `python3 ${CLAUDE_PLUGIN_ROOT}/lib/concepts.py CONCEPTS.md index`.
 
 ### 7. Fixing — only after approval
 
@@ -431,7 +432,7 @@ A map goes stale not "because it is old" but **"because the files it depends on 
 **There is a script. Use it instead of combining commands by hand.**
 
 ```bash
-$CLAUDE_PLUGIN_ROOT/lib/fresh.sh <path to CONCEPTS.md> [repo root]
+${CLAUDE_PLUGIN_ROOT}/lib/fresh.sh <path to CONCEPTS.md> [repo root]
 ```
 
 It reads the metadata lines and gives a verdict per concept. There are nine verdicts: the six below plus three more — baseline outside the history, rule concept, and the doc verdicts. One line is added at the end of the table: `Summary: re-check N · fresh M · rule concepts K` (Korean output: `요약: 재확인 N · 신선 M · 규칙 개념 K`). The session-start notice reads this line.
@@ -527,7 +528,7 @@ The script does the observing, the candidates and the verification deterministic
 The evidence and thresholds are in section 8 of `docs/research/ONTOLOGY_DESIGN.md` in the baton repo.
 
 ```bash
-python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py scan <repo root>
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/candidates.py scan <repo root>
 ```
 
 From this repo's Claude Code session logs (including sessions opened outside the repo that worked on this repo's files), it collects "a human prompt → the files edited in that turn" and gives two kinds. It reads all the session logs once, so it can take tens of seconds.
@@ -545,9 +546,9 @@ After a person picks:
 
 | The person's answer | What to do |
 |---|---|
-| Promote an alias | `python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py promote-alias <number> "<phrase>" <repo root>` — **always quote** the phrase (if a two-word phrase is split, the argument count is wrong and it is refused). It is added only to `aliases=` (`별칭=` in a Korean map) on that concept's metadata line. If the person rephrases it (for example, drops a particle), add the rephrased words. If the phrase contains a secret, a home path, the user name, or a word from the private-words list in the config, it is refused and not written (the map may be public). It also refuses a phrase with `Concept N` in it (it would become a false edge), a section with two metadata lines or whose first metadata line is inside a code fence, and a map the parser can't read to the end — a person cleans those up first |
+| Promote an alias | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/candidates.py promote-alias <number> "<phrase>" <repo root>` — **always quote** the phrase (if a two-word phrase is split, the argument count is wrong and it is refused). It is added only to `aliases=` (`별칭=` in a Korean map) on that concept's metadata line. If the person rephrases it (for example, drops a particle), add the rephrased words. If the phrase contains a secret, a home path, the user name, or a word from the private-words list in the config, it is refused and not written (the map may be public). It also refuses a phrase with `Concept N` in it (it would become a false edge), a section with two metadata lines or whose first metadata line is inside a code fence, and a map the parser can't read to the end — a person cleans those up first |
 | Promote a new concept | The script doesn't write it. **Actually open** the candidate files, draft the four faces and the metadata line with steps 3–5 of mode ③, show it, and write it after approval. The name is picked by the person from the suggested phrases, or made up anew |
-| Discard | `python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py dismiss <candidate id> <repo root>` — it won't show from the next scan on |
+| Discard | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/candidates.py dismiss <candidate id> <repo root>` — it won't show from the next scan on |
 | No answer, or later | Do nothing |
 
 **MERGE, DELETE and REPARENT are not offered as candidates** — a person judges them directly in mode ③.
