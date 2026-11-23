@@ -69,7 +69,7 @@ How it works:
 - **Once per session.** The same handoff goes into a session once. It goes in again only if `HANDOFF.md` changed or the session was compacted since (compaction is when a long conversation is replaced by a summary). Messages from other sessions or subagents (`<agent-message>`, `<cross-session-message>`) and task notifications (`<task-notification>`) get nothing, because no person asked.
 - **A freshness line.** The date comes from the handoff's first 3 lines, or else from the last commit of `HANDOFF.md`. The commit count is the number of commits that touched this folder since `HANDOFF.md` was last committed. After 7 days, the line also says to check the next step first. When baton can't count (uncommitted edits to the handoff, a shallow clone, or git taking more than 3 seconds), it says so instead of printing "no commits".
 - **Must-read entries.** In "Files and symbols", put `(must read)` (or `(필독)`) after up to 3 entries that the next session has to read before acting. When the handoff is injected, those entries go in one line right after the freshness line, so they are seen even if the handoff is cut. The checker warns when more than 3 are marked, and counts that line toward the 8,700-character limit.
-- **Written when a piece of work ends (Claude Code).** baton counts the files edited in the session since a handoff was last written in it (or since the session started). Once that reaches 3 (`BATON_HANDOFF_NUDGE_FILES`), the Stop hook, which runs when the agent ends its turn, keeps the turn going once per session and asks the agent to update `HANDOFF.md`. The agent starts from the current file and carries forward every line that is still true, instead of rewriting it from memory. It runs the checker, skips the promotion review, does not commit, and tells you in one line. This is on by default. `BATON_HANDOFF_AUTO=off` brings back the old behavior: a one-line suggestion to you, and you decide. `BATON_HANDOFF_NUDGE=off` turns off both. Writing a named handoff such as `HANDOFF_api.md` counts as writing one; only `HANDOFF.md` is checked and injected.
+- **Written when a piece of work ends (Claude Code).** baton counts the files edited in the session since a handoff was last written in it (or since the session started). Once that reaches 3 (`BATON_HANDOFF_NUDGE_FILES`), the Stop hook, which runs when the agent ends its turn, keeps the turn going once per session and asks the agent to update `HANDOFF.md`. The agent starts from the current file and carries forward every line that is still true, instead of rewriting it from memory. It runs the checker, skips the promotion review, does not commit, and tells you in one line. This is on by default. `BATON_HANDOFF_AUTO=off` brings back the old behavior: a short suggestion to you, and you decide. `BATON_HANDOFF_NUDGE=off` turns off both. Writing a named handoff such as `HANDOFF_api.md` counts as writing one; only `HANDOFF.md` is checked and injected.
 - **Nudges.** The context is measured at the session's first model call. When it grows past 2× that size, and again past 3×, a notice suggests writing a handoff and starting fresh.
 - **`/promote`** lists constraints that survived several days of handoffs as candidates for `DECISIONS.md`. It doesn't write the decision for you: the reasons and the rejected alternatives exist only in the head of whoever decided.
 
@@ -108,7 +108,7 @@ The index from the same demo repo, on a first prompt that doesn't ask to continu
 **What you see.** In the same demo repo, one commit changed `src/lives.ts`. The next session starts with one line, and `/drift` shows which concepts to revisit:
 
 ```
-[baton] 2 concepts in the concept map need a re-check (1 fresh). Details: /drift
+[baton] 2 concepts in the concept map need another look (1 unchanged). For details: /drift
 ```
 
 ```
@@ -130,7 +130,7 @@ Summary: re-check 2 · fresh 1 · rule concepts 0
 <summary>The same output in Korean</summary>
 
 ```
-[baton] 개념 지도에 재확인 대상 2건 (신선 1건). 자세히는 /drift
+[baton] 개념 지도에서 다시 확인할 개념이 2개 있어요(그대로인 개념 1개). 자세히 보려면 /drift
 ```
 
 ```
