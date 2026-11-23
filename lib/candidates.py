@@ -15,7 +15,7 @@ import collections, getpass, glob, hashlib, json, os, re, sys, tempfile
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import compiler, concepts, config, handoff_check, rules
+import compiler, concepts, config, handoff_check, i18n, rules
 
 VERSION = "candidates-v1"
 # 설계안 8절에서 데이터 보기 전에 고정한 값
@@ -26,7 +26,79 @@ EDIT_TOOLS = compiler.TOUCH_TOOLS - {"Read"}
 CHUNK = 1 << 23            # 세션 기록 원문 검색 단위(8MB)
 NOT_HUMAN = ("This session is being continued", "Another Claude session sent", "[Request interrupted")
 OFFSET = re.compile(r"([+-]\d{2})(\d{2})$")
-BAD_ALIAS = re.compile(r"[,，()`\r\n\t]| · |^없음$|^-$")  # 메타 줄 구분자·split_list가 버리는 값
+BAD_ALIAS = re.compile(r"[,，()`\r\n\t]| · |^없음$|^-$|(?i:^none$)")  # 메타 줄 구분자·split_list가 버리는 값
+ALIAS_KEY = re.compile(r"(?:^|[:·])\s*(?:별칭|aliases)=(.*?)(?= · |$)", re.I)  # concepts.field와 같은 키 앞 규칙, 두 언어
+# 사람이 보는 문장. 한국어는 예전 그대로
+MSG = {
+    "ko": {
+        "usage": __doc__.strip().split("\n\n")[-1],
+        "head": "개념 지도 후보 ({map}, HEAD {head})", "no_map_name": "지도 없음",
+        "input": "재료: 세션 {sessions}개({by}) · 턴 {turns} · 사람 프롬프트 턴 {prompt_turns} · 파일 고친 턴 {edit_turns}"
+                 " · 개념 파일 고친 턴 {concept_turns} · 안 묶인 파일 고친 턴 {unbound_turns}",
+        "observed": "관찰: 별칭 (개념, 구절) {alias_observed}개 · 새 개념 구절 {concept_observed}개 → 검증 탈락 {rejected}",
+        "none": "없음", "map_warn": "지도 경고: {w} — 그 개념들은 후보 계산에서 빠졌다",
+        "why_input": "재료 부족 — 못 셌다", "why_map": "개념 지도가 없다",
+        "why_zero": "관찰 0 — 개념 파일을 고친 턴은 모두 이미 제목·별칭으로 맞았고, 안 묶인 파일을 고친 턴은 없었거나 개념에 맞는 프롬프트였다",
+        "why_dropped": "관찰은 있었으나 검증에서 모두 빠졌다 — 사유별 수는 위 줄", "zero": "후보 0건 ({why})",
+        "alias_head": "\n별칭 후보 (id · 개념 · 구절 · 서로 다른 날 · 적중 · 오발화)",
+        "alias_row": "  {id}  개념 {concept} {title}  '{phrase}'  {days}일 · {hits} · {misfires}",
+        "new_head": "\n새 개념 후보 (id · 이름 제안 · 파일 · 관련 개념 · 서로 다른 날 · 적중 · 오발화)",
+        "concept": "개념 {n}", "new_row": "  {id}  {names}\n      파일 {files} · 관련 {rel} · {days}일 · {hits} · {misfires}",
+        "cache": "\n캐시: {cache}  (CONCEPTS.md는 안 바뀜 — 승격은 사람이 고른 것만)",
+        "no_cache": "캐시 폴더를 정할 수 없다(절대 경로인 XDG_CACHE_HOME·HOME이 없음) — 저장소 안에는 쓰지 않는다",
+        "bad_alias": "별칭은 두 글자 이상이고 쉼표·괄호·백틱·' · '·줄바꿈이 없어야 한다(메타 줄 구분자)",
+        "ref_alias": "별칭에 '개념 N'이 있으면 지도 파서가 그것을 개념 사이 참조로 센다(가짜 간선) — 번호 없이 쓴다",
+        "leak": "별칭에 {hits}로 보이는 것이 있어 쓰지 않았다(지도는 공개될 수 있다) — 지우거나 일반 표기로 바꾼다",
+        "no_concepts": "CONCEPTS.md가 없다", "unreadable": "{rel}을 파서가 끝까지 못 읽는다({w}) — 그것부터 고친다",
+        "dup_heads": "{rel}에 개념 {num} 절이 {heads}개다 — 조립기는 마지막 절을 읽으므로 번호를 먼저 바로잡는다",
+        "no_meta": "{rel}에 개념 {num}의 메타 줄이 없다",
+        "multi_meta": "{rel}의 개념 {num} 절에 메타 줄이 {n}개이거나 첫 메타 줄이 코드 펜스 안이다 — "
+                      "읽는 쪽이 어느 줄을 쓸지 어긋나므로 사람이 먼저 하나로 정리한다",
+        "dup_alias": "개념 {num}에 이미 별칭 '{phrase}'가 있다", "no_cand": "캐시에 후보 {cid}가 없다 — scan을 먼저 돌린다",
+        "promoted": "바꾼 메타 줄:\n", "dismissed": "버림: {label} — 다음 scan부터 안 낸다",
+    },
+    "en": {
+        "usage": "  candidates.py scan [repo root] [--json]          rebuild the candidates, write them to the cache and show them\n"
+                 "  candidates.py promote-alias <number> \"<phrase>\" <repo root>  add the alias a person picked to aliases= on that"
+                 " concept's metadata line (exactly three arguments)\n"
+                 "  candidates.py dismiss <candidate id> [repo root]   a candidate a person rejected — later scans won't show it",
+        "head": "Concept map candidates ({map}, HEAD {head})", "no_map_name": "no map",
+        "input": "Input: sessions {sessions} ({by}) · turns {turns} · turns with a human prompt {prompt_turns}"
+                 " · turns that edited files {edit_turns} · turns that edited concept files {concept_turns}"
+                 " · turns that edited files in no concept {unbound_turns}",
+        "observed": "Observed: aliases (concept, phrase) {alias_observed} · new-concept phrases {concept_observed}"
+                    " → dropped by the checks {rejected}",
+        "none": "none", "map_warn": "map warning: {w} — those concepts were left out of the candidates",
+        "why_input": "not enough input — could not count", "why_map": "there is no concept map",
+        "why_zero": "nothing observed — every turn that edited a concept's files already matched its title or an alias, and turns that"
+                    " edited files in no concept either didn't exist or followed a prompt that matched a concept",
+        "why_dropped": "there were observations, but the checks dropped all of them — the counts by reason are in the line above",
+        "zero": "No candidates ({why})",
+        "alias_head": "\nAlias candidates (id · concept · phrase · distinct days · hits · misfires)",
+        "alias_row": "  {id}  concept {concept} {title}  '{phrase}'  {days} days · {hits} · {misfires}",
+        "new_head": "\nNew concept candidates (id · suggested names · files · related concepts · distinct days · hits · misfires)",
+        "concept": "concept {n}", "new_row": "  {id}  {names}\n      files {files} · related {rel} · {days} days · {hits} · {misfires}",
+        "cache": "\nCache: {cache}  (CONCEPTS.md is unchanged — only what a person picks is promoted)",
+        "no_cache": "Can't choose a cache folder (no absolute XDG_CACHE_HOME or HOME) — candidates are never written inside the repo",
+        "bad_alias": "An alias needs at least two characters and no comma, parentheses, backtick, ' · ' or line break"
+                     " (they separate the metadata line)",
+        "ref_alias": "An alias that contains 'concept N' would be counted by the map parser as a reference between concepts"
+                     " (a false edge) — write it without the number",
+        "leak": "The alias contains what looks like {hits}, so it was not written (the map may be public) — remove it or use a"
+                " generic word",
+        "no_concepts": "There is no CONCEPTS.md", "unreadable": "The parser can't read {rel} to the end ({w}) — fix that first",
+        "dup_heads": "{rel} has {heads} sections for concept {num} — the compiler reads the last one, so fix the numbers first",
+        "no_meta": "Concept {num} in {rel} has no metadata line",
+        "multi_meta": "Concept {num} in {rel} has {n} metadata lines, or its first metadata line is inside a code fence —"
+                      " readers could use different lines, so a person should merge them into one first",
+        "dup_alias": "Concept {num} already has the alias '{phrase}'", "no_cand": "No candidate {cid} in the cache — run scan first",
+        "promoted": "Changed metadata line:\n", "dismissed": "Dismissed: {label} — later scans won't show it",
+    },
+}
+
+
+def words(lang=None):
+    return MSG[concepts.lang_of(lang)]
 
 
 def claude_projects():
@@ -172,9 +244,9 @@ def cand_id(key):
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
 
 
-def build(repo, turns, dismissed=()):
-    """턴 목록 → 후보 dict(단계별 수 포함). 세션 기록을 안 읽어 테스트하기 쉽게 따로 둔다."""
-    g = compiler.graph(repo)
+def build(repo, turns, dismissed=(), lang=None):
+    """턴 목록 → 후보 dict(단계별 수 포함). 세션 기록을 안 읽어 테스트하기 쉽게 따로 둔다. lang은 지도 경고 문장의 언어."""
+    g = compiler.graph(repo, lang)
     nodes = g["nodes"] if g else {}
     owners = {}
     for num, n in nodes.items():
@@ -311,10 +383,10 @@ def load(repo):
         return {}
 
 
-def save(repo, data):
+def save(repo, data, lang=None):
     p = cache_path(repo)
     if not p:
-        raise OSError("캐시 폴더를 정할 수 없다(절대 경로인 XDG_CACHE_HOME·HOME이 없음) — 저장소 안에는 쓰지 않는다")
+        raise OSError(words(lang)["no_cache"])
     os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)  # 구절은 프롬프트에서 나온 것 — 조립기 캐시와 같은 권한
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -323,7 +395,7 @@ def save(repo, data):
     return p
 
 
-def scan(repo):
+def scan(repo, lang=None):
     paths, by = session_files(repo)
     turns, seen = [], set()
     for p in paths:
@@ -334,67 +406,67 @@ def scan(repo):
             seen.add(t["uid"])
             turns.append(t)
     dismissed = load(repo).get("dismissed") or []
-    out = build(repo, turns, {d.get("id") for d in dismissed if isinstance(d, dict)})
+    out = build(repo, turns, {d.get("id") for d in dismissed if isinstance(d, dict)}, lang)
     out["counts"] = {"sessions": len(paths), **out["counts"]}
     out.update(generated=datetime.now().astimezone().isoformat(timespec="seconds"),
                head=(compiler.git(repo, "rev-parse", "--short", "HEAD") or "").strip() or None,
                sessions_by={k: v for k, v in by.items() if v}, dismissed=dismissed)
-    out["cache"] = save(repo, out)
+    out["cache"] = save(repo, out, lang)
     return out
 
 
-def render(d):
-    c, rj = d["counts"], d["rejected"]
-    out = [f"개념 지도 후보 ({d.get('map') or '지도 없음'}, HEAD {d.get('head') or '?'})",
-           f"재료: 세션 {c.get('sessions', '?')}개({d.get('sessions_by') or {}}) · 턴 {c['turns']} · 사람 프롬프트 턴 {c['prompt_turns']}"
-           f" · 파일 고친 턴 {c['edit_turns']} · 개념 파일 고친 턴 {c['concept_turns']} · 안 묶인 파일 고친 턴 {c['unbound_turns']}",
-           f"관찰: 별칭 (개념, 구절) {c['alias_observed']}개 · 새 개념 구절 {c['concept_observed']}개 → 검증 탈락 {rj or '없음'}"]
-    out += [f"지도 경고: {w} — 그 개념들은 후보 계산에서 빠졌다" for w in d.get("map_warnings") or []]
+def render(d, lang=None):
+    c, rj, w = d["counts"], d["rejected"], words(lang)
+    out = [w["head"].format(map=d.get("map") or w["no_map_name"], head=d.get("head") or "?"),
+           w["input"].format(**{**c, "sessions": c.get("sessions", "?"), "by": d.get("sessions_by") or {}}),
+           w["observed"].format(rejected=rj or w["none"], **c)]
+    out += [w["map_warn"].format(w=x) for x in d.get("map_warnings") or []]
     if not d["aliases"] and not d["concepts"]:
-        why = ("재료 부족 — 못 셌다" if not c["prompt_turns"] or not c["edit_turns"] else
-               "개념 지도가 없다" if not c["concepts"] else
-               "관찰 0 — 개념 파일을 고친 턴은 모두 이미 제목·별칭으로 맞았고, 안 묶인 파일을 고친 턴은 없었거나 개념에 맞는 프롬프트였다"
-               if not c["alias_observed"] and not c["concept_observed"] else
-               "관찰은 있었으나 검증에서 모두 빠졌다 — 사유별 수는 위 줄")
-        out.append(f"후보 0건 ({why})")
+        why = (w["why_input"] if not c["prompt_turns"] or not c["edit_turns"] else
+               w["why_map"] if not c["concepts"] else
+               w["why_zero"] if not c["alias_observed"] and not c["concept_observed"] else
+               w["why_dropped"])
+        out.append(w["zero"].format(why=why))
     if d["aliases"]:
-        out.append("\n별칭 후보 (id · 개념 · 구절 · 서로 다른 날 · 적중 · 오발화)")
-        out += [f"  {a['id']}  개념 {a['concept']} {a['title']}  '{a['phrase']}'  {a['days']}일 · {a['hits']} · {a['misfires']}"
-                for a in d["aliases"]]
+        out.append(w["alias_head"])
+        out += [w["alias_row"].format(**a) for a in d["aliases"]]
     if d["concepts"]:
-        out.append("\n새 개념 후보 (id · 이름 제안 · 파일 · 관련 개념 · 서로 다른 날 · 적중 · 오발화)")
+        out.append(w["new_head"])
         for k in d["concepts"]:
             names = ", ".join(f"'{n['phrase']}'" for n in k["names"])
-            rel = ", ".join(f"개념 {n}" for n in k["related"]) or "없음"
-            out.append(f"  {k['id']}  {names}\n      파일 {', '.join(k['files'])} · 관련 {rel} · {k['days']}일 · {k['hits']} · {k['misfires']}")
-    out.append(f"\n캐시: {d.get('cache')}  (CONCEPTS.md는 안 바뀜 — 승격은 사람이 고른 것만)")
+            rel = ", ".join(w["concept"].format(n=n) for n in k["related"]) or w["none"]
+            out.append(w["new_row"].format(id=k["id"], names=names, files=", ".join(k["files"]), rel=rel,
+                                           days=k["days"], hits=k["hits"], misfires=k["misfires"]))
+    out.append(w["cache"].format(cache=d.get("cache")))
     return "\n".join(out)
 
 
 # ── 사람 승격 ─────────────────────────────────────────────────────────
 
-def promote_alias(repo, num, phrase):
-    """그 개념 메타 줄의 별칭=에 phrase를 덧붙인다. 다른 내용은 안 건드린다. 반환: 바뀐 메타 줄."""
+def promote_alias(repo, num, phrase, lang=None):
+    """그 개념 메타 줄의 별칭=에 phrase를 덧붙인다. 다른 내용은 안 건드린다. 반환: 바뀐 메타 줄.
+    영어 메타 줄(- **Meta**:)이면 aliases=에 붙인다 — 지도에 이미 쓰인 언어를 따른다."""
+    w = words(lang)
     phrase = phrase.strip()
     if len(phrase) < 2 or BAD_ALIAS.search(phrase):
-        raise ValueError("별칭은 두 글자 이상이고 쉼표·괄호·백틱·' · '·줄바꿈이 없어야 한다(메타 줄 구분자)")
+        raise ValueError(w["bad_alias"])
     # 별칭은 프롬프트에서 나와 공개될 수 있는 CONCEPTS.md에 들어간다 — 인계서 검사와 같은 비밀값·홈 경로·개인 자료 목록으로 거른다.
     # 걸린 값 자체는 다시 출력하지 않는다(종류만)
     if concepts.REF.search(phrase):
-        raise ValueError("별칭에 '개념 N'이 있으면 지도 파서가 그것을 개념 사이 참조로 센다(가짜 간선) — 번호 없이 쓴다")
+        raise ValueError(w["ref_alias"])
     # 이 컴퓨터의 사용자 이름·홈 폴더 이름도 개인 자료다(홈 경로 패턴은 절대 경로 꼴만 잡는다)
     me = [getpass.getuser(), os.path.basename((os.environ.get("HOME") or "").rstrip("/"))]
     hits = handoff_check.leaks(phrase, config.terms("private_terms", repo) + [t for t in me if t])
     if hits:
-        raise ValueError(f"별칭에 {'·'.join(hits)}로 보이는 것이 있어 쓰지 않았다(지도는 공개될 수 있다) — 지우거나 일반 표기로 바꾼다")
+        raise ValueError(w["leak"].format(hits="·".join(hits)))
     path, rel = rules.concept_path(repo)
     if not path:
-        raise ValueError("CONCEPTS.md가 없다")
+        raise ValueError(w["no_concepts"])
     with open(path, encoding="utf-8", newline="") as fh:
         lines = fh.read().split("\n")
-    lost = concepts.warnings(lines)
+    lost = concepts.warnings(lines, concepts.lang_of(lang))
     if lost:
-        raise ValueError(f"{rel}을 파서가 끝까지 못 읽는다({lost[0]}) — 그것부터 고친다")
+        raise ValueError(w["unreadable"].format(rel=rel, w=lost[0]))
     # 고를 메타 줄은 읽는 쪽(compiler.graph·concepts.py meta)과 같은 규칙으로 찾는다: concepts.walk의 절 본문에서 첫 메타 줄.
     # walk는 펜스 안 줄도 본문에 넣으므로 펜스 안 메타 줄도 후보로 센다 — 그 줄이 첫 줄이거나 메타 줄이 둘 이상이면
     # 읽는 쪽과 쓰는 쪽이 다른 줄을 볼 수 있어 거절한다
@@ -413,25 +485,25 @@ def promote_alias(repo, num, phrase):
         elif cur == str(num) and concepts.META.match(ln):
             metas.append((i, False))
     if heads > 1:
-        raise ValueError(f"{rel}에 개념 {num} 절이 {heads}개다 — 조립기는 마지막 절을 읽으므로 번호를 먼저 바로잡는다")
+        raise ValueError(w["dup_heads"].format(rel=rel, num=num, heads=heads))
     if not metas:
-        raise ValueError(f"{rel}에 개념 {num}의 메타 줄이 없다")
+        raise ValueError(w["no_meta"].format(rel=rel, num=num))
     if len(metas) > 1 or metas[0][1]:
-        raise ValueError(f"{rel}의 개념 {num} 절에 메타 줄이 {len(metas)}개이거나 첫 메타 줄이 코드 펜스 안이다 — "
-                         "읽는 쪽이 어느 줄을 쓸지 어긋나므로 사람이 먼저 하나로 정리한다")
+        raise ValueError(w["multi_meta"].format(rel=rel, num=num, n=len(metas)))
     idx = metas[0][0]
     line = lines[idx].rstrip("\r")
     cr = lines[idx][len(line):]
-    m = re.search(r"(?:^|[:·])\s*별칭=(.*?)(?= · |$)", line)  # concepts.field와 같은 키 앞 규칙
+    m = ALIAS_KEY.search(line)
     if m:
         have = compiler.split_list(m.group(1))
         if phrase.casefold() in {a.casefold() for a in have}:
-            raise ValueError(f"개념 {num}에 이미 별칭 '{phrase}'가 있다")
+            raise ValueError(w["dup_alias"].format(num=num, phrase=phrase))
         old = m.group(1).rstrip()
-        # 사람이 적은 값(괄호 설명·백틱 등)은 그대로 두고 뒤에만 붙인다. 비었거나 '없음'·'-'이면 그 자리를 바꾼다
-        line = line[:m.start(1)] + (phrase if old in ("", "없음", "-") else f"{old}, {phrase}") + line[m.end(1):]
+        # 사람이 적은 값(괄호 설명·백틱 등)은 그대로 두고 뒤에만 붙인다. 비었거나 '없음'·'none'·'-'이면 그 자리를 바꾼다
+        line = line[:m.start(1)] + (phrase if old in ("", "없음", "-") or old.lower() == "none" else f"{old}, {phrase}") + line[m.end(1):]
     else:
-        line = line.rstrip() + f" · 별칭={phrase}"
+        key = "aliases" if line.startswith("- **Meta**") else "별칭"
+        line = line.rstrip() + f" · {key}={phrase}"
     lines[idx] = line + cr
     # 통째로 바꿔 쓴다 — 쓰다 멈춰도 지도가 반쯤 잘린 채 남지 않게. 권한은 원래 파일 것을 이어받는다
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".CONCEPTS.", suffix=".tmp")
@@ -449,7 +521,7 @@ def promote_alias(repo, num, phrase):
     return line
 
 
-def dismiss(repo, cid):
+def dismiss(repo, cid, lang=None):
     d = load(repo)
     for kind in ("aliases", "concepts"):
         for c in d.get(kind) or []:
@@ -457,31 +529,33 @@ def dismiss(repo, cid):
                 d[kind].remove(c)
                 label = c.get("phrase") or ", ".join(n["phrase"] for n in c.get("names", []))
                 d.setdefault("dismissed", []).append({"id": cid, "kind": kind, "label": label})
-                save(repo, d)
+                save(repo, d, lang)
                 return label
-    raise ValueError(f"캐시에 후보 {cid}가 없다 — scan을 먼저 돌린다")
+    raise ValueError(words(lang)["no_cand"].format(cid=cid))
 
 
 def main(argv):
     if not argv or argv[0] not in ("scan", "promote-alias", "dismiss"):
-        print(__doc__.strip().split("\n\n")[-1])
+        print(words()["usage"])
         return 2
     cmd, rest = argv[0], [a for a in argv[1:] if a != "--json"]
     need = {"scan": 0, "promote-alias": 2, "dismiss": 1}[cmd]
     # 쓰는 명령은 저장소를 꼭 받고 인자 수가 정확해야 한다 — 따옴표 없는 두 단어 구절이 쪼개지거나 구절을 빼먹으면
     # 경로가 구절로, 현재 폴더가 저장소로 읽혀 엉뚱한 지도에 쓰게 된다
     if len(rest) < need or (cmd == "promote-alias" and len(rest) != 3):
-        print(__doc__.strip().split("\n\n")[-1])
+        print(words()["usage"])
         return 2
     repo = rest[need] if len(rest) > need else rules.repo_root()
+    lang = i18n.lang(repo)  # 한 번만 정한다
+    w = words(lang)
     try:
         if cmd == "scan":
-            d = scan(repo)
-            print(json.dumps(d, ensure_ascii=False, indent=1) if "--json" in argv else render(d))
+            d = scan(repo, lang)
+            print(json.dumps(d, ensure_ascii=False, indent=1) if "--json" in argv else render(d, lang))
         elif cmd == "promote-alias":
-            print("바꾼 메타 줄:\n" + promote_alias(repo, rest[0], rest[1]))
+            print(w["promoted"] + promote_alias(repo, rest[0], rest[1], lang))
         else:
-            print(f"버림: {dismiss(repo, rest[0])} — 다음 scan부터 안 낸다")
+            print(w["dismissed"].format(label=dismiss(repo, rest[0], lang)))
     except (ValueError, OSError) as e:
         print(f"candidates: {e}", file=sys.stderr)
         return 1

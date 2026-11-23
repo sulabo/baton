@@ -3,28 +3,60 @@
 #   fresh.sh <CONCEPTS.md 경로> [저장소 루트]
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-open_concepts "${1:-}" "fresh.sh" "[저장소 루트]"
+open_concepts "${1:-}" "fresh.sh" "[저장소 루트]" "[repo root]"
 [ -n "${2:-}" ] && ROOT="$2"
 
 count() { grep -c . || true; }
-row()   { printf "%-4s %-22s %-12s %s\n" "$1" "$2" "$3" "$4"; }
+
+# ── 메시지(L은 open_concepts가 정한다). 판정 이름은 lib/test_fresh.py VerdictDocsTest가 이 두 묶음에서 읽어
+# 문서의 판정 표와 대조한다. N_* 는 수가 든 조각의 printf 형식이고, 영어는 '단수|복수'다(fmt)
+if [ "$L" = ko ]; then
+  V_RC="재확인 필요"; V_FRESH="신선"; V_RULE="규칙 개념"; V_TRACK="규칙 개념 — 결정 변동으로만 추적"
+  V_NOBASE="기준 없음"; V_LOST="기준 소실"; V_OUTSIDE="기준이 현재 이력 밖"
+  V_UNTR="미추적"; V_GONE="경로 소실"; V_DOCS_UNSEEN="문서 못 봄"
+  N_COMMIT="커밋 %s건"; N_DOCC="문서 커밋 %s건"; N_GONE="경로 소실 %s개"; N_DOCGONE="문서 경로 소실 %s개"
+  N_UNTR="미추적 %s개 제외"; N_DOCUNTR="문서 미추적 %s개 제외"
+  PT_FULL="확인 이후 새 결정이 '관련'으로 가리킴"; PT_SHORT="새 결정이 '관련'으로 가리킴"
+else
+  V_RC="needs a re-check"; V_FRESH="fresh"; V_RULE="rule concept"; V_TRACK="rule concept — tracked only through decision changes"
+  V_NOBASE="no baseline"; V_LOST="baseline lost"; V_OUTSIDE="baseline outside the current history"
+  V_UNTR="not tracked"; V_GONE="path gone"; V_DOCS_UNSEEN="docs not checked"
+  N_COMMIT="%s commit|%s commits"; N_DOCC="%s doc commit|%s doc commits"; N_GONE="%s path gone|%s paths gone"
+  N_DOCGONE="%s doc path gone|%s doc paths gone"
+  N_UNTR="%s untracked file excluded|%s untracked files excluded"; N_DOCUNTR="%s untracked doc excluded|%s untracked docs excluded"
+  PT_FULL="a decision added since the check points to it (Related)"; PT_SHORT="a new decision points to it (Related)"
+fi
+fmt() {                     # fmt <변수> <형식> <수> — 형식이 '단수|복수'면 수가 1일 때 앞쪽
+  local f="$2"
+  case "$f" in *"|"*) if [ "$3" -eq 1 ]; then f=${f%%|*}; else f=${f#*|}; fi;; esac
+  # shellcheck disable=SC2059
+  printf -v "$1" "$f" "$3"
+}
+# 표. 한국어는 예전 그대로 고정 폭(바이트 기준). 영어는 칸 폭 = 그 칸에서 가장 긴 글 + 2 (docs/GUIDE.md 예시와 같은 모양)
+# ponytail: 폭은 글자 수로 센다 — 한글 같은 전각 글자는 화면에서 두 칸이라 영어 표에 한국어 이름이 섞이면 줄이 어긋난다.
+#   맞추려면 concepts.py가 unicodedata.east_asian_width로 화면 폭을 내 주게 한다
+if [ "$L" = ko ]; then
+  row() { printf "%-4s %-22s %-12s %s\n" "$1" "$2" "$3" "$4"; }
+else
+  WN=7; WS=6                # 'Concept'·'Status'
+  row() { printf "%-4s %s%*s %s%*s %s\n" "$1" "$2" $((WN-${#2})) "" "$3" $((WS-${#3})) "" "$4"; }
+fi
 
 # 그 개념의 확인 해시 이후 DECISIONS.md에 새로 들어온 '관련' 줄이 이 개념을 가리켰는가 (로드맵 7단계)
 POINT_CACHE=$(mktemp -d "${TMPDIR:-/tmp}/baton-fresh.XXXXXX"); trap 'rm -rf "$POINT_CACHE"' EXIT
-PTMSG="확인 이후 새 결정이 '관련'으로 가리킴"
 say() {                     # row와 같되, 가리킴(PT)이면 판정을 재확인으로 올리고 원래 판정을 뒤에 남긴다
   local v="$4"
   if [ -n "${PT:-}" ]; then
     case "$v" in
-      신선*)       v="재확인 필요 — ${PTMSG}${v#신선}";;
-      규칙\ 개념*) v="재확인 필요 — ${PTMSG} (규칙 개념)";;
-      *)           v="$v · ${PTMSG#확인 이후 }";;
+      "$V_FRESH"*) v="$V_RC — ${PT_FULL}${v#"$V_FRESH"}";;
+      "$V_RULE"*)  v="$V_RC — ${PT_FULL} ($V_RULE)";;
+      *)           v="$v · ${PT_SHORT}";;
     esac
   fi
   case "$v" in              # 맨 끝 요약 줄용. drift-notice.sh가 표의 글자를 세지 않고 이 줄을 읽는다(개념 이름에 '신선'이 들어가도 안 틀리게)
-    재확인*) N_STALE=$((N_STALE+1));;
-    신선*)   N_FRESH=$((N_FRESH+1));;
-    *)       N_RULE=$((N_RULE+1));;
+    "$V_RC"*)    N_STALE=$((N_STALE+1));;
+    "$V_FRESH"*) N_FRESH=$((N_FRESH+1));;
+    *)           N_RULE=$((N_RULE+1));;
   esac
   row "$1" "$2" "$3" "$v"
 }
@@ -66,8 +98,9 @@ docs_moved() {              # $1=해시  $2=문서 목록
   paths_of "$2"; classify
   DN=$(commits_since "$1" ${OK[@]+"${OK[@]}"} ${GONE[@]+"${GONE[@]}"})
   DG=${#GONE[@]}
-  [ "$NU" -gt 0 ] && DX=" (문서 미추적 ${NU}개 제외)"
-  [ "$DG" -gt 0 ] && DX="$DX (문서 경로 소실 ${DG}개)"
+  local t
+  [ "$NU" -gt 0 ] && { fmt t "$N_DOCUNTR" "$NU"; DX=" ($t)"; }
+  [ "$DG" -gt 0 ] && { fmt t "$N_DOCGONE" "$DG"; DX="$DX ($t)"; }
   return 0
 }
 pointed() {                 # $1=개념 번호  $2=해시
@@ -76,7 +109,8 @@ pointed() {                 # $1=개념 번호  $2=해시
   if [ ! -f "$c" ]; then
     # 파서가 실패하면 빈 결과가 "가리킴 없음"처럼 보인다 — 실패 표지를 남겨 아래에서 못 셌다고 알린다
     git -C "$ROOT" diff "$2"..HEAD -- DECISIONS.md 2>/dev/null | parse related > "$c" 2>/dev/null \
-      || printf '?\t(파서 실패: 확인 %s 이후 결정)\n' "$2" > "$c"
+      || { if [ "$L" = ko ]; then printf '?\t(파서 실패: 확인 %s 이후 결정)\n' "$2"
+           else printf '?\t(parser failed: decisions after check %s)\n' "$2"; fi; } > "$c"
   fi
   grep -qx "$1" "$c"
 }
@@ -86,7 +120,7 @@ NMETA=$(echo "$META" | count)
 NCONC=$(parse sections | count)
 
 if [ "$NMETA" -eq 0 ]; then
-  cat <<MSG
+  if [ "$L" = ko ]; then cat <<MSG
 메타 줄이 하나도 없다 (개념 ${NCONC}개). **신선도를 계산할 수 없다 — 0건이 아니라 못 셌다.**
 
 먼저 개념마다 제목 아래에 이 줄을 넣는다:
@@ -95,15 +129,44 @@ if [ "$NMETA" -eq 0 ]; then
 해시를 모르면 확인=YYYY-MM-DD(해시 미상)으로 두고 나중에 채운다.
 파일이 없는 규칙 개념이면 파일=없음(규칙 개념).
 MSG
+  else cat <<MSG
+No metadata lines at all (concepts: ${NCONC}). **Freshness can't be computed — this is not 0, it could not be counted.**
+
+First add this line under each concept's heading:
+  - **Meta**: status=… · checked=YYYY-MM-DD(\`hash\`) · files=\`path from the repo root\` · neighbors=…
+
+If you don't know the hash, write checked=YYYY-MM-DD(hash unknown) and fill it in later.
+For a rule concept with no files, write files=none(rule concept).
+A Korean map uses the same line with Korean keys: - **메타**: 상태=… · 확인=… · 파일=… · 이웃=…
+MSG
+  fi
   exit 2
 fi
-[ "$NMETA" -lt "$NCONC" ] && { echo "주의: 개념 ${NCONC}개 중 메타 줄 ${NMETA}개. 나머지는 표에 안 나온다."; echo; }
+if [ "$NMETA" -lt "$NCONC" ]; then
+  if [ "$L" = ko ]; then echo "주의: 개념 ${NCONC}개 중 메타 줄 ${NMETA}개. 나머지는 표에 안 나온다."
+  else echo "Warning: only ${NMETA} of ${NCONC} concepts have a metadata line. The rest are not in the table."; fi
+  echo
+fi
 # 파서가 조용히 못 읽은 부분(열린 채 끝난 코드 펜스 등). 이게 있으면 표에 없는 개념이 있을 수 있다 — 0건이 아니라 못 셌다
 WARN=$(parse warnings)
-[ -n "$WARN" ] && { echo "$WARN" | sed 's/^/주의: /'; echo; }
+if [ -n "$WARN" ]; then
+  if [ "$L" = ko ]; then echo "$WARN" | sed 's/^/주의: /'; else echo "$WARN" | sed 's/^/Warning: /'; fi
+  echo
+fi
 
-row "#" "개념" "상태" "판정"
-printf -- "---- ---------------------- ------------ ------------------------------\n"
+if [ "$L" = ko ]; then
+  row "#" "개념" "상태" "판정"
+  printf -- "---- ---------------------- ------------ ------------------------------\n"
+else
+  while IFS=$'\t' read -r _num name state _rest; do
+    [ "${#name}" -gt "$WN" ] && WN=${#name}
+    [ "${#state}" -gt "$WS" ] && WS=${#state}
+  done <<< "$META"
+  WN=$((WN+2)); WS=$((WS+2))
+  row "#" "Concept" "Status" "Verdict"
+  printf -- "---- %s %s %s\n" "$(printf '%*s' "$WN" '' | tr ' ' -)" "$(printf '%*s' "$WS" '' | tr ' ' -)" \
+    "------------------------------"
+fi
 
 while IFS=$'\t' read -r num name state _date hash files _neighbors docs; do
   [ -z "$num" ] && continue
@@ -113,25 +176,26 @@ while IFS=$'\t' read -r num name state _date hash files _neighbors docs; do
   [ "${docs:-}" = "-" ] && docs=""
 
   PT=""; DN=0; DG=0; DX=""; BASE=""   # BASE: 해시를 쓸 수 있는가 — 없음/소실/이력 밖이면 그 이유
-  if [ -z "$hash" ]; then BASE="기준 없음"
-  elif ! git -C "$ROOT" cat-file -e "$hash" 2>/dev/null; then BASE="기준 소실"
-  elif ! git -C "$ROOT" merge-base --is-ancestor "$hash" HEAD 2>/dev/null; then BASE="기준이 현재 이력 밖"
+  if [ -z "$hash" ]; then BASE="$V_NOBASE"
+  elif ! git -C "$ROOT" cat-file -e "$hash" 2>/dev/null; then BASE="$V_LOST"
+  elif ! git -C "$ROOT" merge-base --is-ancestor "$hash" HEAD 2>/dev/null; then BASE="$V_OUTSIDE"
   fi
   if [ -z "$BASE" ]; then
     pointed "$num" "$hash" && PT=1
     [ -n "$docs" ] && docs_moved "$hash" "$docs"
   fi
-  case "$files" in *없음*)
-    if [ "$DN" -gt 0 ]; then say "$num" "$name" "$state" "재확인 필요 — 문서 커밋 ${DN}건 (규칙 개념)${DX}"
-    elif [ "$DG" -gt 0 ]; then say "$num" "$name" "$state" "재확인 필요 — 문서 경로 소실 ${DG}개 (규칙 개념)"
-    elif [ "$BASE" = "기준 소실" ] || [ "$BASE" = "기준이 현재 이력 밖" ]; then
+  fmt DCT "$N_DOCC" "$DN"; fmt DGT "$N_DOCGONE" "$DG"
+  case "$files" in *없음*|[Nn]one|[Nn]one[\ \(]*)   # 규칙 개념: 파일=없음(규칙 개념) · files=none(rule concept)
+    if [ "$DN" -gt 0 ]; then say "$num" "$name" "$state" "$V_RC — $DCT ($V_RULE)${DX}"
+    elif [ "$DG" -gt 0 ]; then say "$num" "$name" "$state" "$V_RC — $DGT ($V_RULE)"
+    elif [ "$BASE" = "$V_LOST" ] || [ "$BASE" = "$V_OUTSIDE" ]; then
       # 적어 둔 해시를 쓸 수 없으면 결정 변동('관련' 가리킴)도 셀 수 없다 — 규칙 개념이라도 재확인으로 올려 알림이 울리게 한다
-      say "$num" "$name" "$state" "재확인 필요 — ${BASE} (규칙 개념${docs:+ — 문서 못 봄})"
-    elif [ -n "$BASE" ] && [ -n "$docs" ]; then say "$num" "$name" "$state" "규칙 개념 — 결정 변동으로만 추적 (${BASE} — 문서 못 봄)"
-    else say "$num" "$name" "$state" "규칙 개념 — 결정 변동으로만 추적${DX}"; fi
+      say "$num" "$name" "$state" "$V_RC — ${BASE} ($V_RULE${docs:+ — $V_DOCS_UNSEEN})"
+    elif [ -n "$BASE" ] && [ -n "$docs" ]; then say "$num" "$name" "$state" "$V_TRACK (${BASE} — $V_DOCS_UNSEEN)"
+    else say "$num" "$name" "$state" "$V_TRACK${DX}"; fi
     continue;; esac
   if [ -n "$BASE" ]; then
-    say "$num" "$name" "$state" "재확인 필요 — ${BASE}"; continue
+    say "$num" "$name" "$state" "$V_RC — ${BASE}"; continue
   fi
 
   # 추적되는 파일로 계산하고, 미추적은 따로 센다. 사라진 경로도 log에 넣는다
@@ -139,36 +203,40 @@ while IFS=$'\t' read -r num name state _date hash files _neighbors docs; do
   untracked=$NU; gone=${#GONE[@]}
 
   if [ "${#OK[@]}" -eq 0 ] && [ "$gone" -eq 0 ]; then
-    if [ "$untracked" -gt 0 ]; then say "$num" "$name" "$state" "재확인 필요 — 미추적"
-    else say "$num" "$name" "$state" "재확인 필요 — 경로 소실"; fi
+    if [ "$untracked" -gt 0 ]; then say "$num" "$name" "$state" "$V_RC — $V_UNTR"
+    else say "$num" "$name" "$state" "$V_RC — $V_GONE"; fi
     continue
   fi
 
   extra=""
-  [ "$untracked" -gt 0 ] && extra=" (미추적 ${untracked}개 제외)"
+  [ "$untracked" -gt 0 ] && { fmt t "$N_UNTR" "$untracked"; extra=" ($t)"; }
   n=$(commits_since "$hash" ${OK[@]+"${OK[@]}"} ${GONE[@]+"${GONE[@]}"})
-  dpart=""; [ "$DN" -gt 0 ] && dpart=" · 문서 커밋 ${DN}건"
+  fmt CT "$N_COMMIT" "$n"; fmt GT "$N_GONE" "$gone"
+  dpart=""; [ "$DN" -gt 0 ] && dpart=" · $DCT"
   # 사라진 경로는 코드든 문서든 그 자체가 어긋남이다 — 신선으로 두지 않는다
   if [ "$n" -gt 0 ]; then
-    [ "$gone" -gt 0 ] && extra="$extra (경로 소실 ${gone}개)"
-    say "$num" "$name" "$state" "재확인 필요 — 커밋 ${n}건${dpart}${extra}${DX}"
+    [ "$gone" -gt 0 ] && extra="$extra ($GT)"
+    say "$num" "$name" "$state" "$V_RC — $CT${dpart}${extra}${DX}"
   elif [ "$gone" -gt 0 ]; then
-    say "$num" "$name" "$state" "재확인 필요 — 경로 소실 ${gone}개${dpart}${extra}${DX}"
+    say "$num" "$name" "$state" "$V_RC — $GT${dpart}${extra}${DX}"
   elif [ "$DN" -gt 0 ]; then
-    say "$num" "$name" "$state" "재확인 필요 — 문서 커밋 ${DN}건${extra}${DX}"
+    say "$num" "$name" "$state" "$V_RC — $DCT${extra}${DX}"
   elif [ "$DG" -gt 0 ]; then
-    say "$num" "$name" "$state" "재확인 필요 — 문서 경로 소실 ${DG}개${extra}"
+    say "$num" "$name" "$state" "$V_RC — $DGT${extra}"
   else
-    say "$num" "$name" "$state" "신선${extra}${DX}"
+    say "$num" "$name" "$state" "$V_FRESH${extra}${DX}"
   fi
 done <<< "$META"
 echo
-echo "요약: 재확인 ${N_STALE} · 신선 ${N_FRESH} · 규칙 개념 ${N_RULE}"
+# 이 줄의 모양은 hooks/drift-notice.sh가 읽는다(두 언어 다)
+if [ "$L" = ko ]; then echo "요약: 재확인 ${N_STALE} · 신선 ${N_FRESH} · 규칙 개념 ${N_RULE}"
+else echo "Summary: re-check ${N_STALE} · fresh ${N_FRESH} · rule concepts ${N_RULE}"; fi
 
 UNK=$(cat "$POINT_CACHE"/* 2>/dev/null | grep '^?' | cut -f2 | sort -u)
 if [ -n "$UNK" ]; then
   echo
-  echo "새 결정의 '관련' 중 개념 절과 못 이은 것(이름 불일치·절 없는 번호·파서 실패) — **0건이 아니라 못 셌다**:"
+  if [ "$L" = ko ]; then echo "새 결정의 '관련' 중 개념 절과 못 이은 것(이름 불일치·절 없는 번호·파서 실패) — **0건이 아니라 못 셌다**:"
+  else echo "Related entries in new decisions that match no concept section (name mismatch, number with no section, parser failure) — **this is not 0, they could not be counted**:"; fi
   echo "$UNK" | sed 's/^/     /'
 fi
 
@@ -184,7 +252,8 @@ for g in DECISIONS.md AGENTS.md CLAUDE.md; do tracked "$g" && GOV="$GOV $g"; don
 
 DC=$(git -C "$ROOT" log --oneline "$OLDEST"..HEAD -- $GOV 2>/dev/null | count)
 echo
-echo "결정·지침 변동: 가장 오래된 확인($OLDEST) 이후 커밋 ${DC}건"
+if [ "$L" = ko ]; then echo "결정·지침 변동: 가장 오래된 확인($OLDEST) 이후 커밋 ${DC}건"
+else fmt t "$N_COMMIT" "$DC"; echo "Decision and instruction changes: $t since the oldest check ($OLDEST)"; fi
 [ "$DC" -eq 0 ] && exit 0
 [ -f "$ROOT/DECISIONS.md" ] || exit 0
 
@@ -194,28 +263,49 @@ TABN=$(grep -cE '^\| *[A-Z]+[0-9]+ *\|' "$ROOT/DECISIONS.md" 2>/dev/null | tr -c
 
 if [ "${HEADN:-0}" -ge "${TABN:-0}" ] && [ "${HEADN:-0}" -gt 0 ]; then
   NEWN=$(echo "$D" | grep -c '^+## [0-9]\{4\}-' | tr -cd '0-9')
-  RELN=$(echo "$D" | grep -c '^+- 관련:' | tr -cd '0-9')
-  echo "  형식: 날짜 헤딩 · 새 결정 ${NEWN}건 · '관련:' 줄 ${RELN}건 · 구멍 $((NEWN-RELN))건"
-  [ "$((NEWN-RELN))" -gt 0 ] && echo "  → 관련 줄 없는 결정은 어느 개념을 건드렸는지 알 수 없다. 갱신 경로의 구멍으로 보고한다."
+  RELN=$(echo "$D" | grep -cE '^\+- (관련|[Rr]elated):' | tr -cd '0-9')   # 영어 결정 기록은 '- Related:'
+  if [ "$L" = ko ]; then
+    echo "  형식: 날짜 헤딩 · 새 결정 ${NEWN}건 · '관련:' 줄 ${RELN}건 · 구멍 $((NEWN-RELN))건"
+    [ "$((NEWN-RELN))" -gt 0 ] && echo "  → 관련 줄 없는 결정은 어느 개념을 건드렸는지 알 수 없다. 갱신 경로의 구멍으로 보고한다."
+  else
+    echo "  Format: dated headings · new decisions ${NEWN} · Related: lines ${RELN} · gaps $((NEWN-RELN))"
+    [ "$((NEWN-RELN))" -gt 0 ] && echo "  → A decision without a Related: line doesn't say which concepts it touched. Report it as a gap in the update path."
+  fi
 elif [ "${TABN:-0}" -gt 0 ]; then
   IDS=$(echo "$D" | grep -oE '^\+\| *[A-Z]+[0-9]+ *\|' | grep -oE '[A-Z]+[0-9]+' | tr '\n' ' ')
-  echo "  형식: 표(결정 ID) · 새 결정 행 $(echo "$IDS" | wc -w | tr -d ' ')건${IDS:+  — $IDS}"
-  echo "  → 이 형식에는 '관련:' 줄 관행이 없다. 어느 개념이 걸리는지는 ID를 개념 절에서 찾아 잇는다."
+  if [ "$L" = ko ]; then
+    echo "  형식: 표(결정 ID) · 새 결정 행 $(echo "$IDS" | wc -w | tr -d ' ')건${IDS:+  — $IDS}"
+    echo "  → 이 형식에는 '관련:' 줄 관행이 없다. 어느 개념이 걸리는지는 ID를 개념 절에서 찾아 잇는다."
+  else
+    echo "  Format: table (decision IDs) · new decision rows $(echo "$IDS" | wc -w | tr -d ' ')${IDS:+  — $IDS}"
+    echo "  → This format has no Related: lines. To see which concept a decision touches, find its ID in the concept sections."
+  fi
   for i in $IDS; do
-    grep -q "$i" "$F" || echo "     $i: 개념 지도에 언급 없음 — 어느 개념에 걸리는지 확인 필요"
+    grep -q "$i" "$F" && continue
+    if [ "$L" = ko ]; then echo "     $i: 개념 지도에 언급 없음 — 어느 개념에 걸리는지 확인 필요"
+    else echo "     $i: not mentioned in the concept map — check which concept it touches"; fi
   done
-else
+elif [ "$L" = ko ]; then
   echo "  형식 불명 — **0건이 아니라 못 셌다.** DECISIONS.md를 직접 열어 확인한다."
+else
+  echo "  Unknown format — **this is not 0, it could not be counted.** Open DECISIONS.md and check it directly."
 fi
 git -C "$ROOT" log --oneline "$OLDEST"..HEAD -- $GOV 2>/dev/null | head -4 | sed 's/^/     /'
 
 # ── 파일 항목에 지침·결정 파일이 섞여 있는가
 MIX=$(echo "$META" | cut -f6 | grep -cE 'AGENTS\.md|DECISIONS\.md|CLAUDE\.md|TODO\.md' | tr -cd '0-9')
 if [ "${MIX:-0}" -gt 0 ]; then
-  cat <<MSG
+  if [ "$L" = ko ]; then cat <<MSG
 
 경고: 개념 ${MIX}개의 '파일' 항목에 지침·결정 파일이 섞여 있다.
   그 파일들은 거의 매일 바뀌어서 실제 내용이 가만히 있어도 재확인 대상이 된다.
   '파일'에는 실제 동작 근거(코드·산출물)만 남기고, 결정 변동은 위 전역 검사로 본다.
 MSG
+  else cat <<MSG
+
+Warning: instruction or decision files are listed in files= (concepts: ${MIX}).
+  Those files change almost daily, so the concept needs a re-check even when nothing it describes changed.
+  Keep only evidence of actual behavior (code, outputs) in files=. Decision changes are checked above, once for the whole map.
+MSG
+  fi
 fi

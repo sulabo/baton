@@ -1,14 +1,16 @@
 ---
-description: 개념 지도 신선도 점검. 어느 개념이 재확인 대상인지 계산만 하고 끝낸다.
+description: Freshness check of the concept map. Computes which concepts need a re-check, then stops. (개념 지도 신선도 점검 — 재확인 대상만 계산하고 끝낸다.)
 ---
 
-`$CLAUDE_PLUGIN_ROOT/lib/fresh.sh`를 현재 저장소의 `CONCEPTS.md`에 돌려라.
+Run `$CLAUDE_PLUGIN_ROOT/lib/fresh.sh` on the current repo's `CONCEPTS.md`.
 
-1. `CONCEPTS.md`를 찾는다. 없으면 `driftmap` 스킬의 모드 ①(최초 생성)을 안내하고 멈춘다.
-2. `fresh.sh <경로> <저장소 루트>`를 돌린다.
-3. 결과를 그대로 옮기되 **못 센 것을 반드시 함께 보고한다.**
-   - 메타 줄이 0개면 "신선도 0건"이 아니라 "계산 불가"다.
-   - 미추적·경로 소실·기준 소실은 각각 다른 대응이 필요하다.
-4. 재확인 대상이 0이면 거기서 끝낸다. 그것이 완결된 보고다.
+Reply in the user's language. `fresh.sh` prints in English or Korean (`BATON_LANG`, then the system locale) and reads a `CONCEPTS.md` written in either language.
 
-`$ARGUMENTS`가 있으면 그 경로를 대상으로 삼는다.
+1. Find `CONCEPTS.md`. If there is none, point to mode ① (first build) of the `driftmap` skill and stop.
+2. Run `fresh.sh <path> <repo root>`.
+3. Pass the result on as it is, but **always report what could not be counted along with it.**
+   - If there are 0 metadata lines, that is not "0 stale" but "can't be computed".
+   - Not tracked, path gone and baseline lost each need a different response.
+4. If nothing needs a re-check, stop there. That is the complete report.
+
+If `$ARGUMENTS` is given, use that path as the target.

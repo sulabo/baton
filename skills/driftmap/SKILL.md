@@ -1,386 +1,512 @@
 ---
 name: ontology
-description: 프로젝트 지식을 개념 단위의 그래프로 세우고 신선하게 유지한다. 결정·코드·문서가 서로 다른 말을 하는 곳, 정본이 둘인 곳, 참조가 끊어진 곳을 점검하고 CONCEPTS.md를 만들거나 갱신한다. AI가 바로 인용할 수 있는 LLM 위키가 산출물이다. "개념 지도 만들어줘", "지식 정리해줘", "문서랑 코드 안 맞는 거 찾아줘", "온톨로지 점검", "개념 그래프", "신선도 점검", "개념 후보 보여줘", "별칭 후보"에도 발동. Also triggers on English requests such as "build a concept map", "map the concepts in this repo", "find where the docs and code disagree", "check this repo for drift", "concept graph", "is CONCEPTS.md still fresh", "show concept candidates", "alias candidates".
+description: Builds a concept-level graph of the project's knowledge and keeps it fresh. Checks where decisions, code and docs say different things, where there are two sources of truth, and where references are broken, then creates or updates CONCEPTS.md. The output is an LLM wiki that an AI can quote directly. Triggers on English requests such as "build a concept map", "map the concepts in this repo", "find where the docs and code disagree", "check this repo for drift", "concept graph", "is CONCEPTS.md still fresh", "show concept candidates", "alias candidates". Also triggers on Korean requests such as "개념 지도 만들어줘", "지식 정리해줘", "문서랑 코드 안 맞는 거 찾아줘", "온톨로지 점검", "개념 그래프", "신선도 점검", "개념 후보 보여줘", "별칭 후보".
 ---
 
-# Ontology — 개념 그래프와 검진
+# Ontology — concept graph and check-up
 
-## 이 스킬이 하는 두 가지 일
+## Language
 
-| 일 | 무엇 | 산출 |
+Reply in the user's language. Write CONCEPTS.md in the language of the existing file; if there is none, in the language the user writes in.
+
+The scripts read CONCEPTS.md in both languages, whatever language they print in. A Korean map uses `- **메타**: 상태=… · 확인=… · 파일=… · 이웃=… · 문서=… · 별칭=…`; an English map uses `- **Meta**: status=… · checked=… · files=… · neighbors=… · docs=… · aliases=…`. Don't mix the two in one file. The scripts print in English or Korean depending on `BATON_LANG` (`ko`, `en`, `auto`) and then the system locale.
+
+| Korean map | English map |
+|---|---|
+| `- **메타**:` | `- **Meta**:` |
+| `상태=` · `확인=` · `파일=` · `이웃=` · `문서=` · `별칭=` | `status=` · `checked=` · `files=` · `neighbors=` · `docs=` · `aliases=` |
+| `확인=미상` · `확인=YYYY-MM-DD(해시 미상)` | `checked=unknown` · `checked=YYYY-MM-DD(hash unknown)` |
+| `파일=없음(규칙 개념)` · `이웃=없음` | `files=none(rule concept)` · `neighbors=none` |
+| `이웃=개념 2(전제)` · `개념 3(정본)` | `neighbors=Concept 2(premise)` · `Concept 3(source of truth)` |
+| References in prose: `개념 12`, `개념 1·3` | `Concept 12`, `Concept 1·3` |
+| `DECISIONS.md` line `- 관련:` | `- Related:` |
+
+## The two jobs of this skill
+
+| Job | What | Output |
 |---|---|---|
-| **검진** | 결정·코드·문서가 어긋난 곳을 개념 단위로 찾는다 | 어긋남 목록과 종류 |
-| **그래프** | 개념을 노드로, 개념 사이 관계를 간선으로 세우고 **신선하게 유지**한다 | `CONCEPTS.md` = AI가 바로 인용하는 LLM 위키 |
+| **Check-up** | Find, per concept, where decisions, code and docs disagree | A list of mismatches and their kinds |
+| **Graph** | Make concepts the nodes and the relations between them the edges, and **keep it fresh** | `CONCEPTS.md` = an LLM wiki the AI quotes directly |
 
-검진이 없으면 그래프는 예쁜 거짓말이 된다. 그래프가 없으면 검진은 매번 처음부터 다시 한다.
-둘은 한 산출물(`CONCEPTS.md`)의 두 면이고, 따로 만들지 않는다.
+Without the check-up the graph becomes a pretty lie. Without the graph the check-up starts from scratch every time.
+They are two sides of one output (`CONCEPTS.md`) and are never built separately.
 
-**이 스킬이 존재하는 이유 (반드시 읽을 것).**
-어떤 프로젝트에서 공략 문서가 옛 규칙을 말한다고 판정한 적이 있다. 그런데 코드를 열어 보니
-**문서가 맞았다.** 어긋난 것은 문서가 아니라 **결정과 구현 사이**였다 — 바꾸기로 정했지만
-아직 코드에 없었다. **문서끼리만 대조하면 미구현을 낡은 문서로 오판한다.**
-이 스킬의 모든 절차는 그 오판을 막기 위해 설계됐다.
+**Why this skill exists (read this).**
+In one project a strategy guide was judged to state an old rule. Then the code was opened, and
+**the doc was right.** The mismatch was not in the doc but **between the decision and the implementation** — the change had been decided
+but was not in the code yet. **Comparing docs only with other docs mistakes "not built yet" for "stale doc".**
+Every step of this skill is designed to prevent that mistake.
 
-**두 번째 이유: 유지되지 않는 지도는 없는 것만 못하다.**
-2026-08-31~09-06 관찰에서 손으로 유지하는 관계도(`PROJECT_INDEX.md`·`DOCMAP.md`)는
-1주간 한 번도 열리지 않았다. 실패 원인은 "틀려서"가 아니라 **"열 계기가 없어서"**였다.
-그래서 이 스킬의 그래프는 세 조건을 반드시 지킨다.
+**The second reason: a map nobody maintains is worse than no map.**
+In observations from 2026-08-31 to 09-06, hand-maintained relation maps (`PROJECT_INDEX.md`, `DOCMAP.md`)
+were not opened once in a week. They failed not because they were wrong but **because nothing prompted anyone to open them**.
+So the graph in this skill always meets three conditions.
 
-1. **이미 읽히는 파일 안에 둔다** — 새 파일을 만들지 않는다. `CONCEPTS.md` 하나이고,
-   그 파일은 `AGENTS.md`에서 링크돼 매 세션 읽힌다.
-2. **손으로 유지할 간선을 최소로 둔다** — 자동으로 나오는 것은 공유파일 관계 하나뿐이고,
-   그건 아예 저장하지 않고 필요할 때 다시 계산한다. 나머지는 사람이 판단하되
-   스킬이 후보를 뽑아 묻는다. 이 점을 부풀리지 않는다.
-3. **신선도를 느낌이 아니라 git으로 계산한다** — 모드 ④.
+1. **It lives in a file that is already read** — no new file. There is one `CONCEPTS.md`,
+   linked from `AGENTS.md`, so it is read in every session.
+2. **Keep hand-maintained edges to a minimum** — the only automatic relation is the shared-file relation,
+   and it is never stored; it is recomputed when needed. Everything else is a human judgment, but
+   the skill picks candidates and asks. Don't overstate this.
+3. **Compute freshness from git, not from a feeling** — mode ④.
 
-## 모드 — 다섯 개, 먼저 어느 것인지 판별한다
+## Modes — five of them; decide which one first
 
-`CONCEPTS.md`가 있는지 보면 대부분 갈린다.
+Whether `CONCEPTS.md` exists settles most cases.
 
-| 모드 | 언제 | 무엇을 하나 | 비용 |
+| Mode | When | What it does | Cost |
 |---|---|---|---|
-| **① 최초 생성** | `CONCEPTS.md`가 없다 | 절차 1~6 전부. 개념을 고르고 네 면과 간선을 채운다 | 큼 |
-| **② 검진** | 있고, 지금 상태가 궁금하다 | 절차 3~5. **파일을 건드리지 않고** 보고서에만 적는다 | 중간 |
-| **③ 갱신** | 있고, 그 뒤로 뭔가 바뀌었다 | 절차 3~7. 재확인 대상 개념만 다시 채운다 | 중간 |
-| **④ 신선도 점검** | 자주. 기본 진입점 | git 이력과 결정 기록만 본다. 어느 개념이 재확인 대상인지 계산만 하고 끝 | 거의 없음 (첫 실행 제외) |
-| **⑤ 후보 검토** | 있고, "후보 보여줘"·"별칭 후보"·"새 개념 후보" | 세션 기록에서 뽑힌 별칭·새 개념 후보를 보이고 **사람이 고른 것만** 지도에 넣는다 | 작음 (스크립트) |
+| **① First build** | There is no `CONCEPTS.md` | All of steps 1–6. Pick the concepts and fill the four faces and the edges | High |
+| **② Check-up** | It exists, and you want to know its current state | Steps 3–5. **Don't touch any file**; write only in the report | Medium |
+| **③ Update** | It exists, and something changed since | Steps 3–7. Refill only the concepts that need a re-check | Medium |
+| **④ Freshness check** | Often. The default entry point | Looks only at git history and the decision log. Computes which concepts need a re-check, then stops | Almost none (except the first run) |
+| **⑤ Candidate review** | It exists, and the user says "show candidates", "alias candidates", "new concept candidates" | Shows the alias and new-concept candidates found in the session logs and puts **only what a person picks** into the map | Low (a script) |
 
-**"거의 없음"은 첫 실행에 해당하지 않는다.** 기존 `CONCEPTS.md`에는 메타 줄이 없어
-모든 개념이 `확인=미상`으로 시작한다. 처음 두세 번은 사실상 모드 ①이다.
+**"Almost none" does not apply to the first run.** An existing `CONCEPTS.md` has no metadata lines,
+so every concept starts as `checked=unknown`. The first two or three runs are really mode ①.
 
-**모드 ④는 git 이력과 `DECISIONS.md` 둘 다 본다.** 파일만 보면 "코드는 그대로인데 결정이
-바뀐 상태" — 즉 미구현 — 을 통째로 놓친다. 이 스킬이 존재하는 이유가 바로 그것이다.
+**Mode ④ looks at both git history and `DECISIONS.md`.** Looking only at files misses the whole state of
+"the code is the same but the decision changed" — that is, "not built yet". That is exactly why this skill exists.
 
-**모드 ④가 기본 진입점이다.** 먼저 ④를 돌려 재확인 대상을 뽑고, 대상이 없으면 거기서 끝낸다.
-대상이 있으면 그것만 들고 ② 또는 ③으로 간다. 10개 개념을 매번 전수 재확인하지 않는다.
+**Mode ④ is the default entry point.** Run ④ first to pick the concepts that need a re-check. If there are none, stop there.
+If there are some, take only those into ② or ③. Don't re-check all ten concepts every time.
 
-**②와 ③의 차이가 중요하다.** 검진은 진단이고 갱신은 처치다.
-"지금 어긋난 게 뭐야?"는 ②, "정리해줘"는 ③이다. 애매하면 ②로 시작해 보고한 뒤 물어본다.
+**The difference between ② and ③ matters.** A check-up is a diagnosis; an update is the treatment.
+"What is out of sync right now?" is ②. "Clean it up" is ③. If unsure, start with ②, report, then ask.
 
-**모드 ④로는 안 잡히는 신호가 있다.** 아래는 사람이 알아채고 들어와야 한다.
+**Some signals mode ④ can't catch.** A person has to notice these and come in.
 
-- 컨셉이 통째로 바뀌었다 (개념 목록부터 다시 짜야 한다)
-- 문서를 대량 폐기했다
-- 큰 구현이 한 번에 끝났다
-- 오랫동안 안 봤다
+- The concept changed as a whole (the concept list itself has to be redone)
+- Many docs were retired at once
+- A big implementation finished at once
+- Nobody has looked for a long time
 
-## 개념 하나의 형태
+## The shape of one concept
 
-개념은 파일이 아니다. "엔딩 판정", "동기화 켜짐 여부", "팔로워 수"처럼
-**여러 문서와 코드에 걸쳐 있고 어긋날 수 있는 것**이 개념이다.
+A concept is not a file. Things like "ending rule", "whether sync is on", "follower count" —
+**things that span several docs and code files and can drift apart** — are concepts.
 
-### 네 면
+### The four faces
 
-| 면 | 무엇인가 | 어디서 찾나 |
+| Face | What it is | Where to find it |
 |---|---|---|
-| **정해진 것** | 결정 기록에 남은 것 (구속력) | `DECISIONS.md`, `AGENTS.md` |
-| **실제 동작** | 코드·테스트·실제 산출물이 보여주는 사실 | 소스, 테스트 실행 출력 |
-| **설명된 곳** | 이 개념을 설명하는 문서들 | README, 스펙, 가이드 |
-| **어긋남** | 위 셋 사이의 불일치와 **그 종류** | 대조 결과 |
+| **Decided** | What the decision log says (binding) | `DECISIONS.md`, `AGENTS.md` |
+| **Actual behavior** | Facts shown by the code, tests and real outputs | Source, test run output |
+| **Described in** | The docs that describe this concept | README, specs, guides |
+| **Mismatch** | Disagreements among the three above, and **their kind** | The comparison |
 
-문서·산출물 프로젝트(코드가 없는 곳)에서는 **실제 산출물 본문이 "실제 동작"에 해당**하고,
-면 이름을 `실제 표기`로 바꿔 쓴다.
+In a docs or content project (one without code), **the text of the real output counts as "actual behavior"**,
+and the face is called `Actual text` instead.
 
-### 메타 줄 — 그래프와 신선도가 얹히는 자리
+In a Korean map the faces are `정해진 것` · `실제 동작` · `설명된 곳` · `어긋남` (and `실제 표기` for a docs project).
 
-각 개념 절의 **제목 바로 다음 줄**에 한 줄을 둔다. 네 면보다 앞에 온다.
-에이전트가 `grep -A2 '^## 3\.'` 한 번으로 상태를 얻게 하는 것이 목적이다.
+### The metadata line — where the graph and freshness sit
 
-제목 줄과 이 줄 사이에 **빈 줄을 한 줄 둔다** (기존 문서들의 관행 그대로).
+Put one line **right after the heading** of each concept section. It comes before the four faces.
+The goal is that an agent gets the state with a single `grep -A2 '^## 3\.'`.
+
+**Leave one blank line** between the heading line and this line (as existing docs already do).
+
+```
+- **Meta**: status=not built yet · checked=2026-09-07(`a1b2c3d`) · files=`src/game/levels.ts` · neighbors=Concept 2(premise) · docs=`ROADMAP.md`
+```
+
+The same line in a Korean map:
 
 ```
 - **메타**: 상태=미구현 · 확인=2026-09-07(`a1b2c3d`) · 파일=`src/game/levels.ts` · 이웃=개념 2(전제) · 문서=`ROADMAP.md`
 ```
 
-| 항목 | 규칙 |
+| Key (English · Korean) | Rule |
 |---|---|
-| `상태` | 아래 닫힌 어휘에서만 고른다 |
-| `확인` | 이 개념을 마지막으로 코드와 대조한 날짜와 **그때의 커밋 해시**. 모드 ④의 기준점 |
-| `파일` | **실제 동작 면의 근거만.** 코드·테스트·산출물 본문. 루트 상대 경로 |
-| `문서` | 설명된 곳(README·스펙·가이드). 선택. 확인 이후 이 파일들만 움직였으면 `재확인 필요 — 문서 커밋 N건`으로 따로 낸다. 코드가 같이 움직였으면 코드 판정 뒤에 `· 문서 커밋 N건`이 붙는다 |
-| `이웃` | 전제·정본 간선만. 공유파일은 적지 않는다(계산해서 쓴다). 없으면 `이웃=없음` |
-| `별칭` | 선택. 사람들이 이 개념을 부르는 다른 말(쉼표 구분). 맥락 조립기(`lib/compiler.py`)가 프롬프트에서 이 말로 개념을 고른다. **모드 ⑤에서 사람이 고른 것만** 넣는다 |
+| `status` · `상태` | Pick only from the closed vocabulary below |
+| `checked` · `확인` | The date this concept was last compared with the code and **the commit hash at that time**. The baseline for mode ④ |
+| `files` · `파일` | **Only the evidence for the actual-behavior face.** Code, tests, the text of outputs. Paths from the repo root |
+| `docs` · `문서` | Where it is described (README, specs, guides). Optional. If only these files moved since the check, the verdict is `needs a re-check — N doc commits` on its own. If the code moved too, `· N doc commits` is added after the code verdict |
+| `neighbors` · `이웃` | Only premise and source-of-truth edges. Don't write shared files (they are computed). If none, `neighbors=none` |
+| `aliases` · `별칭` | Optional. Other words people use for this concept (comma-separated). The context compiler (`lib/compiler.py`) picks the concept when a prompt uses one of these words. Add **only what a person picked in mode ⑤** |
 
-**경로는 파일명만 적으면 안 된다.** 기존 문서에는 `Builder.swift:13`처럼
-경로 없는 표기가 절반쯤 섞여 있는데, 그러면 `git log`가 저장소 루트에서 0건을 반환한다.
-근거를 적는 절차 3에서부터 루트 상대 경로로 적는다.
+**A file name alone is not a path.** Existing docs write about half of their evidence without a path, like `Builder.swift:13`,
+and then `git log` returns 0 at the repo root.
+Write paths from the repo root starting at step 3, where the evidence is written.
 
-**`파일`에 지침·결정 파일을 넣지 않는다 — 이게 신선도를 망가뜨린 실제 원인이다.**
-`AGENTS.md`·`DECISIONS.md`·`CLAUDE.md`·`TODO.md` 같은 파일은 거의 매일 바뀐다.
-이것들이 근거 목록에 있으면 **실제 내용이 가만히 있어도 개념이 계속 재확인 대상이 된다.**
+**Don't put instruction or decision files in `files` — this is what actually broke freshness.**
+Files like `AGENTS.md`, `DECISIONS.md`, `CLAUDE.md`, `TODO.md` change almost daily.
+If they are in the evidence list, **the concept keeps needing a re-check even when its real content hasn't moved.**
 
-2026-09-14 실측(문서 저장소): 최근 1일 기준 재확인 6개 중 **4개가 `AGENTS.md` 하나 때문**이었다.
-반면 진짜 내용이 담긴 본문 파일은 개념 7개에 걸려 있는데 7일간 커밋 0건이었다.
-**신호가 엉뚱한 곳에서 왔다.** 매번 울리는 알람은 곧 무시당하고, 그게 관계도 문서가 죽은 경로다.
+Measured on 2026-09-14 (a docs repo): of 6 re-checks over the last day, **4 were caused by `AGENTS.md` alone.**
+Meanwhile the body files that held the real content were attached to 7 concepts and had 0 commits in 7 days.
+**The signal came from the wrong place.** An alarm that rings every time is soon ignored, and that is how relation maps die.
 
-지침·결정 파일은 `정해진 것` 면의 출처이지 `실제 동작`이 아니다. 그쪽 변동은 아래
-"결정이 움직였는가"로 따로 본다.
+Instruction and decision files are the source of the `Decided` face, not of `Actual behavior`. Changes on that side are checked
+separately under "Did the decisions move?" below.
 
-**빼고 나니 근거가 하나도 안 남는 개념이 있다. 그건 지워야 할 개념이 아니라 종류가 다른 개념이다.**
-"원장에서 산출물로만 흐른다", "프로세스는 0~5단계다" 같은 것은 **규칙 그 자체**이고,
-그 규칙을 담은 파일이 따로 없다. 이런 개념은 이렇게 적는다.
+**Some concepts have no evidence left once those files are removed. They are not concepts to delete; they are a different kind of concept.**
+Things like "data only flows from the ledger to the outputs" or "the process has steps 0–5" are **the rule itself**,
+and no separate file holds that rule. Write such a concept like this.
 
 ```
-- **메타**: 상태=미구현 · 확인=2026-09-14(`a1b2c3d`) · 파일=없음(규칙 개념) · 이웃=…
+- **Meta**: status=not built yet · checked=2026-09-14(`a1b2c3d`) · files=none(rule concept) · neighbors=…
 ```
 
-규칙 개념은 파일 기반 신선도의 대상이 아니다. **결정 변동 검사만으로 추적한다.**
-2026-09-14 실측에서 문서 저장소 개념 30개 중 3개가 여기 해당했다.
+(Korean map: `파일=없음(규칙 개념)`.)
 
-규칙 개념으로 빠지기 전에 한 번 묻는다 — **그 규칙이 지켜지는지 보여 주는 산출물이 정말 없는가.**
-있으면 그 파일을 적는 편이 훨씬 낫다. 없을 때만 규칙 개념이다.
+A rule concept is not subject to file-based freshness. **It is tracked only by the decision-change check.**
+In the 2026-09-14 measurement, 3 of 30 concepts in the docs repo were of this kind.
 
-`확인`의 커밋 해시가 없으면 신선도를 계산할 수 없다. **모르면 비우지 말고 `확인=미상`**이라 적고,
-다음 갱신 때 채운다. 심각도는 메타 줄이 아니라 요약표에만 둔다 — 두 곳에 두면 갈라진다.
+Before calling something a rule concept, ask once — **is there really no output that shows whether the rule is kept?**
+If there is, listing that file is much better. Only when there is none is it a rule concept.
 
-### 상태 — 닫힌 어휘 여덟 개
+If `checked` has no commit hash, freshness can't be computed. **If you don't know it, don't leave it empty; write `checked=unknown`**
+(`확인=미상`) and fill it in at the next update. Severity goes only in the summary table, not in the metadata line — in two places it would drift apart.
 
-다른 말을 만들어 쓰지 않는다. 세 프로젝트에서 `해소됨`·`일치 확인`·`완료`·`종결`이 섞여 쓰이면서
-같은 것을 세는 일이 불가능해졌다.
+### Status — a closed vocabulary of eight words
 
-`일치` · `미구현` · `낡은 문서` · `미결` · `중복 정본` · `해소됨(날짜)` · `폐기됨(날짜)` · `확인 못 함`
+Don't invent other words. In three projects, `해소됨`, `일치 확인`, `완료` and `종결` were used side by side,
+and counting the same thing became impossible.
 
-기존 문서를 옮길 때의 대응은 이렇다.
-
-| 지금 쓰는 말 | 옮길 곳 |
+| English map | Korean map |
 |---|---|
-| `일치 확인` · `1차 일치` | `일치` |
-| `완료` · `종결` | `해소됨(날짜)` |
-| `주의` | 판단이 필요하다는 뜻이므로 `미결` 또는 `중복 정본` 중 실제에 맞는 쪽 |
-| `부분 해소` | 주 상태 하나만 고르고 나머지는 어긋남 면에 문장으로 |
+| `agrees` | `일치` |
+| `not built yet` | `미구현` |
+| `stale doc` | `낡은 문서` |
+| `undecided` | `미결` |
+| `two sources of truth` | `중복 정본` |
+| `resolved(date)` | `해소됨(날짜)` |
+| `retired(date)` | `폐기됨(날짜)` |
+| `could not check` | `확인 못 함` |
 
-**복합 상태를 만들지 않는다.** `미구현 + 중복 정본` 같은 표기가 실제로 있는데,
-주 상태 하나만 메타 줄에 적고 나머지는 어긋남 면에 쓴다.
+When migrating an existing doc, map words like this.
 
-**어휘 통일과 요약표 열 변경은 1회 이행 작업이고 모드 ③에서만 한다.** 모드 ②는 건드리지 않는다.
+| Word in use now | Where it goes |
+|---|---|
+| `일치 확인` · `1차 일치` ("agreement confirmed", "first-pass agreement") | `agrees` |
+| `완료` · `종결` ("done", "closed") | `resolved(date)` |
+| `주의` ("caution") | It means a judgment is needed, so `undecided` or `two sources of truth`, whichever fits the facts |
+| `부분 해소` ("partly resolved") | Pick one main status and write the rest as sentences in the mismatch face |
 
-## 어긋남의 네 종류 — 이름을 구분해야 대응이 갈린다
+**Don't make compound statuses.** A notation like `not built yet + two sources of truth` really exists;
+write only the main status in the metadata line and the rest in the mismatch face.
 
-| 종류 | 뜻 | 대응 |
+**Unifying the vocabulary and changing the summary-table columns is a one-time migration, done only in mode ③.** Mode ② doesn't touch them.
+
+## The four kinds of mismatch — the response depends on the name
+
+| Kind | Meaning | Response |
 |---|---|---|
-| **미구현** | 정해졌으나 코드가 아직 아님 | **문서를 고치지 않는다.** 없는 동작을 설명하게 된다. "현재 ~에서는"으로 한정하고 예정을 병기 |
-| **낡은 문서** | 코드가 바뀌었는데 문서가 옛 사실을 말함 | **문서를 고친다** |
-| **미결** | 정해진 것이 아예 없음 | 결정이 필요하다는 신호. 소유자에게 묻는다 |
-| **중복 정본** | 같은 개념의 정본이 둘이고 우열 미정 | 어느 쪽이 이기는지 정하게 한다 |
+| **not built yet** | Decided, but not in the code yet | **Don't fix the doc.** It would then describe behavior that doesn't exist. Limit it with "currently, …" and note what is planned |
+| **stale doc** | The code changed, but the doc states the old fact | **Fix the doc** |
+| **undecided** | Nothing has been decided at all | A sign that a decision is needed. Ask the owner |
+| **two sources of truth** | The same concept has two sources of truth, and which one wins is not settled | Have someone decide which one wins |
 
-**판정 규칙: 문서가 최신 결정과 다를 때는 반드시 코드를 확인한다.**
-코드를 안 보고 "문서 오류"라고 쓰면 미구현을 오판한다.
+**Verdict rule: when a doc differs from the latest decision, always check the code.**
+Writing "doc error" without looking at the code misjudges "not built yet".
 
-## 간선 — 세 종류, 그리고 양방향 강제
+## Edges — three kinds, and both directions are required
 
-| 종류 | 뜻 | 방향 | 저장하나 |
+| Kind | Meaning | Direction | Stored? |
 |---|---|---|---|
-| **전제** | A가 있어야 B가 성립한다 | 있음 (A→B) | **메타 줄에 적는다** |
-| **정본** | A가 B의 정본이다 | 있음 (A→B) | **메타 줄에 적는다** |
-| **공유파일** | 같은 파일을 근거로 삼는다 | 없음 | **적지 않는다.** `파일` 항목에서 그때그때 계산한다 |
+| **premise** | B holds only if A exists | Yes (A→B) | **Written in the metadata line** |
+| **source of truth** | A is the source of truth for B | Yes (A→B) | **Written in the metadata line** |
+| **shared file** | They use the same file as evidence | No | **Not written.** Computed from the `files` entries each time |
 
-**공유파일 관계를 저장하지 않는 이유는 폭발하기 때문이다.** 어떤 프로젝트에서 문서 하나가
-9개 개념의 근거로 쓰이고 있었다(2026-09-14 시점 파일을 재측정한 값. 처음 인용한 14개는 서브에이전트 보고를 대조 없이 옮긴 오류였다). 쌍으로 전부 이으면 간선 36개가 생기고 개념마다 이웃이 8개씩
-박혀 메타 줄 한 줄 규칙이 무너진다. `파일` 항목만 있으면 언제든 다시 계산되는 파생 정보이므로
-저장하지 않는다. 저장하지 않으면 양방향을 맞출 일도, 다시 도출할 일도 없다.
+(Korean map: `전제` · `정본` · `공유파일`.)
 
-**프로젝트 간 간선은 아직 켜지 않는다.** `DECISIONS.md`의 `관련:` 줄이 충분히 쌓인 뒤에 켠다
-(2026-09-14 기준 전체 4건). 지금 도입하면 대부분의 개념에서 빈칸이 된다.
+**Shared-file relations are not stored because they explode.** In one project a single doc was
+the evidence for 9 concepts (the value re-measured from the 2026-09-14 file; the 14 cited at first was an error copied from a subagent report without checking the source). Linking every pair gives 36 edges, with 8 neighbors
+stuck on each concept, and the one-line metadata rule collapses. With only the `files` entries, this is derived information that can be recomputed at any time,
+so it is not stored. Not storing it also means there is no two-way consistency to keep and nothing to re-derive.
 
-**양방향 강제 — 이 규칙 하나가 산문을 그래프로 만든다.**
-개념 A의 `이웃`에 B가 있으면 **B의 `이웃`에도 A가 반드시 있어야 한다.**
-한쪽만 적힌 관계는 그쪽을 읽을 때만 보이므로 그래프가 아니다.
+**Cross-project edges are not turned on yet.** Turn them on after enough `Related:` lines (`관련:`) have built up in `DECISIONS.md`
+(4 in total as of 2026-09-14). Introduced now, they would be empty for most concepts.
 
-2026-09-14 실측(게임 프로젝트 `CONCEPTS.md`): `[[링크]]` 0건, 산문 속 "개념 N" 언급 10건,
-그중 양방향인 것은 개념 6과 12 한 쌍뿐이었다. 나머지는 한쪽에만 적혀 있다.
-관계가 없는 것이 아니라 **한쪽에서만 보이는 상태**다.
+**Both directions are required — this one rule turns prose into a graph.**
+If concept A's `neighbors` has B, **B's `neighbors` must have A.**
+A relation written on one side only is visible only when reading that side, so it is not a graph.
 
-점검할 때 한쪽만 있는 간선은 **끊어진 간선**으로 보고한다.
+Measured on 2026-09-14 (a game project's `CONCEPTS.md`): 0 `[[links]]`, 10 mentions of "concept N" in prose,
+and only one pair of them, concepts 6 and 12, went both ways. The rest were written on one side only.
+The relations are not missing; **they are visible from one side only**.
 
-**공유파일 관계는 저장하지 않지만 계산은 한다. 이미 피를 본 실패를 막기 때문이다.**
-어떤 프로젝트에서 어긋남 3건이 한 폴더에 몰렸고, 원인은 결정 반영 커밋이 그 폴더를 빠뜨린
-것이었다. 개별 실수가 아니라 절차의 구멍이다. 개념 A를 고칠 때 `파일` 항목이 겹치는 개념을
-그 자리에서 뽑아 "이것도 본다"를 만든다.
+When checking, report an edge that exists on one side only as a **broken edge**.
 
-## 절차
+**Shared-file relations are not stored, but they are computed, because they prevent a failure that already hurt.**
+In one project 3 mismatches were concentrated in one folder; the cause was a commit applying a decision that skipped
+that folder. Not an individual mistake but a hole in the procedure. When fixing concept A, pick the concepts whose `files` entries overlap
+on the spot and make a list of "look at these too".
 
-### 1. 지형 파악
+## Steps
 
-`DECISIONS.md`·`AGENTS.md`(또는 `CLAUDE.md`)를 먼저 읽어 **무엇이 구속력을 갖는지** 확인한다.
-프로젝트가 문서 지위 규칙(예: 1단계 결정 > 2단계 코드 > 3단계 참고 문서)을 이미 정해 뒀다면
-**그 규칙을 그대로 따른다.** 새 규칙을 만들지 않는다.
+### 1. Survey the terrain
 
-문서 목록과 소스 구조를 훑는다. 전부 읽지 말고 파일명·타입명·주요 상수 위주로.
+Read `DECISIONS.md` and `AGENTS.md` (or `CLAUDE.md`) first to see **what is binding**.
+If the project already set rules for document status (for example, step 1 decision > step 2 code > step 3 reference docs),
+**follow those rules as they are.** Don't make new rules.
 
-### 2. 개념 고르기 — 10개 안쪽
+Skim the doc list and the source structure. Don't read everything; focus on file names, type names and key constants.
 
-기준은 "개념인가"가 아니라 **"어긋나면 실제로 손해가 큰가"**다.
-30개로 쪼개면 유지가 안 된다. 손해가 큰 것부터 8~12개.
+### 2. Pick concepts — about ten
 
-좋은 후보: 여러 문서에 반복 등장하는 수치, 켜짐/꺼짐 플래그, 핵심 규칙, 구조 정의,
-금지 표현, 귀속·출처 규칙.
+The criterion is not "is it a concept?" but **"would a mismatch actually cost a lot?"**
+Split into 30 and it can't be maintained. Start from the costliest, 8–12 of them.
 
-### 3. 네 면 채우기
+Good candidates: numbers repeated in several docs, on/off flags, core rules, structure definitions,
+banned wording, attribution and source rules.
 
-- **실제 동작 면은 `파일:줄` 근거 없이 쓰지 않는다.** 확인 못 했으면 "확인 못 함"이라고 쓴다.
-- **수치는 추정하지 말고 실행 출력을 쓴다.** 테스트 수는 세지 말고 돌려서 얻는다.
-- 면을 다 채운 뒤 **메타 줄을 채운다.** `파일`은 방금 쓴 근거에서 파일명만 뽑는다.
+### 3. Fill the four faces
 
-### 4. 간선 잇기
+- **Don't write the actual-behavior face without `file:line` evidence.** If you couldn't check, write "could not check".
+- **Don't estimate numbers; use run output.** Don't count tests; run them and take the number.
+- After filling the faces, **fill in the metadata line.** For `files`, take only the file names from the evidence you just wrote.
 
-1. **공유파일 관계를 계산한다 (저장하지는 않는다).** 모든 개념의 `파일` 항목을 모아 둘 이상의
-   개념이 공유하는 파일을 찾는다. 결과는 이번 작업에서 "이것도 같이 본다"의 목록으로만 쓴다.
-2. **산문 속 "개념 N" 언급을 메타 줄로 끌어올린다.** 본문에서 다른 개념을 가리키는 문장을
-   찾아 `이웃`에 등재한다. 종류(전제/정본)는 문맥으로 판단하고, 애매하면 묻는다.
-3. **`DECISIONS.md`의 `관련:` 줄을 읽어 어떤 결정이 어떤 개념을 건드렸는지 본다.**
-   (프로젝트 간 간선 자체는 줄이 쌓일 때까지 켜지 않는다.)
-4. **양방향을 맞춘다.** 메타 줄에 적힌 전제·정본 간선 중 한쪽만 있는 것을 반대쪽에도 적는다.
+### 4. Connect edges
 
-실제로 쌓인 `관련:` 줄을 보면 사람은 근거 문서 경로는 잘 쓰지만 개념 번호와 다른 프로젝트는
-거의 안 쓴다. **사람에게 더 쓰라고 요구하지 말고, 경로에서 개념을 역산한다** —
-`관련:` 줄이 가리키는 파일이 어떤 개념의 `파일` 항목에 있으면 그 결정과 그 개념은 이어져 있다.
+1. **Compute shared-file relations (but don't store them).** Collect the `files` entries of all concepts and find files shared by two or more
+   concepts. Use the result only as this task's list of "look at these together".
+2. **Lift "concept N" mentions in prose into the metadata line.** Find sentences in the body that point to another concept
+   and add them to `neighbors`. Judge the kind (premise / source of truth) from context; if unclear, ask.
+3. **Read the `Related:` lines (`관련:`) of `DECISIONS.md` to see which decisions touched which concepts.**
+   (Cross-project edges themselves stay off until the lines build up.)
+4. **Make both directions match.** For premise and source-of-truth edges in the metadata lines that exist on one side only, write them on the other side too.
 
-### 5. 검증 — 자가 승인 금지
+Looking at the `Related:` lines that actually built up, people write evidence doc paths well, but rarely concept numbers or
+other projects. **Don't ask people to write more; derive the concept from the path** —
+if a file that a `Related:` line points to is in some concept's `files` entry, that decision and that concept are connected.
 
-**조사를 서브에이전트에 위임했다면, 그 보고는 원문 대조 전까지 미확정이다.**
-결함으로 단정할 항목은 직접 `grep`·`Read`로 확인한 뒤에 쓴다.
-경로가 틀려 0을 반환하는 명령, 실재하지 않는 인용이 보고에 섞일 수 있다.
+### 5. Verify — no self-approval
 
-**기계 검사는 스크립트가 한다. 눈으로 세지 않는다.**
+**If you delegated research to a subagent, its report is unconfirmed until checked against the source.**
+Confirm any item you are about to call a defect with `grep` or `Read` yourself before writing it.
+Commands that return 0 because a path is wrong, and quotes that don't exist, can be mixed into a report.
 
-파일 구성은 이렇다. `CONCEPTS.md` 형식을 아는 곳은 `concepts.py` 하나뿐이고,
-형식이 바뀌면 거기만 고친다.
+**The scripts do the mechanical checks. Don't count by eye.**
 
-| 파일 | 하는 일 |
+The files are laid out like this. `concepts.py` is the only place that knows the `CONCEPTS.md` format;
+if the format changes, only that file changes.
+
+| File | What it does |
 |---|---|
-| `concepts.py` | `CONCEPTS.md` 파서. 절·요약표·메타 줄·참조·근거 경로를 탭 구분으로 내놓는다 |
-| `lib.sh` | 공통 헬퍼. 저장소 루트 계산, 추적 여부, 근거 경로 네 갈래 진단 |
-| `check.sh` | 검사 여섯 가지 |
-| `fresh.sh` | 신선도 판정과 결정 변동 |
+| `concepts.py` | `CONCEPTS.md` parser. Prints sections, summary table, metadata lines, references and evidence paths as tab-separated lines |
+| `lib.sh` | Shared helpers. Repo root, whether a path is tracked, the four-way diagnosis of evidence paths |
+| `check.sh` | Six checks |
+| `fresh.sh` | Freshness verdicts and decision changes |
 
 
 ```bash
-$CLAUDE_PLUGIN_ROOT/lib/check.sh <CONCEPTS.md 경로>
+$CLAUDE_PLUGIN_ROOT/lib/check.sh <path to CONCEPTS.md>
 ```
 
-여섯 가지를 본다. 요약표와 본문 절의 일대일 대응, 근거 경로가 신선도 계산에 쓸 수 있는
-형태인지, 개념 간 참조가 양방향인지, 상태 어휘가 닫힌 집합 안인지, `파일` 항목에 지침·결정 파일이 섞였는지, 메타 줄이 있는지.
+It looks at six things: whether summary-table rows and body sections match one to one, whether evidence paths have a form
+that can be used to compute freshness, whether references between concepts go both ways, whether status words are inside the closed set, whether instruction or decision files are mixed into `files`, and whether metadata lines exist.
 
-근거 경로 지적은 네 갈래로 나온다 — **경로 누락**(루트 상대로 고치면 된다),
-**약칭**(`main.md`처럼 줄여 부른 것. 실제 파일명으로 고친다), **미추적**(중첩 저장소),
-**끊어진 참조**(같은 이름의 파일이 없다). 갈래마다 대응이 다르니 뭉뚱그리지 않는다.
+Evidence-path findings come in four kinds — **incomplete path** (fix it to a path from the repo root),
+**short name** (a shortened name like `main.md`; fix it to the real file name), **not tracked** (a nested repo),
+**broken reference** (no file with that name). Each kind needs a different response, so don't lump them together.
+(In Korean output: `경로 누락` · `약칭` · `미추적(중첩 저장소)` · `끊어진 참조`.)
 
-**지적을 그대로 결함으로 확정하지 않는다.** 스크립트는 기계적 대조만 하고 의미는 모른다.
-사람 판단이 필요한 항목은 원문을 열어 확인한 뒤에 쓴다.
+**Don't confirm findings as defects as they are.** The script only compares mechanically and doesn't know meaning.
+Items that need human judgment are written only after opening the source and checking.
 
-### 6. 산출물
+### 6. Output
 
-**`CONCEPTS.md`를 그 프로젝트 안에** 만든다(중앙에 모으지 않는다 — 지식이 프로젝트를 떠나면
-그 프로젝트에서 안 읽힌다). **git에 커밋한다** — 커밋 안 된 지도는 다른 기기에서 없는 지도다.
+Create **`CONCEPTS.md` inside that project** (don't collect them centrally — knowledge that leaves the project
+is not read in that project). **Commit it to git** — a map that isn't committed doesn't exist on another machine.
 
-구성:
+Structure:
 
-1. **헤더** — 작성일, 그리고 지위 선언("실제와 다르면 실제가 정답")
-2. **요약표** — `| # | 개념 | 상태 | 심각도 | 한 줄 |`. 어긋난 것이 맨 위, 그 안에서 심각도순
-3. **개념별 절** — 메타 줄 먼저, 그다음 네 면
-4. **일치 확인된 것** — 근거와 함께. **이것도 자산이다.** 이미 있으면 지우지 않는다
-5. **폐기된 개념** — 지우지 않는다
-6. **확인하지 못한 것** — 숨기지 않는다
-7. **유지 규칙**
+1. **Header** — the date written, and a status statement ("if this differs from reality, reality is right")
+2. **Summary table** — `| # | Concept | Status | Severity | One line |` (Korean: `| # | 개념 | 상태 | 심각도 | 한 줄 |`). Mismatches at the top, ordered by severity within them
+3. **One section per concept** — the metadata line first, then the four faces
+4. **Confirmed to agree** — with evidence. **This is an asset too.** If it already exists, don't delete it
+5. **Retired concepts** — don't delete them
+6. **Not checked** — don't hide them
+7. **Maintenance rules**
 
-요약표의 행과 본문 절은 **일대일로 맞춘다.** 실제로 요약표에만 있고 본문 절이 없는 개념이
-발견된 적이 있다(문서 저장소 7번·18번). 파일 위치는 루트가 아니어도 된다 —
-메타노트는 `docs/CONCEPTS.md`에 있다. 어디에 두든 `AGENTS.md`에서 그 경로로 링크한다.
+Severity is `high` · `medium` · `low` (Korean: `높음` · `중간` · `낮음`).
 
-그리고 `AGENTS.md`(또는 `CLAUDE.md`)의 문서 목록에 **한 줄 링크**를 건다.
-매 세션 읽히는 파일에서 가리켜야 발견된다.
+An English skeleton:
 
-지도는 이렇게 읽힌다. baton의 프롬프트 훅이 세션의 첫 사람 프롬프트에 **개념 색인**을 한 번 넣는다(압축 뒤 다시) —
-개념마다 `번호. 이름 — 한 줄 · 파일: 첫 파일 셋 (+N)` 한 줄, 1,500자 이하(`lib/concepts.py index`, 끄기 `BATON_CONCEPT_INDEX=off`).
-에이전트는 그 색인에서 작업에 맞는 개념을 골라 그 파일부터 연다(색인은 탐색 앵커다 — 실제 동작은 코드로 확인한다). 그래서 이름은 무엇에 관한 개념인지 드러나게,
-`파일=`의 **첫 파일은 그 개념의 입구**(먼저 열 파일)로 적는다. 한 줄 요약은 개념 제목의 ` — `(앞뒤 띄어 쓴 줄표) 뒤뿐이다(없으면 이름만) — 요약표의 `한 줄` 칸은 어긋남의 경과를 적는 칸이라 읽지 않는다. 무엇에 관한 개념인지 한 줄로 알려 주려면 제목에 `— 설명`을 붙인다.
-상태의 첫 낱말이 `폐기됨`(또는 `폐기`·`retired`)인 개념은 색인에서 빠지고, 홈 절대경로·`~/` 경로는 파일 목록에서 빠진다. 지금 색인은 `python3 lib/concepts.py CONCEPTS.md index`로 본다.
+```markdown
+# Concept map — <project>
 
-### 7. 고치기 — 승인 후에만
+Written 2026-11-23. This map is a navigation anchor; where it differs from the code or the decisions, they are right.
 
-**임의로 고치지 않는다.** 종류별로 나눠 보고한다.
+## Summary
 
-- **고치면 닫히는 것** (낡은 문서·수치) — 승인받고 고친다
-- **소유자에게 물어야 하는 것** (결정 기록 소급 등재, 번복 표기) — 결정 기록의 값은 "무엇을"이
-  아니라 **"왜, 무엇을 버렸나"**에 있고, 그건 결정한 사람에게만 있다.
-  **금지는 "대신 쓰기"가 아니라 "추측으로 채우기"다.** 소유자가 이유와 버린 대안을 말해 주면
-  `/decision` 스킬로 적는다. 그 둘이 비어 있으면 쓰지 않는다
-- **판단이 필요한 것** — 선택지를 만들어 묻는다. 추천안을 붙이되 강요하지 않는다
+| # | Concept | Status | Severity | One line |
+|---|---|---|---|---|
+| 3 | levels | not built yet | high | the decision says 30 levels; the code has 12 |
+| 9 | determinism | agrees | — | the same seed gives the same run |
 
-해소한 항목은 **지우지 말고 "해소됨(날짜)"로 표기**한다.
+## 3. levels — level list and order
 
-## 모드 ④ — 신선도 점검
+- **Meta**: status=not built yet · checked=2026-09-07(`a1b2c3d`) · files=`src/game/levels.ts` · neighbors=Concept 9(premise) · docs=`ROADMAP.md`
 
-지도가 낡는 것은 "오래돼서"가 아니라 **"걸린 파일이 움직여서"**다. 그러니 계산할 수 있다.
+- **Decided**: …
+- **Actual behavior**: … (`src/game/levels.ts:12`)
+- **Described in**: …
+- **Mismatch**: …
 
-**스크립트가 있다. 손으로 조합하지 말고 이것을 쓴다.**
+## 9. determinism
+
+- **Meta**: status=agrees · checked=2026-09-07(`a1b2c3d`) · files=`src/game/rng.ts` · neighbors=Concept 3(premise)
+
+## Confirmed to agree
+
+## Retired concepts
+
+## Not checked
+
+## Maintenance rules
+```
+
+The same skeleton in Korean:
+
+```markdown
+# 개념 지도 — <프로젝트>
+
+작성 2026-11-23. 이 지도는 탐색 앵커다. 실제 코드·결정과 다르면 실제가 정답이다.
+
+## 요약
+
+| # | 개념 | 상태 | 심각도 | 한 줄 |
+|---|---|---|---|---|
+| 3 | 레벨 | 미구현 | 높음 | 결정은 30개, 코드는 12개 |
+| 9 | 결정론 | 일치 | — | 같은 시드면 같은 판이 나온다 |
+
+## 3. 레벨 — 레벨 목록과 순서
+
+- **메타**: 상태=미구현 · 확인=2026-09-07(`a1b2c3d`) · 파일=`src/game/levels.ts` · 이웃=개념 9(전제) · 문서=`ROADMAP.md`
+
+- **정해진 것**: …
+- **실제 동작**: … (`src/game/levels.ts:12`)
+- **설명된 곳**: …
+- **어긋남**: …
+
+## 9. 결정론
+
+- **메타**: 상태=일치 · 확인=2026-09-07(`a1b2c3d`) · 파일=`src/game/rng.ts` · 이웃=개념 3(전제)
+
+## 일치 확인된 것
+
+## 폐기된 개념
+
+## 확인하지 못한 것
+
+## 유지 규칙
+```
+
+The parser reads `## N. title` as a concept section and ends it at the next numbered section or at any heading without a number,
+so the closing sections (confirmed, retired, not checked, maintenance rules) must not have numbers.
+
+**Match summary-table rows and body sections one to one.** A concept that was in the summary table with no body section
+has really been found (docs repo #7 and #18). The file doesn't have to be at the root —
+a meta-notes project keeps it at `docs/CONCEPTS.md`. Wherever it is, link to that path from `AGENTS.md`.
+
+Then add **a one-line link** to the doc list in `AGENTS.md` (or `CLAUDE.md`).
+It is found only if a file read in every session points to it.
+
+This is how the map is read. baton's prompt hook adds a **concept index** once to a session's first human prompt (again after a compaction) —
+one line per concept, `N. name — one line · files: first three files (+N)` (`파일:` in Korean output), at most 1,500 characters (`lib/concepts.py index`, turn it off with `BATON_CONCEPT_INDEX=off`).
+The agent picks the concept that fits the task from that index and opens its files first (the index is a navigation anchor — check actual behavior in the code). So make names show what the concept is about,
+and write **the first file of `files=` as the concept's entry point** (the file to open first). The one-line summary is only what follows ` — ` (a dash with spaces on both sides) in the concept heading (if there is none, only the name) — the summary table's `One line` column records how a mismatch went, so it is not read. To say in one line what a concept is about, add `— description` to its heading.
+A concept whose status starts with the word `retired` (or `폐기됨`, `폐기`) is left out of the index, and home-directory absolute paths and `~/` paths are left out of its file list. See the current index with `python3 lib/concepts.py CONCEPTS.md index`.
+
+### 7. Fixing — only after approval
+
+**Don't fix things on your own.** Report them split by kind.
+
+- **Closed by fixing** (stale docs, numbers) — fix after approval
+- **Must ask the owner** (adding a decision to the log after the fact, marking a reversal) — the value of a decision record is not "what"
+  but **"why, and what was rejected"**, and only the person who decided has that.
+  **What is banned is not "writing it for them" but "filling it in by guessing".** If the owner gives the reason and the rejected alternatives,
+  write it with the `/decision` skill. If those two are empty, don't write it
+- **Needs a judgment** — lay out options and ask. Attach a recommendation, but don't push it
+
+**Don't delete** resolved items; **mark them "resolved(date)"** (`해소됨(날짜)` in a Korean map).
+
+## Mode ④ — freshness check
+
+A map goes stale not "because it is old" but **"because the files it depends on moved"**. So it can be computed.
+
+**There is a script. Use it instead of combining commands by hand.**
 
 ```bash
-$CLAUDE_PLUGIN_ROOT/lib/fresh.sh <CONCEPTS.md 경로> [저장소 루트]
+$CLAUDE_PLUGIN_ROOT/lib/fresh.sh <path to CONCEPTS.md> [repo root]
 ```
 
-메타 줄을 읽어 개념마다 판정을 낸다. 판정은 아래 여섯 가지에 기준 이력 밖·규칙 개념·문서 판정 셋을 더한 아홉 가지다. 표 끝에 `요약: 재확인 N · 신선 M · 규칙 개념 K` 한 줄이 붙는다(세션 시작 알림은 이 줄을 읽는다).
+It reads the metadata lines and gives a verdict per concept. There are nine verdicts: the six below plus three more — baseline outside the history, rule concept, and the doc verdicts. One line is added at the end of the table: `Summary: re-check N · fresh M · rule concepts K` (Korean output: `요약: 재확인 N · 신선 M · 규칙 개념 K`). The session-start notice reads this line.
 
-| 판정 | 뜻 | 다음 행동 |
+| Verdict | Korean output | Meaning | Next action |
+|---|---|---|---|
+| `fresh` | `신선` | No commit to those files since the check | **Don't open it** |
+| `needs a re-check — N commits` | `재확인 필요 — 커밋 N건` | The files moved | Look at that concept only |
+| `needs a re-check — no baseline` | `재확인 필요 — 기준 없음` | `checked=unknown` | Fill it in this time |
+| `needs a re-check — baseline lost` | `재확인 필요 — 기준 소실` | The commit with that hash is not in this repo. Seen when a commit of a squashed or rebased branch is viewed from a fresh clone | Set it again from the date |
+| `needs a re-check — baseline outside the current history` | `재확인 필요 — 기준이 현재 이력 밖` | The commit exists but is not an ancestor of HEAD. An old commit left locally after a squash or rebase, a commit on another branch, a cherry-pick source | Set it again to a commit on the current branch. Left as is, there is no baseline to count later changes from |
+| `needs a re-check — path gone` | `재확인 필요 — 경로 소실` | A file is missing (even if only some are) | It was moved or deleted. That itself is a mismatch. The commit that deleted or moved it is also counted in the commit count |
+| `needs a re-check — not tracked` | `재확인 필요 — 미추적` | The file exists but this repo doesn't track it | A nested repo. Run it there separately |
+| `rule concept — tracked only through decision changes` | `규칙 개념 — 결정 변동으로만 추적` | `files=none(rule concept)` | Look at it only through the decision-change check below. With no recorded hash, `(no baseline — docs not checked)` is added. A rule concept whose recorded commit is unknown does not trigger the notice — in a newly built map, rule concepts usually start as `checked=unknown`, and a notice would ring the same alert every session until it is ignored. It shows only in the `/drift` table. If the recorded hash is lost or outside the history, decision changes can't be counted either, and it goes up to `needs a re-check — baseline lost (rule concept)` |
+| `needs a re-check — N doc commits` · `needs a re-check — N doc paths gone` | `재확인 필요 — 문서 커밋 N건` · `재확인 필요 — 문서 경로 소실 N개` | The code is the same, but files in the `docs` entry moved or disappeared | Look at the described-in face only (added 2026-11-21) |
+
+With a count of 1, the English output uses the singular: `needs a re-check — 1 commit`, `1 doc commit`, `1 path gone`, `1 doc path gone`.
+
+All six verdicts were reproduced once each in real repos on 2026-09-14 and checked.
+
+`· a new decision points to it (Related)` can follow a verdict (Korean output: `· 새 결정이 '관련'으로 가리킴`). It means that after that concept's check hash,
+a line newly added to `DECISIONS.md` has `Concept N` (also `Concept 5·12`) or `Concept "name"` after `Related:` (`개념 N` · `개념 "이름"` after `관련` in Korean). A `- Related:` inside a table cell is caught too.
+A concept that was `fresh` goes up to a re-check, and **rule concepts (files=none) are caught this way too.**
+If a name doesn't match any concept section heading, a number has no section, or the parser fails, it is listed separately below the table as "not 0, could not count".
+Counts (`35 concepts` · `개념 35개`) and negations (`Concept 1 is unchanged` · `개념 1은 변경 없음`) are not counted as pointers.
+**If the decision and the concept were changed in the same commit**, the metadata line can't record its own commit hash, so this mark remains. In the next commit, move `checked=` to that commit (the way game repo `d55226b` did) — the same rule as for file-commit verdicts.
+Measured on 2026-09-30: in the game repo concept 8, and in the docs repo concept 31, both `fresh`, went up because a new decision pointed to them (all 7 checked against the source were real pointers).
+
+### Did the decisions move? — checked separately from files
+
+Since instruction and decision files were taken out of `files`, changes on that side are checked **once, globally**. Not per concept.
+
+`fresh.sh` reports it below the table. There is no need to run it by hand.
+
+**The `DECISIONS.md` format differs per project. Assuming one format silently gives 0.**
+The script tells two formats apart.
+
+| Format | What it looks like | How to connect it to concepts |
 |---|---|---|
-| `신선` | 확인 시점 이후 그 파일들에 커밋 없음 | **열지 않는다** |
-| `재확인 필요 — 커밋 N건` | 파일이 움직였다 | 그 개념만 다시 본다 |
-| `재확인 필요 — 기준 없음` | `확인=미상` | 이번에 채운다 |
-| `재확인 필요 — 기준 소실` | 그 해시의 커밋이 이 저장소에 없다. squash·rebase된 브랜치의 커밋을 새 클론에서 볼 때 | 날짜로 다시 잡는다 |
-| `재확인 필요 — 기준이 현재 이력 밖` | 커밋은 있는데 HEAD의 조상이 아니다. squash·rebase 뒤 옛 커밋이 로컬에 남아 있을 때, 다른 가지의 커밋, cherry-pick 원본 | 지금 가지의 커밋으로 다시 잡는다. 그대로 두면 그 뒤 변경을 셀 기준이 없다 |
-| `재확인 필요 — 경로 소실` | 파일이 없다(일부만 없어도) | 옮겨졌거나 지워졌다. 그 자체가 어긋남. 지운·옮긴 커밋은 커밋 수에도 잡힌다 |
-| `재확인 필요 — 미추적` | 파일은 있는데 이 저장소가 추적 안 함 | 중첩 저장소다. 그쪽에서 따로 돌린다 |
-| `규칙 개념 — 결정 변동으로만 추적` | `파일=없음(규칙 개념)` | 아래 결정 변동 검사로만 본다. 확인 해시가 없으면 `(기준 없음 — 문서 못 봄)`이 붙는다. 해시가 미상인 규칙 개념은 알림을 내지 않는다 — 처음 만든 지도는 규칙 개념이 대개 `확인=미상`으로 시작해서, 알리면 매 세션 같은 알림이 울려 무시당한다. `/drift` 표에서만 보인다. 적어 둔 해시가 소실·이력 밖이면 결정 변동도 셀 수 없어 `재확인 필요 — 기준 소실 (규칙 개념)`으로 올라간다 |
-| `재확인 필요 — 문서 커밋 N건` · `재확인 필요 — 문서 경로 소실 N개` | 코드는 그대로인데 `문서` 항목의 파일이 움직였거나 없어졌다 | 설명된 곳 면만 다시 본다(2026-11-21 추가) |
+| Dated headings | `## 2026-09-06 — what was decided` + a `- Related:` line (`- 관련:`) | Derive from the files the `Related:` line points to |
+| Table | `\| P22 \| decision name \| content \|` | Find the decision ID in the concept map and connect them |
 
-여섯 판정 모두 2026-09-14에 실제 저장소에서 한 번씩 재현해 확인했다.
+If it is neither, it says **"Unknown format — not 0, could not count"** and stops. Open the file and check directly.
 
-판정 뒤에 `· 새 결정이 '관련'으로 가리킴`이 붙을 수 있다. 그 개념의 확인 해시 이후 `DECISIONS.md`에
-새로 들어온 줄의 `관련` 뒤에 `개념 N`(`개념 5·12`도) 또는 `개념 "이름"`이 있다는 뜻이다. 표 칸 안의 `- 관련:`도 잡는다.
-`신선`이던 개념은 재확인으로 올라가고, **규칙 개념(파일=없음)도 이 경로로는 잡힌다.**
-이름이 개념 절 제목과 안 맞거나, 번호에 해당하는 절이 없거나, 파서가 실패하면 표 아래에 "0건이 아니라 못 셌다"로 따로 낸다.
-개수(`개념 35개`)와 부정(`개념 1은 변경 없음`)은 가리킴으로 치지 않는다.
-**결정과 개념을 한 커밋에서 같이 고쳤다면** 메타 줄은 자기 커밋 해시를 적을 수 없어 이 표시가 남는다. 다음 커밋에서 `확인=`을 그 커밋으로 옮긴다(게임 저장소 `d55226b` 방식) — 파일 커밋 판정과 같은 규칙이다.
-2026-09-30 실측: 게임 저장소는 `신선`이던 개념 8이, 문서 저장소는 `신선`이던 개념 31이 새 결정의 가리킴으로 올라왔다(원문 대조 7건 전부 실제 가리킴).
+**Leave this check looking at only one format and it really bites.** On 2026-09-15, in the docs repo, looking only for dated headings
+reported "1 new decision"; counted in the table format there were **22**, and **8 of them were not even mentioned in the concept
+map.** The only path that catches "not built yet" was missing 21.
 
-### 결정이 움직였는가 — 파일과 따로 본다
+When there is a new decision, the concepts it touched **need a re-check even if no file moved.**
 
-`파일`에서 지침·결정 파일을 뺐으니 그쪽 변동은 **전역으로 한 번** 본다. 개념마다 보지 않는다.
+**This is the only path that catches "not built yet".** The state where the code is the same and only the decision moved is exactly "not built yet",
+and file-based freshness never catches it. Drop this check because decision files were removed from `files`,
+and the reason this skill exists is gone.
 
-`fresh.sh`가 표 아래에 함께 보고한다. 손으로 돌릴 필요는 없다.
+A new decision without a `Related:` line **doesn't say which concept it touched.** Report that as a hole in the update
+path, and don't fill it in yourself.
 
-**`DECISIONS.md` 형식은 프로젝트마다 다르다. 하나를 가정하면 조용히 0을 낸다.**
-스크립트는 두 형식을 판별한다.
+**Skip steps 1 and 2 and this mode lies quietly.** `git log` gives empty output without an error for a path that doesn't exist
+and for a path that isn't tracked. Then **the concept that most urgently needs a look appears the safest.**
 
-| 형식 | 생김새 | 개념과 잇는 방법 |
-|---|---|---|
-| 날짜 헤딩 | `## 2026-09-06 — 무엇을 정했다` + `- 관련:` 줄 | `관련:` 줄이 가리키는 파일로 역산 |
-| 표 | `\| P22 \| 결정 이름 \| 내용 \|` | 결정 ID를 개념 지도에서 찾아 잇는다 |
+Both were confirmed in the 2026-09-14 measurement. A path that didn't exist returned 0, and in the docs repo
+`docsrepo/` is a separate repo (`docsrepo/.git`), so it is not tracked by the parent, yet **files inside it
+were set as the evidence for concepts.** The files are there, so a path check alone passes.
+The files that change most often in that project were about to be reported as "fresh" forever.
 
-둘 다 아니면 **"형식 불명 — 0건이 아니라 못 셌다"**고 말하고 멈춘다. 직접 열어 확인한다.
+One table is enough for the report.
 
-**이 검사를 형식 하나만 보게 두면 실제로 당한다.** 2026-09-15에 문서 저장소에서 날짜 헤딩만
-찾다가 "새 결정 1건"으로 보고했는데, 표 형식으로 세니 **22건**이었고 그중 **8건이 개념 지도에
-언급조차 없었다.** 미구현을 잡는 유일한 경로가 21건을 놓치고 있었다.
+```
+| # | Concept | Status | Commits since check | Verdict |
+|---|---|---|---|---|
+| 3 | skill tree | not built yet | 4 | needs a re-check |
+| 9 | determinism | agrees | 0 | fresh |
+```
 
-새 결정이 있으면 그것이 건드린 개념은 **파일이 안 움직였어도 재확인 대상**이다.
-
-**이것이 미구현을 잡는 유일한 경로다.** 코드는 그대로인데 결정만 움직인 상태가 곧 미구현이고,
-파일 기반 신선도로는 절대 안 잡힌다. `파일`에서 결정 파일을 뺐다고 이 검사를 빼면
-스킬이 존재하는 이유가 사라진다.
-
-`관련:` 줄이 없는 새 결정은 **어느 개념을 건드렸는지 알 수 없다.** 그 사실을 갱신 경로의
-구멍으로 보고하고, 대신 채우지 않는다.
-
-**1·2단계를 건너뛰면 이 모드는 조용히 거짓말을 한다.** `git log`는 없는 경로에도, 추적하지 않는
-경로에도 오류 없이 빈 출력을 낸다. 그러면 **가장 급히 봐야 할 개념이 가장 안전해 보인다.**
-
-2026-09-14 실측으로 둘 다 확인했다. 존재하지 않는 경로가 0건을 반환했고, 문서 저장소의
-`docsrepo/` 는 별도 저장소(`docsrepo/.git`)라 상위에서 추적되지 않는데 **그 안의 파일들이
-개념의 근거로 지정돼 있다.** 파일은 멀쩡히 있으므로 경로 검사만으로는 통과한다.
-그 프로젝트에서 가장 자주 바뀌는 파일들이 영원히 "신선"으로 보고될 뻔했다.
-
-보고는 표 하나면 된다.
+In Korean:
 
 ```
 | # | 개념 | 상태 | 확인 이후 커밋 | 판정 |
@@ -389,154 +515,154 @@ $CLAUDE_PLUGIN_ROOT/lib/fresh.sh <CONCEPTS.md 경로> [저장소 루트]
 | 9 | 결정론 | 일치 | 0건 | 신선 |
 ```
 
-**여기서 끝낼 수 있으면 끝낸다.** 재확인 대상이 0이면 그것이 완결된 보고다.
-대상이 있으면 그 개념만 들고 모드 ②나 ③으로 넘어간다.
+**Stop here if you can.** If nothing needs a re-check, that is the complete report.
+If something does, take only those concepts into mode ② or ③.
 
-문서·산출물 프로젝트에서 git 이력이 없으면 파일 수정시각(`ls -l`)으로 대신하고,
-**"해시가 아니라 수정시각 기준"임을 보고에 적는다.**
+In a docs or content project with no git history, use file modification times (`ls -l`) instead,
+and **write "based on modification times, not hashes" in the report.**
 
-## 모드 ⑤ — 후보 검토 (스펙 21절: 관찰 → 후보 → 검증 → 사람 승격)
+## Mode ⑤ — candidate review (spec section 21: observe → candidates → verify → a person promotes)
 
-관찰·후보·검증은 스크립트가 결정론으로 한다. **에이전트는 보이고, 사람이 고르고, 고른 것만 쓴다.**
-근거와 문턱은 baton 저장소 `docs/research/ONTOLOGY_DESIGN.md` 8절.
+The script does the observing, the candidates and the verification deterministically. **The agent shows them, a person picks, and only what was picked is written.**
+The evidence and thresholds are in section 8 of `docs/research/ONTOLOGY_DESIGN.md` in the baton repo.
 
 ```bash
-python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py scan <저장소 루트>
+python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py scan <repo root>
 ```
 
-이 저장소의 Claude Code 세션 기록(저장소 밖에서 열었어도 이 저장소 파일을 다룬 세션 포함)에서 "사람 프롬프트 → 그 턴에 고친 파일"을 모아 두 종류를 낸다. 세션 기록 전체를 한 번 훑으므로 수십 초 걸릴 수 있다.
+From this repo's Claude Code session logs (including sessions opened outside the repo that worked on this repo's files), it collects "a human prompt → the files edited in that turn" and gives two kinds. It reads all the session logs once, so it can take tens of seconds.
 
-- **별칭 후보**: 개념의 `파일`을 고친 턴인데 프롬프트가 그 개념의 제목·별칭으로는 안 맞았다. 그 프롬프트의 구절.
-- **새 개념 후보**: 어느 개념에도 안 맞는 프롬프트 뒤에 어느 개념의 `파일`에도 없는 파일을 고쳤다. 실체는 **파일 묶음**이고 구절은 이름 제안이다.
+- **Alias candidates**: a turn edited a concept's `files`, but the prompt didn't match the concept's title or aliases. The phrase from that prompt.
+- **New concept candidates**: after a prompt that matched no concept, files that are in no concept's `files` were edited. What it really is is **a group of files**; the phrase is a suggested name.
 
-둘 다 서로 다른 날 3일 이상, 기존 제목·별칭과 겹치지 않음, 그 구절이 걸리는 다른 프롬프트 수(오발화)가 적중 이하일 때만 남는다.
-후보는 저장소 밖 캐시(`~/.cache/baton/candidates/`)에만 있고, 프롬프트 원문은 남기지 않는다.
+Both remain only if seen on 3 or more different days, not overlapping existing titles or aliases, and the number of other prompts that phrase matches (misfires) is at most the number of hits.
+The candidates are only in a cache outside the repo (`~/.cache/baton/candidates/`), and prompt text is not kept.
 
-**후보 0건을 "없음"으로 보고하지 않는다.** 출력의 단계별 수를 그대로 옮긴다 — 세션·턴이 적어 못 셌는지,
-관찰은 있었는데 검증에서 빠졌는지(사유별 수)가 다르다. `지도 경고:` 줄이 있으면 그것도 옮긴다 — 파서가 못 읽은 개념은 후보 계산에서 빠졌다.
+**Don't report 0 candidates as "none".** Pass on the per-stage counts of the output as they are — whether too few sessions and turns meant it couldn't count,
+or there were observations but the checks dropped them (counts per reason), are different things. If there is a `map warning:` line (`지도 경고:` in Korean output), pass it on too — concepts the parser couldn't read were left out of the candidates.
 
-사람이 고른 뒤:
+After a person picks:
 
-| 사람의 답 | 하는 일 |
+| The person's answer | What to do |
 |---|---|
-| 별칭 승격 | `python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py promote-alias <번호> "<구절>" <저장소 루트>` — 구절은 **꼭 따옴표로** 감싼다(두 단어 구절이 쪼개지면 인자 수가 틀려 거절된다). 그 개념 메타 줄의 `별칭=`에만 덧붙는다. 사람이 구절을 고쳐 말하면(조사 떼기 등) 고친 말로 넣는다. 구절에 비밀값·홈 경로·사용자 이름·설정의 개인 자료 목록 단어가 있으면 쓰지 않고 거절한다(지도는 공개될 수 있다). `개념 N`이 든 구절(가짜 간선이 된다), 메타 줄이 둘이거나 첫 메타 줄이 코드 펜스 안인 절, 파서가 끝까지 못 읽는 지도에도 쓰지 않는다 — 사람이 먼저 정리한다 |
-| 새 개념 승격 | 스크립트가 쓰지 않는다. 후보 파일을 **실제로 열어** 모드 ③의 절차 3~5로 네 면·메타 줄 초안을 만들어 보이고, 승인받은 뒤 쓴다. 이름은 제안 구절 중에서 사람이 고르거나 새로 짓는다 |
-| 버린다 | `python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py dismiss <후보 id> <저장소 루트>` — 다음 scan부터 안 나온다 |
-| 답 없음·보류 | 아무것도 안 한다 |
+| Promote an alias | `python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py promote-alias <number> "<phrase>" <repo root>` — **always quote** the phrase (if a two-word phrase is split, the argument count is wrong and it is refused). It is added only to `aliases=` (`별칭=` in a Korean map) on that concept's metadata line. If the person rephrases it (for example, drops a particle), add the rephrased words. If the phrase contains a secret, a home path, the user name, or a word from the private-words list in the config, it is refused and not written (the map may be public). It also refuses a phrase with `Concept N` in it (it would become a false edge), a section with two metadata lines or whose first metadata line is inside a code fence, and a map the parser can't read to the end — a person cleans those up first |
+| Promote a new concept | The script doesn't write it. **Actually open** the candidate files, draft the four faces and the metadata line with steps 3–5 of mode ③, show it, and write it after approval. The name is picked by the person from the suggested phrases, or made up anew |
+| Discard | `python3 $CLAUDE_PLUGIN_ROOT/lib/candidates.py dismiss <candidate id> <repo root>` — it won't show from the next scan on |
+| No answer, or later | Do nothing |
 
-**MERGE·DELETE·REPARENT는 후보로 내지 않는다** — 사람이 모드 ③에서 직접 판단한다.
+**MERGE, DELETE and REPARENT are not offered as candidates** — a person judges them directly in mode ③.
 
-## AGENTS.md — 1급 대상
+## AGENTS.md — a first-class target
 
-`AGENTS.md`는 다른 문서와 지위가 다르다. **매 세션 자동으로 읽히고, Claude와 Codex가 함께 본다.**
-여기가 틀리면 없는 아키텍처를 사실로 알려 주게 되고, 비용이 가장 크다.
-실제로 삭제된 화면 클래스를 아키텍처로 설명하고 있던 사례가 나왔다.
+`AGENTS.md` has a different status from other docs. **It is read automatically in every session, and both Claude and Codex see it.**
+If it is wrong, it tells the agent about an architecture that doesn't exist as fact, and that costs the most.
+A real case was found where it described a deleted screen class as the architecture.
 
-그래서 이 스킬은 `AGENTS.md`에 대해 셋을 한다.
+So this skill does three things for `AGENTS.md`.
 
-1. **사실 주장을 전수 검증한다.** 파일명·클래스명·수치·경로가 실재하는지 확인한다.
-   `AGENTS.md`는 `설명된 곳`이면서 동시에 `정해진 것`이기도 한 이중 지위라 특히 자주 어긋난다.
-2. **개념 지도 링크 한 줄을 유지한다.**
-3. **비대칭 지침을 점검한다** (아래).
+1. **Verify every factual claim.** Check that file names, class names, numbers and paths exist.
+   `AGENTS.md` has a double status — both `Described in` and `Decided` — so it drifts especially often.
+2. **Keep the one-line link to the concept map.**
+3. **Check for asymmetric instructions** (below).
 
-**만들지는 않는다.** 디렉터리 구조를 훑어 `AGENTS.md`를 새로 생성하는 일은 `deepinit` 스킬이
-이미 한다. 이 스킬은 **검증하고 고친다.** 없는 프로젝트라면 `deepinit`을 안내한다.
+**It doesn't create one.** Scanning the directory structure to generate a new `AGENTS.md` is already done by the `deepinit` skill.
+This skill **verifies and fixes.** For a project without one, point to `deepinit`.
 
-### 비대칭 지침 — Codex를 함께 쓸 때
+### Asymmetric instructions — when you also use Codex
 
-규칙이 한쪽 에이전트에게만 보이는 상태를 말한다. 어긋남으로 세지는 않지만 같은 무게로 보고한다.
+This is the state where a rule is visible to only one of the agents. It is not counted as a mismatch, but report it with the same weight.
 
-- **프로젝트 안**: `CLAUDE.md`는 `AGENTS.md`를 import하는 한 줄로 두고 내용은 `AGENTS.md`에 둔다.
-  이러면 Codex도 같은 것을 본다. `CLAUDE.md`에만 실린 규칙이 있으면 **비대칭**으로 보고한다.
-- **전역**: 2026-09-14에 정본을 하나로 합쳤다. `<본인 환경의 공용 규칙 정본>`가 정본이고,
-  Claude는 `CLAUDE.md`에서 불러오며 Codex에는 `<본인 환경의 동기화 스크립트>`가
-  주입한다. 그러니 전역은 이제 목록을 세는 일이 아니라 **한 줄로 확인하는 일**이다.
+- **Inside the project**: keep `CLAUDE.md` as one line that imports `AGENTS.md`, and keep the content in `AGENTS.md`.
+  Then Codex sees the same thing. If a rule is only in `CLAUDE.md`, report it as **asymmetric**.
+- **Global**: on 2026-09-14 the sources of truth were merged into one. `<your shared-rules source of truth>` is the source of truth;
+  Claude loads it from `CLAUDE.md`, and for Codex `<your sync script>`
+  injects it. So the global side is no longer a matter of counting lists but **a one-line check**.
 
   ```bash
-  <본인 환경의 동기화 스크립트> --check
+  <your sync script> --check
   ```
 
-  어긋났다고 나오면 **직접 고치지 말고 그 스크립트를 돌린다.** `~/.codex/AGENTS.md`를 손으로
-  고치면 다음 `omx setup`에서 사라진다(그쪽은 `--merge-agents` 없이는 파일을 통째로 덮어쓴다).
-  어긋나는 가장 흔한 원인이 그 덮어쓰기다.
+  If it reports a mismatch, **don't fix it by hand; run that script.** If you edit `~/.codex/AGENTS.md` by hand,
+  the next `omx setup` erases it (without `--merge-agents` it overwrites the whole file).
+  That overwrite is the most common cause of the mismatch.
 
-`deepinit`은 `src/AGENTS.md`처럼 **계층형으로 여러 개**를 만든다. 여러 개가 있으면
-**루트 `AGENTS.md`만 1급 대상**으로 삼는다. 하위 파일은 개념의 `설명된 곳`에 걸렸을 때만 본다.
+`deepinit` creates **several, in a hierarchy**, like `src/AGENTS.md`. When there are several,
+**only the root `AGENTS.md` is a first-class target.** Look at the lower files only when they are in a concept's `Described in`.
 
-## 이어주기 — 끊어진 참조 잇기
+## Connecting — fixing broken references
 
-개념 점검과 함께 다음을 확인한다.
+Along with the concept check, look at the following.
 
-- **끊어진 참조** — 존재하지 않는 파일·절 번호를 가리키는 참조. 저장소 밖으로 나간 상위 문서
-- **끊어진 간선** — 한쪽에만 적힌 개념 관계 (위 양방향 강제)
-- **관계 링크 부재** — 이 프로젝트가 다른 프로젝트에 사실을 공급하거나 받는데 링크가 없는 경우.
-  `DECISIONS.md`에 `## 관련 프로젝트` 절을 만들고 `[[이름]]` 형식으로 잇는다.
-  **방향을 적는다** — "저쪽이 바뀌면 이쪽을 갱신한다, 반대는 아니다"
-- **결정 항목의 `관련:` 줄** — 관계도는 따로 쓰지 않고 `DECISIONS.md` 각 항목 끝의 `- 관련:` 한 줄
-  (다른 프로젝트 `[[이름]]`·방향 / 바꾸는 개념 / 근거 경로, 없으면 `없음`)에 적립된다(2026-09-06).
-  점검 때 최근 결정에 이 줄이 빠져 있으면 **갱신 경로의 구멍**으로 보고한다. 대신 채우지 않는다 —
-  무엇이 관련인지는 결정한 사람이 안다
-- **갱신 경로의 구멍** — 같은 사실이 여러 파일에 있는데 **한 폴더만 갱신에서 빠지는** 패턴.
-  개별 오류로 보지 말고 **절차의 문제로 보고**한다
+- **Broken references** — references to files or section numbers that don't exist. Parent docs that moved out of the repo
+- **Broken edges** — concept relations written on one side only (both directions are required, above)
+- **Missing relation links** — this project supplies facts to, or receives them from, another project, but there is no link.
+  Make a `## Related projects` section in `DECISIONS.md` (`## 관련 프로젝트` in Korean) and connect them in `[[name]]` form.
+  **Write the direction** — "when that side changes, update this side, not the other way round"
+- **The `Related:` line of a decision entry** — relations are not written separately but accumulate in one `- Related:` line (`- 관련:`) at the end of each `DECISIONS.md` entry
+  (another project's `[[name]]` and direction / the concepts it changes / evidence paths, or `none`) (2026-09-06).
+  When checking, if a recent decision lacks this line, report it as **a hole in the update path**. Don't fill it in yourself —
+  the person who decided knows what is related
+- **Holes in the update path** — the pattern where the same fact is in several files and **only one folder is left out of an update**.
+  Don't treat it as an individual error; **report it as a problem in the procedure**
 
-## 핸드오프에서 넘어온 것 받기
+## Receiving what comes from the handoff
 
-`/handoff` 스킬이 승격 후보를 올려 소유자가 `DECISIONS.md`에 결정을 적으면,
-그 결정의 `관련:` 줄이 가리키는 파일로 **어떤 개념이 영향을 받는지 역산할 수 있다.**
-모드 ④를 돌릴 때 마지막 점검 이후 추가된 결정 항목도 함께 본다 — 그 결정이 건드린 개념은
-파일이 아직 안 움직였어도 **`정해진 것` 면이 바뀌었으므로 재확인 대상**이다.
+When the `/handoff` skill raises promotion candidates and the owner writes a decision into `DECISIONS.md`,
+the files that decision's `Related:` line points to let you **derive which concepts are affected.**
+When running mode ④, also look at decision entries added since the last check — the concepts those decisions touched
+**need a re-check because their `Decided` face changed**, even if no file has moved yet.
 
-이것이 미구현을 잡는 경로다. 코드가 안 움직였는데 결정이 움직인 상태가 곧 미구현이다.
+This is the path that catches "not built yet". The state where the code didn't move but a decision did is exactly "not built yet".
 
-## 하지 말 것
+## Don'ts
 
-- 개념을 30개로 쪼개기 (유지 불가)
-- 관계도를 별도 파일로 새로 만들기 (1주간 아무도 안 열었다)
-- 공유파일 관계를 메타 줄에 저장하기 (허브 파일에서 폭발한다)
-- 간선을 한쪽에만 적기 (그래프가 아니라 산문이다)
-- 경로 검사만 하고 추적 여부를 안 보기 (외부 저장소가 "신선"으로 나온다)
-- 모드 ②에서 파일 고치기 (진단은 처치가 아니다)
-- 모드 ⑤의 후보를 사람이 고르기 전에 `CONCEPTS.md`에 쓰기 (프롬프트 구절이 추적 파일로 새어 나간다)
-- 상태 어휘를 새로 지어내기 (세는 것이 불가능해진다)
-- 심각도를 기호로 표시하기 (이름으로 부른다)
-- 코드를 안 보고 "문서 오류"로 판정하기 (미구현 오판)
-- 서브에이전트 보고를 원문 대조 없이 결함으로 확정하기
-- 결정 기록을 추측으로 채우기
-- 미구현을 문서 수정으로 닫기
-- `CONCEPTS.md`를 커밋하지 않고 두기
-- 산출물을 중앙 폴더에만 두기
+- Splitting into 30 concepts (can't be maintained)
+- Making a new separate file for the relation map (nobody opened one in a week)
+- Storing shared-file relations in the metadata line (they explode around hub files)
+- Writing an edge on one side only (that is prose, not a graph)
+- Checking paths without checking whether they are tracked (an outside repo comes out as "fresh")
+- Fixing files in mode ② (a diagnosis is not a treatment)
+- Writing mode ⑤ candidates into `CONCEPTS.md` before a person picks them (prompt phrases leak into a tracked file)
+- Inventing new status words (counting becomes impossible)
+- Marking severity with symbols (call it by name)
+- Judging "doc error" without looking at the code (misjudges "not built yet")
+- Confirming a subagent report as a defect without checking the source
+- Filling in decision records by guessing
+- Closing a "not built yet" by fixing the doc
+- Leaving `CONCEPTS.md` uncommitted
+- Keeping the output only in a central folder
 
-## 재실행 (모드 ②·③)
+## Re-running (modes ② and ③)
 
-이미 `CONCEPTS.md`가 있으면 **새로 쓰지 말고 갱신**한다. 통째로 다시 쓰면 그동안 쌓인
-"해소됨" 이력과 확인 못 한 것의 기록이 날아간다.
+If `CONCEPTS.md` already exists, **update it instead of writing a new one.** Rewriting it whole erases the
+"resolved" history and the record of what couldn't be checked.
 
-1. 모드 ④를 먼저 돌려 **재확인 대상을 좁힌다.**
-2. 기존 `CONCEPTS.md`를 읽는다 — 지난번에 무엇이 어긋나 있었고 무엇을 못 봤는지.
-3. **컨셉이 통째로 바뀌었으면 개념 목록부터 다시 짠다.** 없어진 개념은 지우지 말고
-   "폐기됨(날짜, 사유)"로 표기한다. 새 컨셉의 개념을 뒤에 추가한다.
-4. 해소된 항목에 **"해소됨(날짜)"**를 붙인다. 지우지 않는다.
-5. **모드 ③에서만**: 재확인 대상 개념의 절을 다시 채우고 메타 줄의 `확인`을 현재 커밋으로
-   갱신한다. 대상이 아닌 개념은 열지 않는다.
-   **모드 ②에서는 파일을 건드리지 않고 차이를 보고서에만 적는다.**
-6. **모드 ③에서만**: 간선을 다시 맞춘다 (절차 4).
-7. 모드 ②면 여기서 보고하고 끝낸다. 모드 ③이면 절차 7로 간다.
+1. Run mode ④ first to **narrow down the concepts that need a re-check.**
+2. Read the existing `CONCEPTS.md` — what was out of sync last time and what couldn't be checked.
+3. **If the concept changed as a whole, redo the concept list first.** Don't delete concepts that are gone;
+   mark them "retired(date, reason)". Add the new concepts after them.
+4. Add **"resolved(date)"** to resolved items. Don't delete them.
+5. **Only in mode ③**: refill the sections of the concepts that need a re-check, and update the metadata line's `checked` to the current commit.
+   Don't open concepts that don't need a re-check.
+   **In mode ②, don't touch files; write the differences only in the report.**
+6. **Only in mode ③**: realign the edges (step 4).
+7. In mode ②, report here and stop. In mode ③, go to step 7.
 
-**대상 프로젝트가 대규모 개편 중이면 갱신을 미루는 편이 낫다.** 매일 바뀌는 것을 쫓으면
-지도가 계속 틀리고 신뢰를 잃는다. 개편이 안정된 뒤에 한 번 돌린다 —
-그때는 모드 ③이 아니라 사실상 ①(재작성)에 가깝다.
+**If the target project is in the middle of a large reorganization, it is better to postpone the update.** Chasing something that changes daily
+keeps the map wrong and loses trust. Run it once after the reorganization settles —
+at that point it is closer to ① (a rewrite) than to mode ③.
 
-## 한계 (정직하게)
+## Limits (honestly)
 
-- 이 스킬은 2026-09-02에 만들어졌고 실제 프로젝트 세 곳에서 절차를 수행한 결과를 근거로 썼다
-  (거기서 어긋남 12건과 오판 1건이 나왔다). **스킬 형태로 호출해 검증한 적은 아직 없다.**
-- **그래프·신선도 부분은 2026-09-14 추가분이다.** 신선도 명령(`git log`·경로·추적 검사)은
-  실제 저장소에서 돌려 동작과 실패 양상을 확인했다. **그러나 스킬 전체를 호출해 끝까지
-  돌려 본 적은 없다.**
-- 메타 줄은 기존 세 `CONCEPTS.md` 어디에도 없다. 처음 돌릴 때는 개념마다 `확인=미상`에서
-  시작해 한 번씩 채워야 하고, 어휘 통일·요약표 열 변경도 겹친다. **첫 실행은 모드 ①에 가깝다.**
-- 신선도는 **파일 단위**로만 계산한다. 같은 파일의 무관한 줄이 바뀌어도 재확인 대상이 된다
-  (거짓 양성). 줄 단위 추적은 하지 않는다 — 줄 번호는 쉽게 밀린다.
-- **커밋된 이력만 본다.** 작업 트리의 미커밋 변경은 모드 ④에 안 잡힌다.
-- 프로젝트 간 간선은 설계만 있고 켜지 않았다. `관련:` 줄이 쌓이는지를 먼저 본다.
-- 절차가 어긋나면 이 파일을 고친다.
+- This skill was made on 2026-09-02 and written from the results of running the procedure in three real projects
+  (12 mismatches and 1 misjudgment came out of them). **It has not yet been verified by invoking it as a skill.**
+- **The graph and freshness parts were added on 2026-09-14.** The freshness commands (`git log`, path and tracking checks) were
+  run in real repos to see how they work and how they fail. **But the whole skill has never been invoked and run
+  end to end.**
+- None of the three existing `CONCEPTS.md` files has metadata lines. On the first run every concept starts from `checked=unknown`
+  and has to be filled once, and vocabulary unification and summary-table column changes come on top. **The first run is close to mode ①.**
+- Freshness is computed **per file** only. An unrelated line changing in the same file still makes it need a re-check
+  (a false positive). Line-level tracking is not done — line numbers shift easily.
+- **Only committed history is looked at.** Uncommitted changes in the working tree are not caught by mode ④.
+- Cross-project edges are designed but not turned on. First see whether `Related:` lines build up.
+- If the procedure goes wrong, fix this file.
