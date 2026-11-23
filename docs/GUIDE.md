@@ -236,10 +236,11 @@ baton prints its messages in English or Korean. The setting changes only the mes
 1. the `BATON_LANG` environment variable;
 2. `BATON_LANG` in the repo section of the config file (`~/.config/baton/config.json`, written by `/baton-setup`);
 3. `BATON_LANG` in the global section of that file;
-4. the locale: the first of `LC_ALL`, `LC_MESSAGES` and `LANG` that has a value. A value that starts with `ko` (such as `ko_KR.UTF-8`) means Korean; anything else means English;
-5. English.
+4. the locale: the first of `LC_ALL`, `LC_MESSAGES` and `LANG` that has a value. `ko` on its own or followed by `_`, `.`, `@` or `-` (such as `ko_KR.UTF-8`) means Korean; anything else means English;
+5. on macOS, when none of those three is set (for example when Claude Code is started from an app, not a terminal): the first entry of the system language list (`AppleLanguages`), read with the same rule;
+6. English.
 
-`auto`, or any value other than `en` and `ko`, means "follow the locale". `/baton-setup` counts how many of your past prompts contain Korean and proposes `ko` or `en`; nothing is written until you pick. `/baton-doctor` shows the language in effect and where it came from.
+`auto`, or any value other than `en` and `ko`, means "follow the locale". An empty `BATON_LANG` counts as not set. `/baton-setup` counts how many of your past prompts contain Korean and proposes `ko` or `en`; nothing is written until you pick. `/baton-doctor` shows the language in effect and where it came from.
 
 **Files in both languages.** Whatever the setting, baton reads the English and the Korean forms of its files. Use one form within a file.
 
