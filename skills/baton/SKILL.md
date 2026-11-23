@@ -97,6 +97,16 @@ The script reads both the English and the Korean template headings.
 Write `HANDOFF.md` at the repo root (overwrite it if it exists — keep only the latest copy). If there is no
 repository, write it in the current working directory.
 
+**Update, do not rewrite.** If `HANDOFF.md` exists, start from that file, not from memory: carry forward every line
+that is still true, move finished next actions to "Changes made", and delete only what you know is obsolete. Lines
+under "Failed approaches", "Promotion candidates" and "Rejected" are meant to survive across sessions. When you save,
+the checker compares the file with its last committed version and lists the lines that are gone (a warning, not a
+block): lines in those three sections, and lines elsewhere that carry a decision or constraint marker.
+
+**Mark what must be read.** In "Files and symbols", put `(must read)` (Korean: `(필독)`) after the path of at most 3
+entries the next session has to read before acting. The injection hook repeats them in one line right after the
+freshness line, so they survive truncation. The checker warns when more than 3 are marked.
+
 Fill in the 8 items of the template below. Keep it short — no full conversation, no repeated explanations, no raw
 tool output. **Stay within 200 lines and 8,700 characters** (lines: owner decision 2026-09-22; characters: the checker
 limit, the amount that still goes in whole after the injection hook adds its header, the freshness line and the
@@ -130,9 +140,10 @@ After writing, run the checker, fix what it reports, then commit.
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py HANDOFF.md
 ```
 
-It checks the 8 required sections, 200 lines, 8,700 characters, code blocks over 20 lines, full diffs, secrets and
-absolute home paths. If a list item under "Verified facts and decisions" ("확인된 사실과 결정" in the Korean template)
-has no [V] or [?] mark, it warns without blocking. On Claude Code, saving with `Write`/`Edit` makes a hook run the same
+It checks the 8 required sections, 200 lines, 8,700 characters (including the must-read line, which goes in twice),
+code blocks over 20 lines, full diffs, secrets and absolute home paths. If a list item under "Verified facts and
+decisions" ("확인된 사실과 결정" in the Korean template) has no [V] or [?] mark, it warns without blocking. It also warns,
+without blocking, about lines dropped since the last committed version and about more than 3 must-read marks. On Claude Code, saving with `Write`/`Edit` makes a hook run the same
 check automatically and hand the problems back. Codex's `apply_patch` gives the hook no path, so run it yourself there.
 
 ### 3. Commit
@@ -154,8 +165,9 @@ When 3 or more files (`BATON_HANDOFF_NUDGE_FILES`) were edited since the last ha
 turn going once per session and asks you to write the handoff (`BATON_HANDOFF_AUTO`, on by default; not on Codex).
 Then:
 
-- Do step 2 only: write or update `HANDOFF.md` and run the checker. Keep it short; the changes made and the next
-  actions matter most.
+- Do step 2 only: update `HANDOFF.md` starting from the current file (do not rewrite it from memory) and run the
+  checker. Keep it short; the changes made and the next actions matter most. If the checker lists dropped lines,
+  restore each one that is still true.
 - Skip the promotion review and do not commit — the user did not ask for either.
 - End the turn with one line to the user: the handoff was updated (not committed), and `BATON_HANDOFF_AUTO=off`
   turns this off.
@@ -176,6 +188,7 @@ English:
 -
 
 ## Files and symbols
+<!-- Put (must read) after the path of at most 3 entries the next session has to read before acting -->
 - `path` (`path:line` if needed): symbol / why — line numbers shift soon, so put the symbol first
 
 ## Changes made
@@ -213,6 +226,7 @@ Korean (한국어):
 -
 
 ## 관련 파일·심볼
+<!-- 다음 세션이 행동 전에 꼭 읽어야 할 항목 최대 3개는 경로 뒤에 (필독)을 붙인다 -->
 - `경로`(필요하면 `경로:줄`): 심볼 / 이유 — 줄 번호는 곧 밀리므로 심볼을 먼저 적는다
 
 ## 이미 한 변경
@@ -291,6 +305,7 @@ If yes, DECISIONS; if not, HANDOFF.
 - Report a 0 from the script as "none" (look at the format-mismatch line first)
 - Leave `HANDOFF.md` uncommitted (the next version cannot see this one)
 - Paste the full conversation or raw tool output into the handoff
+- Rewrite an existing handoff from memory (start from the file; the checker lists what was dropped)
 
 ## Limits (honestly)
 
