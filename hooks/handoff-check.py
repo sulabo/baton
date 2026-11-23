@@ -30,6 +30,9 @@ import config, handoff_check, i18n, rules, runlog
 
 LIST_MAX = 10  # 자동 쓰기 요청에 이름을 적는 파일 수. 나머지는 개수만
 OUT_MAX = 9600  # 검사 결과(reason·additionalContext)의 상한 — 주입 훅과 같은 여유
+# 저장 검사의 시한(훅 시작부터). 훅 시한은 10초(hooks.json)이고 죽은 훅은 아무것도 내지 않는다 — 그러면 비밀값 막기도 사라진다.
+# 그래서 막아야 할 문제(check_file)를 먼저 다 만들고, 빠진 줄 검사는 이 시한까지 남은 시간(최대 handoff_check.DROP_BUDGET초)만 쓴다
+HOOK_DEADLINE = 8.0
 
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}  # 제안 문턱에 세는 편집. 검사 matcher에 NotebookEdit가 없는 것은 HANDOFF.md를 못 고쳐서다
 
@@ -59,6 +62,7 @@ def repo_of(start):
 
 
 def on_edit(data):
+    t0 = time.monotonic()
     ti = data.get("tool_input")
     path = ti.get("file_path") if isinstance(ti, dict) else None
     if not is_handoff(path):
@@ -73,19 +77,26 @@ def on_edit(data):
         return
     lang = i18n.lang(repo)
     t = handoff_check.tr(lang)
+    terms = config.terms("private_terms", repo) if repo else []  # 저장소는 한 번만 찾는다 — check_file·빠진 줄 검사에 넘긴다
     try:
         text = handoff_check.read(path)
-        problems = handoff_check.check_file(path, strict=False, text=text, lang=lang)
+        problems = handoff_check.check_file(path, strict=False, text=text, lang=lang, terms=terms)
     except OSError:
         return
     try:
         warned = handoff_check.warnings(text, strict=False, lang=lang)
     except Exception:
         warned = []  # 경고 규칙이 깨져도 막아야 할 문제는 그대로 돌려준다
-    try:
-        warned += handoff_check.drop_warnings(path, text, lang, strict=False)
+    try:  # 남은 시간만 쓴다. 깨져도 나머지는 그대로
+        deadline = min(time.monotonic() + handoff_check.DROP_BUDGET, t0 + HOOK_DEADLINE)
+        if deadline - time.monotonic() > 0.2:
+            warned += handoff_check.drop_warnings(path, text, lang, private_terms=terms, strict=False, deadline=deadline)
+        elif handoff_check.looks_ours(text):  # 안 본 것을 "빠진 줄 없음"으로 읽지 않게
+            warned.append(t("경고: 훅 시간이 모자라 빠진 줄 검사를 건너뛰었다 — 빠진 줄 0개가 아니라 안 봤다",
+                            "warning: the dropped-lines check was skipped because the hook ran out of time — not zero "
+                            "dropped lines, just not checked"))
     except Exception:
-        pass  # 빠진 줄 검사가 깨져도 나머지는 그대로
+        pass
     runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_check",
                    "session_id": data.get("session_id"), "problems": len(problems), "warnings": len(warned)})
     if problems:
@@ -159,23 +170,24 @@ def file_list(files, cwd, lang):
 
 
 def auto_reason(files, cwd, lang):
-    """모델에게 돌려줄 자동 쓰기 요청. 스킬·검사기 경로는 플러그인 위치로 적는다(스킬 안에서 $CLAUDE_PLUGIN_ROOT가 비는 결함)."""
+    """모델에게 돌려줄 자동 쓰기 요청. 스킬 경로는 플러그인 위치로 적는다.
+    검사기를 돌리라고 하지 않는다 — Claude Code에서는 저장 훅이 같은 검사를 돌리고(자동 쓰기는 Claude Code에서만 나간다),
+    따옴표 친 절대 경로 명령은 스킬의 allowed-tools와 맞지 않아 중간에 권한 확인이 뜬다(리뷰 11-23)."""
     skill = os.path.join(PLUGIN, "skills", "baton", "SKILL.md")
-    checker = os.path.join(PLUGIN, "lib", "handoff_check.py")
     listed = file_list(files, cwd, lang)
     if lang == "ko":
         return (f"[baton] 이 세션에서 인계서(HANDOFF.md·HANDOFF_*.md)를 마지막으로 쓴 뒤 파일 {len(files)}개를 고쳤다: {listed}. "
                 f"지금 baton 인계서 스킬({skill}의 'When the Stop hook asks' 절)대로 저장소 루트의 HANDOFF.md를 쓰거나 갱신한다 — "
                 f"기억으로 새로 쓰지 말고 지금 HANDOFF.md에서 시작해 아직 참인 줄은 그대로 옮긴다. "
-                f"짧게 쓰고 검사기를 돌린다: python3 \"{checker}\" HANDOFF.md — 마지막 커밋판에서 빠진 줄을 알려 준다. "
+                f"짧게 쓴다 — 저장하면 저장 검사가 문제와 마지막 커밋판에서 빠진 줄을 알려 준다. "
                 f"승격 검토는 건너뛰고 커밋하지 않는다. "
                 f"그다음 사용자에게 인계서를 갱신했다는 것과 BATON_HANDOFF_AUTO=off로 끌 수 있다는 것을 한 줄로 알리고 턴을 끝낸다. "
                 f"이 요청은 세션에 한 번만 나온다.")
     return (f"[baton] You edited {len(files)} files in this session since the handoff (HANDOFF.md or HANDOFF_*.md) was last "
             f"written: {listed}. Write or update HANDOFF.md at the repo root now, following the baton handoff skill ({skill}, "
             f"section 'When the Stop hook asks'). Start from the current HANDOFF.md and carry forward every line that is still "
-            f"true; do not rewrite it from memory. Keep it short, then run the checker: python3 \"{checker}\" HANDOFF.md — it "
-            f"lists lines that were dropped since the last committed version. "
+            f"true; do not rewrite it from memory. Keep it short. When you save it, the save-time check reports problems "
+            f"and lines dropped since the last committed version. "
             f"Skip the promotion review and do not commit. "
             f"Then end your turn with one line to the user saying the handoff was updated and that BATON_HANDOFF_AUTO=off "
             f"turns this off. baton asks for this once per session.")

@@ -160,8 +160,7 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIn("BATON_HANDOFF_AUTO=off", reason)
         self.assertIn("기억으로 새로 쓰지 말고 지금 HANDOFF.md에서 시작해 아직 참인 줄은 그대로 옮긴다.", reason)
         self.assertIn("마지막 커밋판에서 빠진 줄을 알려 준다.", reason)
-        checker = reason.split('python3 "', 1)[1].split('"', 1)[0]
-        self.assertTrue(os.path.isfile(checker), checker)  # 검사기 경로는 실제 플러그인 파일
+        self.assertNotIn("python3", reason)  # 검사기를 손으로 돌리라고 하지 않는다 — 저장 훅이 돌린다(권한 확인이 끼어들지 않게, 리뷰 11-23)
         skill = reason.split("baton 인계서 스킬(", 1)[1].split("의 ", 1)[0]
         with open(skill, encoding="utf-8") as f:
             self.assertIn("## When the Stop hook asks", f.read())  # 요청이 가리키는 스킬 절이 실제로 있다
@@ -231,7 +230,9 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIn("Skip the promotion review and do not commit.", reason)
         self.assertIn("Start from the current HANDOFF.md and carry forward every line that is still true; do not rewrite it "
                       "from memory.", reason)
-        self.assertIn("it lists lines that were dropped since the last committed version.", reason)
+        self.assertIn("When you save it, the save-time check reports problems and lines dropped since the last committed "
+                      "version.", reason)
+        self.assertNotIn("python3", reason)
         self.assertIn("Then end your turn with one line to the user saying the handoff was updated and that "
                       "BATON_HANDOFF_AUTO=off turns this off.", reason)
         msg = self.stop(sid="s2", extra_env=en)
@@ -268,6 +269,44 @@ class HandoffCheckHookTest(unittest.TestCase):
         out = self.post(p)
         self.assertEqual(out["decision"], "block")
         self.assertIn("결정·제약으로 보이는 줄", out["reason"])
+
+    def test_big_drop_check_keeps_the_secret_block_and_hook_timeout(self):
+        # 리뷰(11-23): 빠진 줄 검사가 10초 훅 시한을 넘기면 훅이 죽어 비밀값 막기까지 사라졌다
+        import time
+        from test_handoff_check import DropCostTest, git_repo
+        old = DropCostTest.big(None, self.root)
+        p = self.handoff(old)
+        g = git_repo(self.root); g("add", "HANDOFF.md", "DECISIONS.md"); g("commit", "-qm", "h")
+        token = "gh" + "p_" + "A1b2" * 9
+        self.handoff(GOOD + f"- 토큰 {token}\n")
+        t = time.monotonic()
+        out = self.post(p)
+        took = time.monotonic() - t
+        self.assertLess(took, 5.0, took)  # 훅 시한 10초 훨씬 안
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("API 토큰 의심 값", out["reason"])
+        self.assertNotIn(token, out["reason"])
+        self.assertIn("마지막 커밋판에 있던 줄 2000개가 새 인계서에 없다", out["reason"])
+        self.assertLessEqual(len(out["reason"]), 9600)
+
+    def test_drop_check_skipped_for_time_says_so(self):
+        import contextlib, importlib.util, io
+        spec = importlib.util.spec_from_file_location("handoff_check_hook", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        path = self.handoff(GOOD)
+        for lang, want in (("ko", "빠진 줄 검사를 건너뛰었다 — 빠진 줄 0개가 아니라 안 봤다"), ("en", "not zero dropped lines, just not checked")):
+            buf = io.StringIO()
+            env = {"XDG_CACHE_HOME": os.path.join(self.root, "cache"), "BATON_LOG": self.log, "BATON_LANG": lang}
+            with mock.patch.dict(os.environ, env), mock.patch.object(hook, "HOOK_DEADLINE", 0), contextlib.redirect_stdout(buf):
+                hook.on_edit({"tool_input": {"file_path": path}, "session_id": "s1"})
+            ctx = json.loads(buf.getvalue())["hookSpecificOutput"]["additionalContext"]
+            self.assertIn(want, ctx)
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(self.root, "cache"), "BATON_LOG": self.log}), \
+                mock.patch.object(hook, "HOOK_DEADLINE", 0), contextlib.redirect_stdout(buf):
+            hook.on_edit({"tool_input": {"file_path": self.handoff("# Notes\n## Status\n- ok\n")}, "session_id": "s1"})
+        self.assertEqual(buf.getvalue(), "")  # 다른 형식 파일에는 말하지 않는다
 
     def test_output_is_capped(self):
         import importlib.util

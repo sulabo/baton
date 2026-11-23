@@ -165,9 +165,9 @@ When 3 or more files (`BATON_HANDOFF_NUDGE_FILES`) were edited since the last ha
 turn going once per session and asks you to write the handoff (`BATON_HANDOFF_AUTO`, on by default; not on Codex).
 Then:
 
-- Do step 2 only: update `HANDOFF.md` starting from the current file (do not rewrite it from memory) and run the
-  checker. Keep it short; the changes made and the next actions matter most. If the checker lists dropped lines,
-  restore each one that is still true.
+- Do step 2 only: update `HANDOFF.md` starting from the current file (do not rewrite it from memory). Keep it short;
+  the changes made and the next actions matter most. The save-time check runs by itself when you save (this request
+  only comes on Claude Code); fix what it reports, and restore each listed dropped line that is still true.
 - Skip the promotion review and do not commit — the user did not ask for either.
 - End the turn with one line to the user: the handoff was updated (not committed), and `BATON_HANDOFF_AUTO=off`
   turns this off.

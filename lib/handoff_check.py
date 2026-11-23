@@ -12,7 +12,7 @@
 쓰기: python3 lib/handoff_check.py [HANDOFF.md 경로] — 문제가 있으면 한 줄씩 출력하고 종료 코드 1.
 경고만 있으면 "경고:"로 시작하는 줄을 출력하고 종료 코드 0.
 """
-import os, re, subprocess, sys, unicodedata
+import math, os, re, subprocess, sys, time, unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config, i18n, rules
@@ -378,6 +378,11 @@ DROP_CARRY = {1, 3, 4}  # DROP_SPECS 번호 — 실패한 접근법·승격 후�
 DROP_KEEP = 0.5
 DROP_LIST = 8  # 경고에 내용을 적는 줄 수. 나머지는 개수만
 DROP_SHOW = 100  # 한 줄을 이 글자에서 자른다
+# 비용 상한(리뷰 11-23: 빠진 줄 200개 × DECISIONS.md 2만 줄이 11.6초 — 훅 시한 10초를 넘기면 훅이 죽어 비밀값 막기까지 사라졌다).
+# 마지막 커밋판·DECISIONS.md는 앞 DROP_READ_MAX바이트만 읽는다(DECISIONS.md는 새 결정이 위에 오는 저장소 기준 — ponytail: 아래에
+# 쌓는 저장소면 뒤쪽을 못 본다). 비교는 낱말 열쇠 색인으로 하고, DROP_BUDGET초 안에 못 끝내면 멈추고 못 끝냈다고 말한다
+DROP_READ_MAX = 256 * 1024
+DROP_BUDGET = 2.0
 DECISION_MARK = re.compile(r"소유자|결정|금지|절대|확정|정본|(?i:\bowner\b|\bdecided\b|\bdecision\b|\bnever\b|\bmust not\b|\bdo not\b|\bdon't\b|\bforbidden\b)")
 TOKEN = re.compile(r"[0-9a-z가-힣]+")
 
@@ -397,59 +402,109 @@ def line_keys(line):
     return out
 
 
-def dropped(old, new, decisions=""):
-    """old(마지막 커밋판)의 항목 중 new·decisions(DECISIONS.md 본문)에 비슷한 줄이 없는 것 [(DROP_SPECS 번호, 항목 글)].
-    이어 가야 하는 절(DROP_CARRY)은 모두, 나머지 절은 결정·제약 표지가 있는 줄만. 자리표시("- 없음")는 뺀다."""
+def dropped(old, new, decisions="", deadline=None):
+    """old(마지막 커밋판)의 항목 중 new·decisions(DECISIONS.md 본문)에 비슷한 줄이 없는 것.
+    이어 가야 하는 절(DROP_CARRY)은 모두, 나머지 절은 결정·제약 표지가 있는 줄만. 자리표시("- 없음")는 뺀다.
+    돌려주는 값: ([(DROP_SPECS 번호, 항목 글)], 본 항목 수, 전체 항목 수). deadline(time.monotonic)이 지나면 거기서 멈춘다.
+    비교: 낱말 열쇠 → 줄 번호 색인. 남는 줄이 되려면 옛 줄 열쇠 n개 중 need개가 한 줄에 있어야 하니, 그 줄은 가장 드문 열쇠
+    n − need + 1개 중 하나를 꼭 가진다(비둘기집) — 그 열쇠들이 든 줄만 확인한다."""
     cands = [line_keys(ln) for ln in (new + "\n" + decisions).splitlines() if ln.strip()]
-    out, seen = [], set()
+    index = {}
+    for i, c in enumerate(cands):
+        for k in c:
+            index.setdefault(k, []).append(i)
+    items, seen = [], set()
     for n, _, body in section_items(old, DROP_SPECS):
         keys = line_keys(body)
         if not keys or NOTHING.match(body) or body in seen or not (n in DROP_CARRY or DECISION_MARK.search(body)):
             continue
         seen.add(body)
-        if not any(len(keys & c) >= DROP_KEEP * len(keys) for c in cands):
+        items.append((n, body, keys))
+    out = []
+    for done, (n, body, keys) in enumerate(items):
+        if deadline is not None and time.monotonic() > deadline:
+            return out, done, len(items)
+        need = math.ceil(DROP_KEEP * len(keys))
+        rare = sorted(keys, key=lambda k: len(index.get(k, ())))[:len(keys) - need + 1]
+        near = set()
+        for k in rare:
+            near.update(index.get(k, ()))
+        if not any(len(keys & cands[i]) >= need for i in near):
             out.append((n, body))
-    return out
+    return out, len(items), len(items)
 
 
-def committed(path):
-    """git HEAD에 있는 같은 파일 내용. 미추적·이력 없음·git 실패면 None(그때는 아무 말도 안 한다)."""
+def committed(path, timeout=3.0):
+    """git HEAD에 있는 같은 파일 내용(앞 DROP_READ_MAX + 1바이트까지 — 넘쳤는지는 부르는 쪽이 길이로 안다).
+    미추적·이력 없음·git 실패·시한 초과면 None(그때는 아무 말도 안 한다). cat-file이라 textconv를 타지 않는다.
+    큰 blob을 통째로 메모리에 올리지 않으려고 필요한 만큼만 읽고 git을 끝낸다. timeout초가 지나면 git을 죽인다."""
+    import threading
     d = os.path.dirname(os.path.abspath(path))
     try:
-        r = subprocess.run(["git", "--no-optional-locks", "-C", d, "show", "HEAD:./" + os.path.basename(path)],
-                           capture_output=True, timeout=3)
+        p = subprocess.Popen(["git", "--no-optional-locks", "-C", d, "cat-file", "blob", "HEAD:./" + os.path.basename(path)],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except Exception:
         return None
-    return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
+    timer = threading.Timer(max(timeout, 0.0), p.kill)
+    timer.start()
+    try:
+        data = p.stdout.read(DROP_READ_MAX + 1)
+    except Exception:
+        data = b""
+    finally:
+        timer.cancel()
+        enough = len(data) > DROP_READ_MAX
+        if enough:
+            p.kill()  # 더 읽을 필요가 없다
+        p.stdout.close()
+        p.wait()
+    return data.decode("utf-8", "replace") if p.returncode == 0 or enough else None
 
 
-def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=True):
+def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=True, deadline=None):
     """마지막 커밋판보다 빠진 줄 경고(막지 않음). 결정·제약 표지가 있는 줄은 따로 더 세게 말한다. 내용은 DROP_LIST줄까지.
     strict=False(훅)면 baton 형식으로 보이는 인계서에만 한다(looks_ours).
     같은 폴더의 DECISIONS.md(지금 파일)에 옮긴 줄은 빠진 것이 아니다.
-    줄에 비밀값·홈 경로·개인 자료 목록 단어가 있으면 내용을 적지 않는다(맥락에 다시 옮기지 않으려고)."""
+    줄이 유출 검사(비밀값·홈 경로·개인 자료 목록)에 걸리면 내용을 적지 않는다(맥락에 다시 옮기지 않으려고).
+    deadline(time.monotonic)까지만 쓴다 — 없으면 지금부터 DROP_BUDGET초. 못 끝내거나 앞 DROP_READ_MAX바이트만 봤으면 그렇게 말한다."""
     if not strict and not looks_ours(text):
         return []
-    old = committed(path) if old is None else old
+    deadline = time.monotonic() + DROP_BUDGET if deadline is None else deadline
+    if old is None:
+        old = committed(path, max(0.0, min(3.0, deadline - time.monotonic())))
     if not old:
         return []
-    try:
-        decisions = read(os.path.join(os.path.dirname(os.path.abspath(path)), "DECISIONS.md"))
-    except OSError:
-        decisions = ""
-    gone = dropped(old, text, decisions)
-    if not gone:
-        return []
     t = tr(lang)
+    cut_old = len(old.encode("utf-8", "replace")) > DROP_READ_MAX
+    old = old.encode("utf-8", "replace")[:DROP_READ_MAX].decode("utf-8", "ignore")
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(path)), "DECISIONS.md"), "rb") as f:
+            raw = f.read(DROP_READ_MAX + 1)
+    except OSError:
+        raw = b""
+    cut_dec = len(raw) > DROP_READ_MAX
+    decisions = raw[:DROP_READ_MAX].decode("utf-8", "ignore")
+    gone, done, total = dropped(old, text, decisions, deadline)
+    partial = []
+    if done < total or cut_old:
+        partial.append(t(f"경고: 빠진 줄 검사를 다 못 했다(마지막 커밋판 항목 {total}개 중 {done}개만 봤다"
+                         + (", 마지막 커밋판이 커서 앞 256KB만 읽었다" if cut_old else "") + ") — 아래 목록은 일부다. "
+                         f"0개여도 '빠진 줄 없음'이 아니다",
+                         f"warning: the dropped-lines check did not finish ({done} of {total} items from the last committed "
+                         f"version checked" + ("; the last committed version is large, only its first 256 KB was read" if cut_old else "")
+                         + ") — any list below is partial, and none listed does not mean nothing was dropped"))
+    if not gone:
+        return partial
     en = t(False, True)
     if private_terms is None:
         repo = repo_of(path)
         private_terms = config.terms("private_terms", repo) if repo else []
+    dec_note = t(" (DECISIONS.md가 커서 앞 256KB만 비교했다)", " (DECISIONS.md is large; only its first 256 KB was compared)") if cut_dec else ""
 
     def show(group, room):
         lines = []
         for n, body in group[:room]:
-            shown = (t("(내용 생략 — 비밀값·경로 의심)", "(content hidden — looks like a secret or a path)")
+            shown = (t("(내용 생략 — 유출 검사에 걸림)", "(content hidden — matched the leak check)")
                      if leaks(body, private_terms) else body if len(body) <= DROP_SHOW else body[:DROP_SHOW - 1] + "…")
             lines.append(f"\n    - [{DROP_NAMES[n][1 if en else 0]}] {shown}")
         if len(group) > room:
@@ -464,15 +519,15 @@ def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=Tr
                      f"확인하고, 아니면 되살린다:",
                      f"warning: {len(marked)} line(s) that look like a decision or constraint are gone since the last "
                      f"committed version — check that they moved to DECISIONS.md, otherwise restore them:")
-                   + show(marked, min(len(marked), room)))
+                   + dec_note + show(marked, min(len(marked), room)))
         room -= min(len(marked), room)
     if plain:
         out.append(t(f"경고: 마지막 커밋판에 있던 줄 {len(plain)}개가 새 인계서에 없다 — 아직 참이면 되살리고, 끝난 일이면 "
                      f"'이미 한 변경'으로 옮기고, 아니면 알고 지운다:",
                      f"warning: {len(plain)} line(s) from the last committed version are not in the new handoff — keep each "
                      f"one that is still true, move finished work to 'Changes made', or delete it on purpose:")
-                   + show(plain, room))
-    return out
+                   + dec_note + show(plain, room))
+    return partial + out
 
 
 def read(path):
@@ -485,14 +540,17 @@ def repo_of(path):
     return rules.repo_root(os.path.dirname(os.path.abspath(path))) if config.load() is not None else None
 
 
-def check_file(path, strict=True, text=None, lang=None):
+def check_file(path, strict=True, text=None, lang=None, terms=None):
     """파일 검사. 개인 자료 목록은 그 파일이 든 저장소의 설정(전역 + 저장소 절)에서 읽는다.
-    text를 주면 파일을 다시 읽지 않는다(경고 검사와 같은 내용을 보려고). lang이 없으면 그 저장소의 언어."""
+    text를 주면 파일을 다시 읽지 않는다(경고 검사와 같은 내용을 보려고). lang이 없으면 그 저장소의 언어.
+    terms(개인 자료 목록)와 lang을 다 주면 저장소 루트를 찾지 않는다 — 훅이 한 번 찾은 값을 넘긴다(git 호출을 줄이려고)."""
     if text is None:
         text = read(path)
-    repo = repo_of(path)
-    terms = config.terms("private_terms", repo) if repo else []
-    return check(text, strict, terms, lang or i18n.lang(repo))
+    if terms is None or lang is None:
+        repo = repo_of(path)
+        terms = (config.terms("private_terms", repo) if repo else []) if terms is None else terms
+        lang = lang or i18n.lang(repo)
+    return check(text, strict, terms, lang)
 
 
 if __name__ == "__main__":
@@ -500,13 +558,15 @@ if __name__ == "__main__":
     if not os.path.isfile(p):
         print(tr(None)(f"{p}: 파일 없음", f"{p}: no such file"))
         sys.exit(2)
-    lang = i18n.lang(repo_of(p))
+    repo = repo_of(p)
+    lang = i18n.lang(repo)
+    terms = config.terms("private_terms", repo) if repo else []
     t = tr(lang)
     text = read(p)
-    problems = check_file(p, text=text, lang=lang)
+    problems = check_file(p, text=text, lang=lang, terms=terms)
     warned = warnings(text, lang=lang)
     try:
-        warned += drop_warnings(p, text, lang)
+        warned += drop_warnings(p, text, lang, private_terms=terms)
     except Exception:
         pass  # 빠진 줄 검사가 깨져도 나머지 검사는 그대로
     for x in problems + warned:
