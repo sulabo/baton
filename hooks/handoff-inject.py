@@ -324,7 +324,8 @@ def main():
     try:
         mtext, rel, iskip = concept_index(repo, data, machine)
         if iskip is None:
-            itext = concepts.index(mtext, concepts.INDEX_LIMIT_CHARS, rel)
+            ilang = i18n.lang(repo)
+            itext = concepts.index(mtext, concepts.INDEX_LIMIT_CHARS, rel, lang=ilang)
             iskip = None if itext else "empty"
     except Exception:
         mtext, itext, iskip = "", "", "error"
@@ -337,7 +338,7 @@ def main():
             sep = 1 if htext else 0
             room = LIMIT_CHARS - len(htext) - len(ctext) - sep - (1 if ctext else 0)
             if len(itext) > room:
-                itext = concepts.index(mtext, room, rel) if room > 0 else ""
+                itext = concepts.index(mtext, room, rel, lang=i18n.lang(repo)) if room > 0 else ""
                 iskip = None if itext else "budget"
         except Exception:
             itext, iskip = "", "error"

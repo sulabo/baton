@@ -170,7 +170,7 @@ def index_line(repo, machine, lang="ko"):
         return ("개념 색인 넣지 않는다 — 다른 세션·작업 알림이 보낸 메시지다" if ko
                 else "concept index  not injected — the message came from another session or a task notification")
     try:
-        text = concepts.index(concepts.read_text(path), concepts.INDEX_LIMIT_CHARS, rel)
+        text = concepts.index(concepts.read_text(path), concepts.INDEX_LIMIT_CHARS, rel, lang=lang)
     except Exception as e:
         return (f"개념 색인 못 만들었다({type(e).__name__}) — 훅은 색인 없이 간다" if ko
                 else f"concept index  could not be built ({type(e).__name__}) — the hook goes on without it")

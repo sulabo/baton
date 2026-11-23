@@ -456,7 +456,7 @@ def promote_alias(repo, num, phrase, lang=None):
         raise ValueError(w["ref_alias"])
     # 이 컴퓨터의 사용자 이름·홈 폴더 이름도 개인 자료다(홈 경로 패턴은 절대 경로 꼴만 잡는다)
     me = [getpass.getuser(), os.path.basename((os.environ.get("HOME") or "").rstrip("/"))]
-    hits = handoff_check.leaks(phrase, config.terms("private_terms", repo) + [t for t in me if t])
+    hits = handoff_check.leaks(phrase, config.terms("private_terms", repo) + [t for t in me if t], lang=concepts.lang_of(lang))
     if hits:
         raise ValueError(w["leak"].format(hits="·".join(hits)))
     path, rel = rules.concept_path(repo)

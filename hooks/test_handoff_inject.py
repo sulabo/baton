@@ -346,6 +346,16 @@ class ConceptIndexHookTest(unittest.TestCase):
             self.assertIn("다음 행동", later)
             self.assertNotIn(self.INDEX_HEAD, later)
 
+    def test_index_follows_output_language(self):  # 색인 머리말·항목 낱말도 BATON_LANG을 따른다(지도 언어와 무관)
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "CONCEPTS.md", self.MAP)
+            en = self.run_hook(root, "fix the save slot", {"BATON_LANG": "en"}, session_id="s-en").stdout
+            self.assertTrue(en.startswith("[baton] Index of this repo's concept map (CONCEPTS.md)."), en)
+            self.assertIn("files: src/save.ts", en)
+            self.assertNotIn(self.INDEX_HEAD, en)
+            ko = self.run_hook(root, "세이브 어디서 해?", {"BATON_LANG": "ko"}, session_id="s-ko").stdout
+            self.assertTrue(ko.startswith(self.INDEX_HEAD), ko)
+
     def test_off_switch_and_no_map(self):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(self.run_hook(root, "세이브", session_id="s1").stdout, "")
