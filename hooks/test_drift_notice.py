@@ -110,6 +110,13 @@ class DriftNoticeTest(unittest.TestCase):
         msg = self.run_hook()
         self.assertIn("개념 2개 중 메타 줄 1개", msg)
 
+    def test_repo_local_module_is_not_imported(self):  # 알림 JSON을 만드는 python3 -c가 저장소의 json.py를 불러오면 안 된다
+        marker = os.path.join(self.tmp.name, "planted-ran")
+        self.commit({"CONCEPTS.md": STALE_MAP, "a.txt": "a\n",
+                     "json.py": "open(%r, 'w').write('x')\nraise RuntimeError('planted json.py')\n" % marker})
+        self.assertIn("재확인 대상 1건", self.run_hook())
+        self.assertFalse(os.path.exists(marker))
+
 
 class DriftNoticeEnglishTest(DriftNoticeTest):
     """BATON_LANG=en: 같은 경우의 영어 알림. 위 한국어 테스트를 물려받아 한국어도 같이 돈다."""
