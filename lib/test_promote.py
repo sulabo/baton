@@ -8,6 +8,11 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROMOTE = os.path.join(HERE, "promote.sh")
+_CFG = tempfile.TemporaryDirectory()  # 실제 설정 파일(~/.config/baton/config.json, 전역 BATON_LANG 등)을 읽지 않는다
+
+
+def tearDownModule():
+    _CFG.cleanup()
 
 
 def handoff(*facts):
@@ -40,7 +45,8 @@ class PromoteTest(unittest.TestCase):
 
     def run_promote(self, r, lang="ko", code=0, **env):
         e = {k: v for k, v in os.environ.items() if k not in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")}
-        e.update({"BATON_LANG": lang} if lang else {}, **env)
+        e.update({"BATON_LANG": lang} if lang else {}, XDG_CONFIG_HOME=_CFG.name)
+        e.update(env)
         p = subprocess.run(["bash", PROMOTE, r], capture_output=True, text=True, check=False, env=e)
         self.assertEqual(p.returncode, code, p.stdout + p.stderr)
         return p.stdout
@@ -106,6 +112,21 @@ class PromoteTest(unittest.TestCase):
         r = self.repo([ko.format(fact="없음", ev="x", rej="- 없음\n- 캐시 재도입 / 2026-10-01 / 소유자가 거절\n")])
         self.assertIn("    이미 기각: - 캐시 재도입 / 2026-10-01 / 소유자가 거절", self.run_promote(r))  # 진짜 항목은 그대로
         self.assertNotIn("이미 기각: - 없음", self.run_promote(r))
+
+    def test_language_without_python(self):
+        # 리뷰(11-23): python3이 없으면 한국어 로캘 사용자가 영어를 받았다 — 셸에서 BATON_LANG > LC_ALL > LC_MESSAGES > LANG을 본다
+        with tempfile.TemporaryDirectory() as d:
+            bin_ = os.path.join(d, "bin"); os.mkdir(bin_)
+            with open(os.path.join(bin_, "python3"), "w") as f:
+                f.write("#!/bin/sh\nexit 127\n")
+            os.chmod(os.path.join(bin_, "python3"), 0o755)
+            path = bin_ + os.pathsep + os.environ.get("PATH", "")
+            for env, ko in (({"LANG": "ko_KR.UTF-8"}, True), ({"LANG": "kok_IN.UTF-8"}, False), ({"LANG": "C.UTF-8"}, False),
+                            ({"LC_ALL": "ko", "LANG": "C"}, True), ({"LC_ALL": "", "LC_MESSAGES": "ko-KR", "LANG": "C"}, True),
+                            ({"LC_ALL": "C", "LANG": "ko_KR.UTF-8"}, False), ({"LANG": "KO_kr"}, True), ({"LANG": "ko@x"}, True),
+                            ({"LANG": "ko_KR.UTF-8", "BATON_LANG": "EN"}, False), ({"LANG": "C", "BATON_LANG": " ko "}, True), ({}, False)):
+                out = self.run_promote(os.path.join(d, "missing"), None, code=2, PATH=path, **env)
+                self.assertTrue(out.startswith("git 저장소가 아니다" if ko else "Not a git repository"), (env, out))
 
     def test_english_errors_and_locale_fallback(self):
         with tempfile.TemporaryDirectory() as d:

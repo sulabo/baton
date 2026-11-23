@@ -13,6 +13,8 @@
 #   · "`stop_hook_active` field is `true` when Claude Code is already continuing as a result of a stop hook. Check this value ...
 #   to avoid blocking on a condition that will never resolve." — 그래서 stop_hook_active가 참이면 막지 않는다(상태도 안 남긴다).
 #   BATON_HANDOFF_AUTO=off면 예전처럼 사용자에게 한 번 제안만 한다(systemMessage, 쓰기는 사람이 정한다).
+#   저장소 루트의 HANDOFF.md가 baton 형식이 아니면(handoff_check.looks_ours) 자동 쓰기 대신 제안만 한다 — 남의 형식 파일을
+#   모델이 우리 템플릿으로 다시 쓰게 하지 않으려고(리뷰 11-23). HANDOFF.md가 없거나 baton 형식이면 자동 쓰기.
 #   문턱 3은 로컬 세션 94개 실측(2026-10-01): 1~2개 고친 세션은 인계서를 16% 썼고 3개 이상은 67% 썼다.
 #
 # 끄기: BATON_HANDOFF_CHECK=off(검사) · BATON_HANDOFF_NUDGE=off(제안·자동 쓰기 둘 다) · BATON_HANDOFF_AUTO=off(자동 쓰기 대신 제안)
@@ -81,7 +83,7 @@ def on_edit(data):
     except Exception:
         warned = []  # 경고 규칙이 깨져도 막아야 할 문제는 그대로 돌려준다
     try:
-        warned += handoff_check.drop_warnings(path, text, lang)
+        warned += handoff_check.drop_warnings(path, text, lang, strict=False)
     except Exception:
         pass  # 빠진 줄 검사가 깨져도 나머지는 그대로
     runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_check",
@@ -209,7 +211,8 @@ def on_stop(data):
     except OSError:
         return  # 한 번만 알린다는 약속을 못 지키면 아예 알리지 않는다
     lang = i18n.lang(repo)
-    if auto:
+    foreign = auto and not ours_or_absent(cwd)
+    if auto and not foreign:
         print(json.dumps({"decision": "block", "reason": auto_reason(files, cwd, lang)}, ensure_ascii=False))
         runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_auto", "session_id": sid,
                        "files": len(files)})
@@ -223,8 +226,19 @@ def on_stop(data):
                f"changed since. If a piece of work is done, ask for 'write a handoff' so the next session does not have to "
                f"search from scratch. It is your call — this suggestion appears once per session.")
     print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
-    runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_nudge", "session_id": sid,
-                   "files": len(files)})
+    rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_nudge", "session_id": sid, "files": len(files)}
+    if foreign:
+        rec["fallback"] = "foreign_handoff"  # 자동 쓰기 대신 제안한 까닭
+    runlog.append(rec)
+
+
+def ours_or_absent(cwd):
+    """저장소 루트에 HANDOFF.md가 없거나 baton 형식인가. 못 읽으면 False — 모르는 파일을 다시 쓰게 하지 않는 쪽."""
+    try:
+        path = os.path.join(rules.repo_root(cwd), "HANDOFF.md")
+        return not os.path.isfile(path) or handoff_check.looks_ours(handoff_check.read(path))
+    except Exception:
+        return False
 
 
 def main():
