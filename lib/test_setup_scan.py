@@ -2,6 +2,7 @@
 """/baton-setup 스캐너: 가짜 세션 기록(임시 HOME)으로 문턱 제안·표본 하한·트리거·개인 자료 후보를 세고, apply는 고른 것만 쓴다."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,8 @@ import setup_scan
 
 SCRIPT = os.path.join(HERE, "setup_scan.py")
 CLEAN = ("CLAUDE_PROJECT_DIR", "BATON_HANDOFF_TRIGGERS_EXTRA", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_NUDGE_FILES")
+LOCALE = ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")
+HANGUL = re.compile("[\uac00-\ud7a3]")
 
 
 def session(cwd, prompt, ctxs, edits=(), handoff_after=None, read_handoff=False, more=(), injected=False):
@@ -38,14 +41,14 @@ def session(cwd, prompt, ctxs, edits=(), handoff_after=None, read_handoff=False,
     return recs
 
 
-class ScanTest(unittest.TestCase):
+class ScanFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = os.path.realpath(self.tmp.name)
         self.repo = os.path.join(self.home, "work", "내 저장소")
         os.makedirs(self.repo)
         env = {k: v for k, v in os.environ.items() if k not in CLEAN}
-        env.update(HOME=self.home, XDG_CONFIG_HOME=os.path.join(self.home, "xdg"))
+        env.update(HOME=self.home, XDG_CONFIG_HOME=os.path.join(self.home, "xdg"), BATON_LANG="ko")  # 한국어 출력을 보는 테스트
         for p in (mock.patch.dict(os.environ, env, clear=True),
                   mock.patch.object(setup_scan.usage_week, "experimental", lambda cwd: not cwd)):  # 임시 폴더도 실사용으로 센다
             p.start(); self.addCleanup(p.stop)
@@ -64,6 +67,8 @@ class ScanTest(unittest.TestCase):
     def scan(self):
         return setup_scan.scan(config.repo_key(self.repo))
 
+
+class ScanTest(ScanFixture):
     def test_sessions_matched_by_cwd_only(self):
         self.add(session(self.repo, "버그 고쳐줘", [100, 120]))
         self.add(session(os.path.join(self.home, "other"), "버그 고쳐줘", [100, 120]), project="other")
@@ -200,7 +205,7 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(snap(), before)  # 설정·캐시·관찰 로그·저장소 어디에도 안 쓴다
 
 
-class ApplyTest(unittest.TestCase):
+class ApplyFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = os.path.join(self.tmp.name, "repo")
@@ -208,6 +213,7 @@ class ApplyTest(unittest.TestCase):
         self.env = {k: v for k, v in os.environ.items() if k not in CLEAN}
         self.env["XDG_CONFIG_HOME"] = os.path.join(self.tmp.name, "xdg")
         self.env["HOME"] = os.path.join(self.tmp.name, "home")
+        self.env["BATON_LANG"] = "ko"  # 한국어 출력을 보는 테스트 — 영어는 EnglishApplyTest
         self.cfg = os.path.join(self.env["XDG_CONFIG_HOME"], "baton", "config.json")
 
     def tearDown(self):
@@ -220,6 +226,8 @@ class ApplyTest(unittest.TestCase):
         with open(self.cfg, encoding="utf-8") as f:
             return json.load(f)
 
+
+class ApplyTest(ApplyFixture):
     def test_writes_only_chosen_values_without_echoing_terms(self):
         r = self.apply(self.repo, "--set", "BATON_HANDOFF_NUDGE_FILES=4", "--private-term", "홍길동", "--trigger", "지난번")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -323,6 +331,200 @@ class ApplyTest(unittest.TestCase):
         self.assertIn("덮어쓰지 않는다", r.stderr)
         with open(self.cfg, encoding="utf-8") as f:
             self.assertEqual(f.read(), "{깨진")
+
+
+class LanguageProposalTest(ScanFixture):
+    """사람 프롬프트의 언어로 BATON_LANG을 제안한다 — 고른 경우에만 apply가 쓴다(다른 제안과 같다)."""
+
+    def locale(self, **env):
+        for k in LOCALE:
+            os.environ.pop(k, None)
+        os.environ.update(env)
+
+    def prompts(self, ko, en, other=()):
+        for i in range(ko):
+            self.add(session(self.repo, f"버그 {i} 고쳐줘", [100, 110]))
+        for i in range(en):
+            self.add(session(self.repo, f"fix bug {i}", [100, 110]))
+        if other:
+            self.add(session(self.repo, other[0], [100, 110], more=list(other[1:])))
+
+    def test_mostly_korean_proposes_ko_over_english_locale(self):
+        self.locale(LANG="C.UTF-8")
+        self.prompts(3, 1)
+        lg = self.scan()["language"]
+        self.assertEqual((lg["counted"], lg["korean"], lg["other"], lg["current"], lg["source"]), (4, 3, 1, "en", "LANG=C.UTF-8"))
+        self.assertEqual(lg["recommend"], "ko")
+        self.assertIn("LANG=C.UTF-8", lg["reason"])
+
+    def test_mostly_english_proposes_en_over_korean_locale(self):
+        self.locale(LANG="ko_KR.UTF-8")
+        self.prompts(1, 3)
+        lg = self.scan()["language"]
+        self.assertEqual((lg["recommend"], lg["current"]), ("en", "ko"))
+        self.assertIn("한글 프롬프트 25%", lg["reason"])  # 출력은 로캘대로 한국어
+
+    def test_same_language_from_locale_is_still_proposed_to_pin_it(self):
+        self.locale(LANG="ko_KR.UTF-8")
+        self.prompts(3, 0)
+        lg = self.scan()["language"]
+        self.assertEqual(lg["recommend"], "ko")
+        self.assertIn("설정한 값이 아니다", lg["reason"])
+
+    def test_already_set_is_not_proposed(self):
+        self.locale(BATON_LANG="ko")
+        self.prompts(3, 1)
+        self.assertIsNone(self.scan()["language"]["recommend"])
+        self.locale(LANG="C.UTF-8")
+        config.update(None, {"BATON_LANG": "en"})
+        self.prompts(0, 5)  # 이제 영어가 많다 — 설정 파일의 en과 같다
+        lg = self.scan()["language"]
+        self.assertEqual((lg["recommend"], lg["source"]), (None, "config"))
+        self.assertIn("already en", lg["reason"])
+
+    def test_env_override_is_named_in_the_reason(self):
+        self.locale(BATON_LANG="en")
+        self.prompts(3, 0)
+        lg = self.scan()["language"]
+        self.assertEqual(lg["recommend"], "ko")
+        self.assertIn("environment variable wins over the config file", lg["reason"])
+
+    def test_tie_and_no_letters(self):
+        self.locale(LANG="C.UTF-8")
+        self.prompts(1, 1, other=("1", "?", "..."))
+        lg = self.scan()["language"]
+        self.assertEqual((lg["counted"], lg["skipped"], lg["recommend"]), (2, 3, None))
+        self.assertIn("half of the prompts", lg["reason"])
+
+    def test_no_prompts_is_uncounted(self):
+        self.locale(BATON_LANG="ko")
+        lg = self.scan()["language"]
+        self.assertEqual((lg["counted"], lg["recommend"]), (0, None))
+        self.assertIn("0건이 아니라 못 셈", lg["reason"])
+        self.assertIn("7) 출력 언어 BATON_LANG", setup_scan.render(self.scan()))
+
+    def test_proposal_is_written_only_by_apply(self):
+        self.locale(LANG="C.UTF-8")
+        self.prompts(3, 0)
+        self.scan()
+        self.assertIsNone(config.load())  # 스캔은 쓰지 않는다
+        env = dict(os.environ)
+        r = subprocess.run([sys.executable, SCRIPT, "apply", "--global", "--set", "BATON_LANG=ko"], capture_output=True,
+                           text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Wrote to the global section", r.stdout)  # 언어는 쓰기 전에 정한다 — 이 실행은 아직 로캘의 en
+        self.assertEqual(config.load()["global"], {"BATON_LANG": "ko"})
+        self.assertEqual(self.scan()["language"]["source"], "config")
+
+
+class EnglishScanTest(ScanFixture):
+    """BATON_LANG=en이면 스캔 보고 전체가 영어다(저장소 경로·사용자 자료만 원문)."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ["BATON_LANG"] = "en"
+
+    def english(self, out):
+        for p in (self.repo, config.repo_key(self.repo)):
+            out = out.replace(p, "<repo>")
+        self.assertIsNone(HANGUL.search(out), out)
+        return out
+
+    def test_empty_history(self):
+        out = self.english(setup_scan.render(self.scan()))
+        self.assertIn("That means could not count, not 0", out)
+        self.assertIn("Sample of 0: fewer than 10", out)
+        self.assertIn("Session logs: 0 session files for this repo's folder → 0 usable sessions", out)
+        self.assertIn("Not \"no candidates\" but too small a sample", out)
+        self.assertIn("Proposal: no change — no sessions counted, so the default stays (value in effect now: 2,3, the code default)", out)
+        self.assertIn("not a git repo: the handoff promotion review (/promote)", out)
+        self.assertIn("Output language: en (source: the BATON_LANG environment variable)", out)
+        self.assertIn("Codex sessions are not counted", out)
+
+    def test_full_report(self):
+        g = lambda *a: subprocess.run(["git", "-C", self.repo, *a], capture_output=True, text=True, check=True)
+        g("init", "-q")
+        with open(os.path.join(self.repo, "notes.md"), "w", encoding="utf-8") as f:
+            f.write("ProjX notes. Mail boss@corp.io\n")
+        g("add", "-A"); g("-c", "user.name=Test Person", "-c", "user.email=tp@corp.io", "commit", "-qm", "x")
+        for i in range(12):
+            self.add(session(self.repo, "same as yesterday please", [100] + [800] * 30, read_handoff=i < 3,
+                             edits=["a.py", "b.py", "c.py", "d.py", "e.py"], handoff_after=4 if i % 2 else None))
+        self.add(session("/elsewhere/ProjX", "x", [1]), project="p2")
+        r = self.scan()
+        out = self.english(setup_scan.render(r))
+        self.assertIn("Proposal: 4,5 — ", out)
+        self.assertIn("files edited 5 or more: sessions 6 · wrote a handoff 0 (0%)", out)
+        self.assertIn("HANDOFF.md: edits 6", out)
+        self.assertIn("'yesterday' — first prompts of such sessions: 3 · other prompts it also matches: 9", out)
+        self.assertIn("Test Person — git author or email · files in this repo that contain it: 0", out)
+        self.assertIn("ProjX — other project name · files in this repo that contain it: 1", out)
+        self.assertIn("boss@corp.io — email in a file", out)
+        self.assertIn("no HANDOFF.md yet", out)
+        self.assertIn("no CONCEPTS.md (commits: 1, tracked files: 1)", out)
+        self.assertIn("Session logs: 12 session files for this repo's folder → 12 usable sessions", out)
+        self.assertIn("Human prompts counted: 12 · with Korean: 0 · other languages: 12", out)
+        self.assertIn("Proposal: no change — 0% of the prompts are in Korean, and the output is already en", out)
+        self.english(json.dumps(r, ensure_ascii=False))  # --json의 이유 문장도 영어
+
+    def test_locale_reaches_the_report(self):
+        del os.environ["BATON_LANG"]
+        for k in ("LC_ALL", "LC_MESSAGES"):
+            os.environ.pop(k, None)
+        os.environ["LANG"] = "ko_KR.UTF-8"
+        self.assertIn("읽기만 했다", setup_scan.render(self.scan()))
+        os.environ["LANG"] = "C.UTF-8"
+        self.english(setup_scan.render(self.scan()))
+
+
+class EnglishApplyTest(ApplyFixture):
+    def setUp(self):
+        super().setUp()
+        self.env["BATON_LANG"] = "en"
+
+    def test_english_output_and_errors(self):
+        r = self.apply(self.repo, "--set", "BATON_HANDOFF_NUDGE_FILES=4", "--private-term", "Hong", "--trigger", "last time")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("[baton-setup] Wrote to the section for", r.stdout)
+        self.assertIn("Added 1 word to the private-words list (this output does not show them)", r.stdout)
+        self.assertIn("Added extra trigger phrases: last time", r.stdout)
+        self.assertIn("To undo: apply --unset <key>", r.stdout)
+        self.assertNotIn("Hong", r.stdout)
+        self.assertIsNone(HANGUL.search(r.stdout), r.stdout)
+        r = self.apply(self.repo, "--remove-term", "hong", "--remove-term", "Kim")
+        self.assertIn("Removed 1 of 2 words from the private-words list from the section for", r.stdout)
+        self.assertIn("The rest were not in this section", r.stdout)
+        r = self.apply(self.repo, "--unset", "BATON_HANDOFF_NUDGE_FILES")
+        self.assertIn("BATON_HANDOFF_NUDGE_FILES removed", r.stdout)
+        for args, msg in ((("--set", "BATON_SPLIT_RATIOS=0"), "must be numbers of 1 or more"),
+                          (("--set", "BATON_NOPE=1"), "unknown setting: BATON_NOPE. Keys you can set:"),
+                          (("--set", "BATON_LANG=kr"), "BATON_LANG: must be one of ko, en, auto"),
+                          (("--trigger", "a"), "trigger phrase: must be at least two characters long"),
+                          (("--set", "BATON_LOG=/x"), "can only go in the global section. Add --global"),
+                          ((), "nothing to change")):
+            r = self.apply(self.repo, *args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertIn(msg, r.stderr)
+            self.assertIsNone(HANGUL.search(r.stderr), r.stderr)
+        h = subprocess.run([sys.executable, SCRIPT, "apply", "--help"], capture_output=True, text=True, env=self.env)
+        self.assertIn("write to the global section", h.stdout)
+        self.assertIsNone(HANGUL.search(h.stdout), h.stdout)
+
+    def test_english_broken_config(self):
+        os.makedirs(os.path.dirname(self.cfg))
+        with open(self.cfg, "w", encoding="utf-8") as f:
+            f.write("{broken")
+        r = self.apply(self.repo, "--set", "BATON_SPLIT_RATIOS=3,4")
+        self.assertIn("[baton-setup] Could not write:", r.stderr)
+        self.assertIn("Not overwriting it", r.stderr)
+
+    def test_locale_fallback(self):
+        env = {k: v for k, v in self.env.items() if k not in LOCALE}
+        for lang, want in (("ko_KR.UTF-8", "되돌리기"), ("C.UTF-8", "To undo")):
+            r = subprocess.run([sys.executable, SCRIPT, "apply", self.repo, "--trigger", "지난번"], capture_output=True,
+                               text=True, env=dict(env, LANG=lang))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(want, r.stdout)
 
 
 if __name__ == "__main__":

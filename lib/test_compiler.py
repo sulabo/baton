@@ -57,7 +57,7 @@ class Base(unittest.TestCase):
         self.repo = os.path.realpath(os.path.join(self.tmp.name, "repo"))
         os.makedirs(self.repo)
         p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(self.tmp.name, "cache"),
-                                         "XDG_CONFIG_HOME": os.path.join(self.tmp.name, "cfg")})
+                                         "XDG_CONFIG_HOME": os.path.join(self.tmp.name, "cfg"), "BATON_LANG": "ko"})
         p.start(); self.addCleanup(p.stop)
 
     def tearDown(self):
@@ -294,6 +294,68 @@ class SelectTest(Base):
         s = compiler.summary(compiler.select(self.repo, "세이브 비밀단어 고쳐줘", None))
         self.assertNotIn("비밀단어", json.dumps(s, ensure_ascii=False))
 
+
+EN_MAP = """# Concepts
+
+## 1. save — saving and loading
+- **Meta**: status=agrees · checked=2026-09-01(`0000000`) · files=`src/save/save.ts`,`src/save/load.ts`,`README.md` · neighbors=Concept 2(premise) · aliases=checkpoint
+body
+
+## 2. level — map layout
+- **Meta**: status=agrees · checked=2026-09-01(`0000000`) · files=`src/level/map.ts`,`src/shared/util.ts` · neighbors=Concept 1(premise)
+
+## 3. sound — effects
+- **Meta**: status=not built yet · checked=2026-09-01(`0000000`) · files=none(rule concept) · neighbors=none
+"""
+
+
+class EnglishMapTest(Base):
+    """영어 지도(files=·neighbors=·aliases=·Concept N)도 같은 그래프가 되고, BATON_LANG=en이면 이유·머리말이 영어다."""
+
+    def test_graph_reads_english_keys(self):
+        self.write("CONCEPTS.md", EN_MAP)
+        g = compiler.graph(self.repo)
+        self.assertEqual(g["nodes"]["1"]["files"], ["src/save/save.ts", "src/save/load.ts", "README.md"])
+        self.assertEqual(g["nodes"]["1"]["neighbors"], ["2"])
+        self.assertEqual(g["nodes"]["2"]["neighbors"], ["1"])
+        self.assertEqual(g["nodes"]["1"]["aliases"], ["checkpoint"])
+        self.assertEqual(g["nodes"]["3"]["files"], [])
+        self.assertEqual(g["nodes"]["1"]["title"], "save")
+
+    def test_english_reasons_and_render(self):
+        self.fixture()
+        self.write("CONCEPTS.md", EN_MAP)
+        self.write("DECISIONS.md", "# Decisions\n## 2026-09-20 — saves stay local\n- Related: Concept 1\n")
+        with mock.patch.dict(os.environ, {"BATON_LANG": "en"}):
+            self.assertEqual(compiler.concept_matches(compiler.graph(self.repo), "the checkpoint is broken", []),
+                             [("1", "alias 'checkpoint'", "prompt"), ("2", "neighbor of concept 1", "neighbor")])
+            p = compiler.select(self.repo, "fix the checkpoint", None)
+            text = compiler.render(p)
+        self.assertEqual(p["lang"], "en")
+        self.assertTrue(text.startswith("[baton] Context assembly — navigation anchors picked from the prompt and the working "
+                                        "files. Don't read them all; open only what you need. Check actual behavior in the code.\n"))
+        # 인계서의 작업 파일(src/level/map.ts·src/save/save.ts)이 씨앗이다 — 개념 2는 작업 파일로 맞는다
+        self.assertIn("\nRelated concepts (CONCEPTS.md)\n- 1. save — alias 'checkpoint' · working file src/save/save.ts\n"
+                      "- 2. level — working file src/level/map.ts\n", text)
+        self.assertIn("\nFiles worth reading (not opened in this session yet)\n- src/save/save.ts — concept 1\n", text)
+        self.assertIn("- src/level/map.ts — working file in the handoff\n- src/shared/util.ts — concept 2 (working file)\n", text)
+        self.assertIn("- src/level/tiles.ts — same folder as a working file, recent commit\n", text)
+        self.assertIn("\nRelated decisions (DECISIONS.md)\n- 2026-09-20 saves stay local\n", text)
+
+    def test_explain_cli_in_english(self):
+        self.fixture()
+        env = dict(os.environ, BATON_LANG="en")
+        explain = lambda repo: subprocess.run([sys.executable, os.path.join(HERE, "compiler.py"), "explain", "zzz", repo],
+                                              capture_output=True, text=True, env=env).stdout
+        self.assertIn("\n[baton] Context assembly — navigation anchors", explain(self.repo))
+        self.write("CONCEPTS.md", "## 1. a\n```\nopen\n## 2. b\n")
+        self.assertIn("\n[baton] map warning: a code fence opened at line 2 is never closed — 1 concept after it could not be read\n",
+                      explain(self.repo))
+        empty = os.path.join(self.tmp.name, "empty")
+        os.makedirs(empty)
+        self.assertTrue(explain(empty).endswith("\n[baton] Nothing selected — nothing is added\n"))
+        r = subprocess.run([sys.executable, os.path.join(HERE, "compiler.py")], capture_output=True, text=True, env=env)
+        self.assertIn('compiler.py explain "<prompt>" [repo root]', r.stderr)
 
 if __name__ == "__main__":
     unittest.main()

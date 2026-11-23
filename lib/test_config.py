@@ -2,6 +2,7 @@
 """설정 파일: 환경변수 > 저장소 절 > 전역 절 > 기본값, 깨진 파일은 없는 것으로, 쓰기는 600·700·바꿔치기. 훅이 설정을 실제로 읽는다."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -12,12 +13,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 HOOKS = os.path.join(os.path.dirname(HERE), "hooks")
 sys.path.insert(0, HERE)
 import config
+import i18n
 
 KEYS = ("BATON_HANDOFF_NUDGE_FILES", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_TRIGGERS_EXTRA", "BATON_OBSERVE", "BATON_LOG",
         "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_CHECK", "BATON_SPLIT_NOTICE", "BATON_HANDOFF_INJECT", "CLAUDE_PROJECT_DIR")
 
 
-class ConfigTest(unittest.TestCase):
+class ConfigFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.xdg = os.path.join(self.tmp.name, "xdg")
@@ -25,6 +27,7 @@ class ConfigTest(unittest.TestCase):
         os.makedirs(self.repo)
         env = {k: v for k, v in os.environ.items() if k not in KEYS}
         env["XDG_CONFIG_HOME"] = self.xdg
+        env["BATON_LANG"] = "ko"  # 한국어 출력을 보는 테스트 — 영어는 EnglishConfigTest
         p = mock.patch.dict(os.environ, env, clear=True)
         p.start(); self.addCleanup(p.stop)
 
@@ -36,6 +39,8 @@ class ConfigTest(unittest.TestCase):
         with open(config.path(), "w", encoding="utf-8") as f:
             f.write(data if isinstance(data, str) else json.dumps(data, ensure_ascii=False))
 
+
+class ConfigTest(ConfigFixture):
     def test_precedence_env_repo_global_default(self):
         self.assertEqual(config.get("BATON_HANDOFF_NUDGE_FILES", self.repo, "3"), "3")
         self.write({"global": {"BATON_HANDOFF_NUDGE_FILES": "4"}})
@@ -172,6 +177,91 @@ class ConfigTest(unittest.TestCase):
         self.assertNotIn("비밀이름", out)
 
 
+class EnglishConfigTest(ConfigFixture):
+    """BATON_LANG=en이면 상태 줄·거절 이유·쓰기 오류가 영어다. 출력 언어 줄은 그 언어를 정한 곳을 말한다."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ["BATON_LANG"] = "en"
+        self.apple = None  # macOS 언어 목록(AppleLanguages)인 척하는 값 — 기본은 못 읽음
+        p = mock.patch.object(i18n, "_apple_languages", lambda: self.apple)
+        p.start(); self.addCleanup(p.stop)
+
+    def locale(self, **env):
+        for k in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG"):
+            os.environ.pop(k, None)
+        os.environ.update(env)
+
+    def test_status_english(self):
+        self.assertEqual(config.status(self.repo), [
+            f"Config file: none ({config.path()}). /baton-setup has not been run. Only code defaults and environment variables apply",
+            "Output language: en (source: the BATON_LANG environment variable)"])
+        config.update(self.repo, {"BATON_SPLIT_RATIOS": "4"}, add={"private_terms": ["secret name"]})
+        out = "\n".join(config.status(self.repo))
+        for want in (f"Config file: read ({config.path()}, mode 600)", "Section for this repo: yes", "  BATON_SPLIT_RATIOS=4",
+                     "  BATON_LANG=en (environment variable)", "  private_terms: 1 entry"):
+            self.assertIn(want, out)
+        self.assertNotIn("secret name", out)
+        self.assertIsNone(re.search("[\uac00-\ud7a3]", out), out)
+        self.write("{broken")
+        self.assertIn("present but unreadable", config.status(self.repo)[0])
+
+    def test_language_line_names_the_source(self):
+        self.locale(LANG="ko_KR.UTF-8")
+        self.assertEqual(config.status(self.repo)[-1], "출력 언어: ko(정한 곳: 로캘 LANG=ko_KR.UTF-8)")
+        self.locale(LC_ALL="C.UTF-8", LANG="ko_KR.UTF-8")
+        self.assertEqual(config.status(self.repo)[-1], "Output language: en (source: the locale, LC_ALL=C.UTF-8)")
+        self.locale()
+        self.assertEqual(config.status(self.repo)[-1],
+                         "Output language: en (source: the default, as neither BATON_LANG nor a locale variable is set)")
+        config.update(None, {"BATON_LANG": "ko"})
+        self.assertEqual(config.status(self.repo)[-1], "출력 언어: ko(정한 곳: 설정 파일의 BATON_LANG)")
+        os.environ["BATON_LANG"] = "auto"  # auto는 로캘을 따른다 — 설정 파일의 ko보다 환경변수가 이긴다
+        os.environ["LANG"] = "en_US.UTF-8"
+        self.assertEqual(config.status(self.repo)[-1], "Output language: en (source: the locale, LANG=en_US.UTF-8)")
+        os.environ["BATON_LANG"] = ""  # 빈 환경변수는 없는 것 — 설정 파일의 ko가 보인다
+        self.assertEqual(config.status(self.repo)[-1], "출력 언어: ko(정한 곳: 설정 파일의 BATON_LANG)")
+
+    def test_language_line_names_the_macos_language_list(self):
+        self.locale()
+        self.apple = "ko-KR"
+        self.assertEqual(config.status(self.repo)[-1], "출력 언어: ko(정한 곳: macOS 언어 목록 AppleLanguages=ko-KR)")
+        self.apple = "en-US"
+        self.assertEqual(config.status(self.repo)[-1],
+                         "Output language: en (source: the macOS language list, AppleLanguages=en-US)")
+
+    def test_invalid_reasons_english(self):
+        cases = {("BATON_SPLIT_RATIOS", "0"): "must be numbers of 1 or more, separated by commas (for example 2,3)",
+                 ("BATON_HANDOFF_NUDGE_FILES", "0"): "must be a whole number of 1 or more",
+                 ("BATON_SPLIT_NOTICE", "of"): "must be one of on/off/1/0/true/false/yes/no",
+                 ("BATON_LANG", "kr"): "must be one of ko, en, auto",
+                 ("BATON_LOG", "x"): "must be an absolute path",
+                 ("private_terms", "x"): "must be at least two characters long (a single character matches almost any text)",
+                 ("BATON_NOPE", "1"): "unknown key"}
+        for (k, v), want in cases.items():
+            self.assertEqual(config.invalid(k, v), want)
+        self.assertEqual(config.invalid("BATON_LOG", "x", "ko"), "절대 경로여야 한다")
+        self.assertIsNone(config.invalid("BATON_LANG", "EN", "ko"))
+
+    def test_write_errors_english(self):
+        self.write("{broken")
+        with self.assertRaises(ValueError) as e:
+            config.update(self.repo, {"BATON_SPLIT_RATIOS": "4"})
+        self.assertIn("Not overwriting it", str(e.exception))
+        self.write({"global": [], "repos": {}})
+        with self.assertRaises(ValueError) as e:
+            config.update(self.repo, {"BATON_SPLIT_RATIOS": "4"})
+        self.assertIn("global or repos in", str(e.exception))
+
+    def test_cli_follows_locale(self):
+        script = os.path.join(HERE, "config.py")
+        env = {k: v for k, v in os.environ.items() if k not in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")}
+        for lang, want in (("ko_KR.UTF-8", "설정 파일: 없음"), ("C.UTF-8", "Config file: none")):
+            r = subprocess.run([sys.executable, script, self.repo], capture_output=True, text=True, env=dict(env, LANG=lang))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(want, r.stdout)
+
+
 class HooksReadConfigTest(unittest.TestCase):
     """훅이 환경변수 대신 설정 파일을 읽고, 환경변수가 여전히 이기고, 깨진 설정에도 조용히 끝나는지."""
 
@@ -198,7 +288,8 @@ class HooksReadConfigTest(unittest.TestCase):
     def hook(self, name, payload, **env):
         e = {k: v for k, v in os.environ.items() if k not in KEYS}
         e.update(XDG_CONFIG_HOME=self.xdg, XDG_CACHE_HOME=os.path.join(self.root, "cache"),
-                 BATON_LOG=os.path.join(self.root, "runs.jsonl"), CLAUDE_PROJECT_DIR=self.repo, **env)
+                 BATON_LOG=os.path.join(self.root, "runs.jsonl"), CLAUDE_PROJECT_DIR=self.repo, BATON_LANG="ko")
+        e.update(env)  # 한국어 출력을 본다(위). 영어는 각 훅의 테스트
         r = subprocess.run([sys.executable, os.path.join(HOOKS, name)], input=json.dumps(payload), text=True,
                            capture_output=True, env=e)
         self.assertEqual((r.returncode, r.stderr), (0, ""))
@@ -218,7 +309,7 @@ class HooksReadConfigTest(unittest.TestCase):
         self.config({"BATON_SPLIT_RATIOS": "5"})
         self.assertIsNone(self.stop("split-notice.py", "s1"))  # 4.5배 < 5
         self.config({"BATON_SPLIT_RATIOS": "4"})
-        self.assertIn("4배에서", self.stop("split-notice.py", "s2")["systemMessage"])
+        self.assertIn("대화가 처음보다 4배 넘게 길어졌어요", self.stop("split-notice.py", "s2")["systemMessage"])
         self.config({"BATON_SPLIT_NOTICE": "off"})
         self.assertIsNone(self.stop("split-notice.py", "s3"))
 
@@ -246,7 +337,7 @@ class HooksReadConfigTest(unittest.TestCase):
         for i, bad in enumerate(["{깨진", "[" * 200000, json.dumps(dict(off, pad="x" * (1024 * 1024)))]):
             self.config(bad)  # 깨진 JSON · 깊은 중첩(RecursionError) · 1MB 넘는 파일(안의 off는 무시돼야 한다)
             self.assertIn("[baton] 아래는", self.hook("handoff-inject.py", {"prompt": "이어서"})["hookSpecificOutput"]["additionalContext"])
-            self.assertIn("3배에서", self.stop("split-notice.py", f"b{i}")["systemMessage"])  # 기본 문턱 2,3 그대로
+            self.assertIn("대화가 처음보다 3배 넘게 길어졌어요", self.stop("split-notice.py", f"b{i}")["systemMessage"])  # 기본 문턱 2,3 그대로
             out = self.hook("handoff-check.py", {"hook_event_name": "PostToolUse", "tool_input": {"file_path": p}, "cwd": self.repo})
             self.assertIn("홈 절대경로", out["reason"])
 

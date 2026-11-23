@@ -17,25 +17,36 @@
   concepts.py <파일> index      →  개념 색인(index) — 개념마다 이름·제목의 '—' 뒤 한 줄·주요 파일 한 줄. 훅이 세션 첫 프롬프트에 넣는 것과 같다
 """
 import io
+import os
 import re
 import sys
 import unicodedata
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 SECTION = re.compile(r"^##\s*(\d{1,2})\.\s*(.*)$")
 # 숫자 없는 #·## 제목(일치 확인된 것·유지 규칙 등)은 개념 절을 닫는다. 안 닫으면 마지막 개념 본문에 붙는다(2026-11-21 baton CONCEPTS.md)
 OTHER_HEADING = re.compile(r"^#{1,2}\s")
 # 코드 펜스(``` · ~~~). 펜스 안의 '# 주석'·'## 1.'은 제목이 아니다(PR #11 리뷰가 잡은 회귀)
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-META = re.compile(r"^- \*\*메타\*\*:")
+META = re.compile(r"^- \*\*(?:메타|Meta)\*\*:")
+# 메타 줄 키. 한국어가 코드 안의 정본 이름이고 영어 지도는 오른쪽 이름을 쓴다. 어느 언어 설정이든 둘 다 읽는다
+KEY_EN = {"상태": "status", "확인": "checked", "파일": "files", "이웃": "neighbors", "문서": "docs", "별칭": "aliases"}
+KEY_KO = {v: k for k, v in KEY_EN.items()}
+# 개념을 부르는 말: "개념 12" · "Concept 12"(영어 지도). 영어는 낱말 경계에서만 — 'subconcept 2'는 아니다
+CONCEPT_WORD = r"(?:개념|\b[Cc]oncepts?)"
 # "개념 12", "개념 1·3" 만 잡는다. 문장 안의 일반 · 구분자는 먹지 않는다.
-REF = re.compile(r"개념\s*(\d{1,2}(?:\s*[·,]\s*\d{1,2})*)")
+REF = re.compile(CONCEPT_WORD + r"\s*(\d{1,2}(?:\s*[·,]\s*\d{1,2})*)")
 # `경로.확장자:줄번호` 형태의 근거
 EVIDENCE = re.compile(r"`([A-Za-z0-9_./가-힣-]+\.[a-z][a-z0-9]*):[0-9][0-9,~-]*`")
 # related 전용: '관련' 뒤의 개념 가리킴. 개수("개념 35개")·부정("개념 1은 변경 없음")은 가리킴이 아니다
-REL_NUM = re.compile(r"개념\s*(\d{1,2}(?:\s*[·,~]\s*\d{1,2})*)(?!\d|\s*(?:개|종|가지))")
-REL_NEG = re.compile(r"^\S{0,3}\s*(?:은|는)?\s*(?:변경\s*없|그대로|무관)")
+REL_NUM = re.compile(CONCEPT_WORD + r"\s*(\d{1,2}(?:\s*[·,~]\s*\d{1,2})*)(?!\d|\s*(?:개|종|가지))")
+REL_NEG = re.compile(r"^\S{0,3}\s*(?:은|는)?\s*(?:변경\s*없|그대로|무관)"
+                     r"|^\s*(?:is\s+|was\s+)?(?:unchanged|not\s+changed|no\s+change|unaffected|not\s+affected|unrelated)", re.I)
 # 개념 "A"·"B" 처럼 이름으로 가리킨 것. 개념 뒤 따옴표 묶음을 다음 '개념' 전까지 전부 잡는다
-REL_NAME_RUN = re.compile(r"개념\s*([\"“'‘].*?)(?=개념|$)")
+REL_NAME_RUN = re.compile(CONCEPT_WORD + r"\s*([\"“'‘].*?)(?=" + CONCEPT_WORD + r"|$)")
+# 영어 결정 기록의 'Related:' 줄. 영어 'related'는 흔한 낱말이라 콜론까지 붙은 것만 본다(한국어 '관련'은 지금처럼 어디서든)
+REL_EN = re.compile(r"\b[Rr]elated\s*:")
 QUOTED = re.compile(r"[\"“'‘]([^\"”'’]{2,40})[\"”'’]")
 TABLE_ROW = re.compile(r"^\|\s*\*{0,2}(\d{1,2})\*{0,2}\s*\|")
 TABLE_SEP = re.compile(r"^\|[\s:-]+\|")
@@ -44,11 +55,30 @@ TICKED = re.compile(r"`([^`]+)`")
 
 
 def field(line, key):
-    """메타 줄에서 한 항목을 꺼낸다. 항목 구분자는 ' · '."""
+    """메타 줄에서 한 항목을 꺼낸다. 항목 구분자는 ' · '. key는 한국어 이름 — 영어 이름(KEY_EN, 대소문자 무시)도 같이 찾는다."""
     # 키 바로 앞은 줄 시작·':'·'·'(사이 공백은 몇 개든) — '파일='이 '근거파일=' 같은 다른 키 안에서 걸리지 않게.
     # '**메타**:상태=…'처럼 공백이 없거나 두 칸인 손글씨 줄도 main 이전처럼 읽는다
-    m = re.search(r"(?:^|[:·])\s*" + re.escape(key) + r"=(.*?)(?: · |$)", line)
+    names = re.escape(key) + ("|" + re.escape(KEY_EN[key]) if key in KEY_EN else "")
+    m = re.search(r"(?:^|[:·])\s*(?:" + names + r")=(.*?)(?: · |$)", line, re.I)
     return m.group(1).strip() if m else ""
+
+
+def no_files(value):
+    """목록 값이 '없음'인가: '없음…' 또는 영어 'none'·'none(rule concept)'. 파일=(규칙 개념)과 문서=에 쓴다."""
+    v = value.strip()
+    return v.startswith("없음") or re.match(r"(?i)none(?:$|[\s(])", v) is not None
+
+
+CLI_REPO = None  # 명령줄로 돌 때 지도가 든 폴더 — 저장소 절의 BATON_LANG도 보게
+
+
+def lang_of(lang=None):
+    """메시지 언어. 부르는 쪽이 정했으면 그것, 아니면 lib/i18n.py 순서(환경변수 > 저장소·전역 설정 > 로캘).
+    i18n(설정 읽기)은 여기서만 불러온다 — 언어가 필요 없는 명령(sections·meta 등)은 시작이 느려지지 않게."""
+    if lang in ("ko", "en"):
+        return lang
+    import i18n
+    return i18n.lang(CLI_REPO)
 
 
 def read(path):
@@ -134,7 +164,9 @@ def cmd_meta(lines):
                     h.group(1) if h else "",
                     field(line, "파일"),
                     field(line, "이웃"),
-                    field(line, "문서"),
+                    # 문서=없음 · docs=none은 '설명된 문서가 없다'이지 경로가 아니다 — 경로로 넘기면 fresh.sh가 '문서 경로 소실'을
+                    # 영영 낸다(그 개념이 재확인에 묶인다). 빈 칸으로 낸다
+                    "" if no_files(field(line, "문서")) else field(line, "문서"),
                 ]
                 print("\t".join(c if c else "-" for c in cells))
                 break
@@ -174,13 +206,17 @@ def cmd_related(lines):
     절에 없는 번호·못 이은 이름은 '?' 줄로 낸다 — 못 센 것을 0으로 두지 않는다."""
     sections = [(num, name.split("—")[0].strip()) for num, name, _ in walk(lines)]
     nums = {n for n, _ in sections}
+    no_section = "개념 %d(절 없음)" if lang_of() == "ko" else "Concept %d (no section)"
     hit, unknown = set(), set()
     for line in sys.stdin.read().splitlines():
         if not line.startswith("+") or line.startswith("+++"):
             continue
         tail = line.split("관련", 1)
         if len(tail) < 2:
-            continue
+            m = REL_EN.search(line)
+            if not m:
+                continue
+            tail = ["", line[m.end():]]
         tail = tail[1]
         for m in REL_NUM.finditer(tail):
             if REL_NEG.match(tail[m.end():]):
@@ -188,7 +224,7 @@ def cmd_related(lines):
             for part in re.split(r"[·,]", m.group(1)):
                 ends = [int(x) for x in re.split(r"~", part) if x.strip()]
                 for n in (range(ends[0], ends[-1] + 1) if len(ends) == 2 else ends):
-                    (hit if str(n) in nums else unknown).add(str(n) if str(n) in nums else "개념 %d(절 없음)" % n)
+                    (hit if str(n) in nums else unknown).add(str(n) if str(n) in nums else no_section % n)
         for run in REL_NAME_RUN.findall(tail):
             for ref in QUOTED.findall(run):
                 ref = ref.strip().rstrip("…").strip()
@@ -203,14 +239,17 @@ def cmd_related(lines):
         print("?\t%s" % ref)
 
 
-def warnings(lines):
+def warnings(lines, lang=None):
     """파서가 조용히 못 읽은 부분(한 줄씩). 못 센 것을 0으로 두지 않으려고 따로 낸다(2026-11-21 재검증: 열린 채 끝난 펜스 뒤 개념이 사라졌다).
     정상으로 닫힌 펜스 안의 '## N.'은 예시라서 경고하지 않는다(재현 저장소 t6: 세션마다 거짓 알림이 났다)."""
     *_, (_, open_at) = fences(lines)
     if not open_at:
         return []
     lost = sum(1 for l in lines[open_at:] if SECTION.match(l))
-    return ["코드 펜스가 %d줄에서 열린 채 파일이 끝난다 — 그 뒤 개념 %d개를 못 읽었다" % (open_at, lost)]
+    if lang_of(lang) == "ko":
+        return ["코드 펜스가 %d줄에서 열린 채 파일이 끝난다 — 그 뒤 개념 %d개를 못 읽었다" % (open_at, lost)]
+    return ["a code fence opened at line %d is never closed — %d concept%s after it could not be read"
+            % (open_at, lost, "" if lost == 1 else "s")]
 
 
 def cmd_warnings(lines):
@@ -227,6 +266,8 @@ INDEX_MAX_CONCEPTS = 200  # 이보다 많은 개념은 '… N개 더'로만 센�
 # 인계서·개념 절 머리말과 같은 입장: 지도는 가설이다. "그 파일만"이라고 하면 탐색을 너무 일찍 멈춘다(리뷰 MEDIUM-5)
 INDEX_HEAD = ("[baton] 이 저장소 개념 지도({path}) 색인이다. 작업에 맞는 개념의 파일부터 연다. "
               "개념은 탐색 앵커다 — 실제 동작은 코드로 확인한다. 자세한 근거는 {path}의 그 절에.")
+INDEX_HEAD_EN = ("[baton] Index of this repo's concept map ({path}). Open the files of the concept that fits the task first. "
+                 "A concept is a navigation anchor — check actual behavior in the code. The evidence is in that section of {path}.")
 RETIRED = ("폐기", "폐기됨", "retired")  # 상태의 첫 낱말이 정확히 이것일 때만(스킬 어휘는 '폐기됨(날짜)')
 # 색인에 내지 않는 경로: 홈 절대경로(lib/handoff_check.py SECRETS의 '홈 절대경로'와 같은 범위)와 '~/'. 공개 저장소의 지도에
 # 남아 있어도 다른 사람 컴퓨터에서는 열리지 않고 사용자 이름을 드러낸다. 같은 범위인지는 lib/test_concepts_index.py가 묶는다
@@ -239,8 +280,9 @@ def meta_fields(line):
     out, cur = {}, None
     for item in META.sub("", line, 1).strip().split(" · "):
         key, eq, val = item.partition("=")
-        if eq and META_KEY.match(key.strip()) and key.strip() not in out:
-            cur = key.strip()
+        key = KEY_KO.get(key.strip().lower(), key.strip())  # 영어 키는 한국어 이름으로 맞춘다 — 읽는 쪽은 한 이름만 본다
+        if eq and META_KEY.match(key) and key not in out:
+            cur = key
             out[cur] = val.strip()
         elif cur is not None:
             out[cur] += " · " + item.strip()
@@ -256,7 +298,7 @@ def meta_files(value):
         cands += [m.group(1)] if m.group(1) else [re.sub(r"\s*\(.*\)$", "", x) for x in re.split(r"\s*[,·]\s*", m.group(2))]
     for x in cands:
         x = re.sub(r":[0-9][0-9,~-]*$", "", x.strip())
-        if x and x != "-" and not x.startswith("없음") and not x.startswith("(") and not HOME_PATH.match(x) and x not in out:
+        if x and x != "-" and not no_files(x) and not x.startswith("(") and not HOME_PATH.match(x) and x not in out:
             out.append(x)
     return out
 
@@ -285,12 +327,15 @@ def clip(text, n):
     return text if len(text) <= n else text[:n - 1].rstrip() + "…"
 
 
-def index(text, max_chars=INDEX_LIMIT_CHARS, path="CONCEPTS.md"):
+def index(text, max_chars=INDEX_LIMIT_CHARS, path="CONCEPTS.md", lang="ko"):
     """개념 색인 문자열(끝 줄바꿈 포함). 넣을 개념이 없거나 머리말조차 안 들어가면 "".
     한 줄: 'N. 이름 — 한 줄 요약 · 파일: a.py, b/c.py (+2)'. 요약은 절 제목의 '—' 뒤뿐이다. 없으면 요약 없이 이름만.
     폐기된 개념은 뺀다(메타 줄 상태 또는 요약표 상태). 파일이 없는 개념(규칙 개념)은 파일 부분이 없다.
     max_chars를 넘으면 이 순서로 줄인다: 뒤쪽 개념부터 요약을 뗀다 → 뒤쪽 개념부터 첫 파일만 남긴다 → 뒤쪽 개념을 빼고
-    '… N개 더' 한 줄로 남긴다(조용히 자르지 않는다). 결정론·표준 라이브러리만."""
+    '… N개 더' 한 줄로 남긴다(조용히 자르지 않는다). 결정론·표준 라이브러리만.
+    lang: "ko"·"en"(머리말과 '파일:'·'… N개 더' 낱말). 기본값은 예전 그대로 한국어 — 부르는 쪽(훅)이 정한 언어를 넘긴다.
+    None이면 lang_of()(환경변수 > 설정 > 로캘)."""
+    ko = lang_of(lang) == "ko"
     lines = unicodedata.normalize("NFC", text).splitlines()  # macOS에서 온 NFD 글자도 같은 이름으로
     table = table_states(lines)
     items = []
@@ -305,7 +350,7 @@ def index(text, max_chars=INDEX_LIMIT_CHARS, path="CONCEPTS.md"):
         items.append((num, title.strip(), clip(sub.strip(), INDEX_SUMMARY), meta_files(meta.get("파일", ""))))
     if not items:
         return ""
-    head = INDEX_HEAD.format(path=path)
+    head = (INDEX_HEAD if ko else INDEX_HEAD_EN).format(path=path)
 
     def line(item, level):  # level 0 전부 · 1 요약 없음 · 2 요약 없음·첫 파일만
         num, title, summary, files = item
@@ -314,11 +359,11 @@ def index(text, max_chars=INDEX_LIMIT_CHARS, path="CONCEPTS.md"):
             s += " — " + summary
         if files:
             k = INDEX_FILES if level < 2 else 1
-            s += " · 파일: " + ", ".join(files[:k]) + (" (+%d)" % (len(files) - k) if len(files) > k else "")
+            s += (" · 파일: " if ko else " · files: ") + ", ".join(files[:k]) + (" (+%d)" % (len(files) - k) if len(files) > k else "")
         return s
 
     def more(n):
-        return "… %d개 더 — %s 요약표" % (n, path)
+        return ("… %d개 더 — %s 요약표" if ko else "… %d more — see the summary table in %s") % (n, path)
 
     # 줄은 개념마다 세 단계를 미리 만들어 두고 길이 합만 고쳐 간다 — 개념 수에 비례(O(n)). 줄마다 끝 줄바꿈 1자
     shown = items[:INDEX_MAX_CONCEPTS]
@@ -346,8 +391,23 @@ def index(text, max_chars=INDEX_LIMIT_CHARS, path="CONCEPTS.md"):
 
 
 def cmd_index(lines):
-    sys.stdout.write(index("\n".join(lines)))
+    sys.stdout.write(index("\n".join(lines), lang=lang_of()))
 
+
+USAGE_EN = """CONCEPTS.md parser shared by baton's scripts. Prints tab-separated lines.
+
+  concepts.py <file> sections   ->  number \t name
+  concepts.py <file> table      ->  number \t status       (empty for a table without a number column)
+  concepts.py <file> rows       ->  number of data rows in the summary table
+  concepts.py <file> meta       ->  number \t name \t status \t date \t hash \t files \t neighbors \t docs
+  concepts.py <file> refs       ->  from \t to (references between concepts)
+  concepts.py <file> evidence   ->  evidence paths (path:line), deduplicated
+  concepts.py <file> states     ->  status words in use, deduplicated
+  concepts.py <file> related    ->  concept numbers that new Related lines in a DECISIONS.md diff (stdin) point to
+                                    a name that matches no section: ? \t name
+  concepts.py <file> warnings   ->  parts the parser could not read (a code fence left open), one per line
+  concepts.py <file> index      ->  the concept index the hook adds to a session's first prompt
+"""
 
 COMMANDS = {
     "sections": cmd_sections, "table": cmd_table, "rows": cmd_rows,
@@ -358,5 +418,6 @@ COMMANDS = {
 
 if __name__ == "__main__":
     if len(sys.argv) != 3 or sys.argv[2] not in COMMANDS:
-        sys.exit(__doc__)
+        sys.exit(__doc__ if lang_of() == "ko" else USAGE_EN)
+    CLI_REPO = os.path.dirname(os.path.abspath(sys.argv[1]))
     COMMANDS[sys.argv[2]](read(sys.argv[1]))

@@ -17,7 +17,8 @@ MAP = "## 1. 세이브 — 저장 규칙\n본문1\n\n## 2. 카메라 — 시점\
 
 
 _TMP = [tempfile.TemporaryDirectory()]
-_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _TMP[0].name})  # 실제 설정 파일을 읽지 않는다(훅 자식 프로세스도)
+# 실제 설정 파일을 읽지 않는다(훅 자식 프로세스도). 한국어 단언은 BATON_LANG=ko로 고정 — 영어는 EnglishRulesTest
+_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _TMP[0].name, "BATON_LANG": "ko"})
 
 
 def setUpModule():
@@ -94,6 +95,14 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(rules.decide(r, "pick up from last time")["handoff"]["state"], "MATCHED")  # 대소문자 무시
         self.assertEqual(rules.decide(r, "버그 고쳐줘")["handoff"]["state"], "NO_MATCH")
         self.assertEqual(rules.decide(repo({}), "지난번 거")["handoff"]["state"], "NO_MATCH")  # 다른 저장소에는 안 퍼진다
+
+    def test_phrases_skip_english_function_words(self):
+        # /baton-setup 트리거 제안에 "as"·"please"가 올라왔다(en-setup 11-23). 한국어 결과는 그대로
+        self.assertEqual(rules.phrases("please pick it up as before from the save slots"),
+                         {"pick", "before", "save", "slots", "save slots"})
+        self.assertEqual(rules.phrases("체크포인트 기록 고쳐줘 1 a"), {"체크포인트", "기록", "고쳐줘", "체크포인트 기록", "기록 고쳐줘"})
+        self.assertEqual(rules.phrases("Please, AS the THE"), set())  # 대소문자 무시
+        self.assertEqual(rules.title_words("as — x"), ["as"])  # 개념 제목 매칭은 그대로
 
     def test_trigger_words_deduplicated_and_domain_unconfigured(self):
         d = rules.decide(repo({}), "이어서 이어서 이어서 인계")
@@ -296,6 +305,78 @@ class ExplainIndexTest(unittest.TestCase):
             self.assertIn("개념 색인 넣지 않는다 — BATON_CONCEPT_INDEX=off", rules.explain(r, "x"))
         self.assertIn("개념 색인 넣지 않는다 — 개념 지도(CONCEPTS.md)가 없다", rules.explain(repo({}), "x"))
         self.assertIn("넣을 개념이 없다", rules.explain(repo({"CONCEPTS.md": "# 빈 지도\n"}), "x"))
+
+
+class EnglishRulesTest(unittest.TestCase):
+    """BATON_LANG=en이면 explain과 신선도 한 줄이 영어다. 판단(decide)은 언어와 무관하다."""
+    TODAY = FreshnessTest.TODAY
+
+    def setUp(self):
+        env = mock.patch.dict(os.environ, {"BATON_LANG": "en"}); env.start(); self.addCleanup(env.stop)
+
+    def test_explain_in_english(self):
+        r = repo({"HANDOFF.md": "# Session Handoff (written: 2020-01-01)\n", "CONCEPTS.md": MAP})
+        out = rules.explain(r, "where were we? 세이브 고쳐줘")
+        lines = out.splitlines()
+        self.assertEqual(lines[0], f"[baton] Rule verdict (rules-v1) — repo {r}")
+        self.assertEqual(lines[2], "handoff   MATCHED — injected (matched: where were we)")
+        self.assertTrue(lines[3].startswith("          Could not count") or lines[3].startswith("          This handoff is as of 2020-01-01 ("), lines[3])
+        self.assertIn("concepts  MATCHED — candidates: 1. 세이브", out)
+        self.assertRegex(out, r"concept index  injected — [0-9,]+ chars, 2 concepts, once on the session's first human prompt")
+        self.assertIn("task type MATCHED — debugging", out)
+        self.assertIn("domain    UNCONFIGURED — not set by a person yet (not counted)", out)
+        self.assertEqual(lines[-1], "verdict path: rules (no Jev yet — before roadmap step 4)")
+        self.assertNotRegex(out.replace("세이브", ""), "[가-힣]")  # 개념 이름 말고는 한국어가 없다
+        self.assertIn("there is no HANDOFF.md to inject", rules.explain(repo({}), "where were we"))
+        self.assertIn("no map (CONCEPTS.md missing or unreadable)", rules.explain(repo({}), "x"))
+        self.assertIn("concept index  not injected — there is no concept map (CONCEPTS.md)", rules.explain(repo({}), "x"))
+        m = rules.explain(r, '<agent-message from="x">where were we')
+        self.assertIn("but not injected: the message came from another session or a task notification", m)
+        self.assertIn("task type MACHINE — sent by another session or a task notification, so not counted", m)
+        self.assertIn("handoff   NO_MATCH — not injected", rules.explain(r, "x"))
+        with mock.patch.dict(os.environ, {"BATON_HANDOFF_INJECT": "off", "BATON_CONCEPT_INDEX": "off"}):
+            off = rules.explain(r, "where were we")
+        self.assertIn("but not injected because BATON_HANDOFF_INJECT=off", off)
+        self.assertIn("concept index  not injected — BATON_CONCEPT_INDEX=off", off)
+        with mock.patch.dict(os.environ, {"BATON_LANG": "ko"}):
+            ko = rules.decide(r, "where were we? 세이브 고쳐줘")
+        self.assertEqual(rules.decide(r, "where were we? 세이브 고쳐줘"), ko)  # 판단(로그에 남는 것)은 언어와 무관
+
+    def test_freshness_lines_in_english(self):
+        f = rules.handoff_freshness(repo({}), "# Session Handoff (written: 2026-10-01)\n", self.TODAY)
+        self.assertEqual((f["written"], f["source"], f["days"]), ("2026-10-01", "header", 38))
+        self.assertEqual(rules.freshness_line(f),
+                         "[baton] This handoff is as of 2026-10-01 (38 days ago, date in its first line). Could not count the "
+                         "commits since then (not a git repo, or git timed out or failed). 38 days have passed — first check "
+                         "that the next step still holds.")
+        today = rules.freshness_line(rules.handoff_freshness(repo({}), "# Session Handoff (written: 2026-11-08)\n", self.TODAY))
+        self.assertIn("(today, date in its first line)", today)
+        self.assertNotIn("have passed", today)
+        one = dict(f, days=1, commits_after=1, unknown=[])
+        self.assertIn("(1 day ago,", rules.freshness_line(one))
+        self.assertIn("1 commit since then is not in it — start with `git log --oneline -1 -- .`.", rules.freshness_line(one))
+        self.assertIn("No commits since then.", rules.freshness_line(dict(f, commits_after=0, unknown=[])))
+        self.assertIn("It has uncommitted edits.", rules.freshness_line(dict(f, dirty=True, unknown=[])))
+        bad = rules.handoff_freshness(repo({}), "# Session Handoff (written: 2026-13-45)\n", self.TODAY)
+        self.assertIn("the date in the first lines (2026-13-45) is invalid", rules.freshness_line(bad))
+        with mock.patch.object(rules.subprocess, "run") as run:
+            g = rules.safe_freshness(repo({}), "# notes\n", deadline=0)
+        run.assert_not_called()
+        self.assertIn("no date in the first lines, and could not count the commits since then (hook time limit)",
+                      rules.freshness_line(g))
+        with mock.patch.object(rules, "handoff_freshness", side_effect=RuntimeError("x")):
+            self.assertIn("freshness check failed (RuntimeError)", rules.freshness_line(rules.safe_freshness(repo({}), "x")))
+        # 한국어 저장소 설정과 달리 명시한 언어가 이긴다 — 훅은 한 번 정한 언어를 둘 다에 넘긴다
+        self.assertIn("첫 줄 작성일", rules.freshness_line(rules.handoff_freshness(repo({}), "# H (written: 2026-10-01)\n",
+                                                                              self.TODAY, lang="ko"), "ko"))
+
+    def test_explain_cli_follows_locale_when_unset(self):
+        r = repo({"HANDOFF.md": "x"})
+        base = {k: v for k, v in os.environ.items() if k not in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")}
+        for loc, head in (("ko_KR.UTF-8", "[baton] 규칙 판단"), ("C.UTF-8", "[baton] Rule verdict")):
+            p = subprocess.run([sys.executable, os.path.join(HERE, "rules.py"), "explain", "-", r], input="이어서",
+                               capture_output=True, text=True, env=dict(base, LANG=loc))
+            self.assertTrue(p.stdout.startswith(head), (loc, p.stdout[:80]))
 
 
 class ObserveLogTest(unittest.TestCase):

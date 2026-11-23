@@ -13,8 +13,11 @@
 # variable to raise it". 실측(루프 2)도 같다: 8,995자는 그대로 들어갔고, 20,826자는 파일로 빠져 에이전트가 그 파일을 다시 cat했다.
 # ponytail: 여유 400자. 문서의 "characters"가 UTF-16 단위인지는 확인 못 함 — 그렇다면 이모지처럼 BMP 밖 글자는 둘로 센다.
 # 인계서 본문 예산은 머리말·신선도 한 줄(최대 rules.FRESHNESS_MAX)·꼬리 안내 몫을 뺀 나머지다 — 최소 8,739자로
-# 검사기 상한 8,700자(PR #14)를 늘 넘는다. hooks/test_handoff_inject.py HookOutputBudgetTest가 이 셈을 묶는다.
+# 검사기 상한 8,700자(PR #14)를 늘 넘는다. 영어는 머리말이 길어 신선도 상한이 rules.FRESHNESS_MAX_EN이고 최소 8,712자다.
+# hooks/test_handoff_inject.py HookOutputBudgetTest가 두 언어의 셈을 묶는다.
 # 넘치면 잘랐다는 것을 한 줄로 말한다 — 조용히 자르면 뒤쪽에 있는 다음 행동을 "없음"으로 읽는다.
+# 필독 줄: "관련 파일·심볼" 절에서 (필독)·(must read) 표시가 붙은 항목(최대 3개)을 신선도 줄 바로 뒤 한 줄로 올린다
+# (lib/handoff_check.py must_read_line) — 잘려도 남고 건너뛰지 않게. 검사기가 이 줄 길이까지 8,700자에 세므로 통과한 인계서는 그대로 전부 들어간다.
 # 한 세션에 같은 인계서는 한 번만 넣는다 — 파일이 바뀌었거나 그 뒤 세션이 압축됐을 때만 다시 넣는다. 사람이 친 프롬프트가 아닌 것
 # (다른 세션의 <agent-message>, <task-notification>)에는 넣지 않는다. 11-18 실사용 로그: 주입 263번 중 226번이 같은 세션의 재주입,
 # 세션 기록과 대조하니 최소 152번은 다른 세션 메시지가 계기였다(한 세션에 41번, 매번 8~9천 자).
@@ -46,7 +49,7 @@
 import hashlib, json, os, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
-import concepts, config, handoff_check, rules, runlog
+import concepts, config, handoff_check, i18n, rules, runlog
 
 LIMIT = 200
 LIMIT_CHARS = 9600  # 훅 출력 전체(문서 상한 10,000자 − 여유 400)
@@ -66,8 +69,16 @@ COMPACT_MARKS = (b'"subtype":"compact_boundary"', b'"type":"compacted"')
 HEAD = ("[baton] 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). "
         "파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, "
         "다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다.")
+# 영어판(docs/GUIDE.md의 예시와 같은 문장). 한국어보다 길어 신선도 한 줄 상한을 rules.FRESHNESS_MAX_EN으로 줄인다 —
+# 두 언어 모두 머리말 + 신선도 상한 + 검사기 상한 + 꼬리 몫이 LIMIT_CHARS 안이다(HookOutputBudgetTest)
+HEAD_EN = ("[baton] Below is the full HANDOFF.md of this repo (injected because the prompt asks about handoff or progress). "
+           "No need to open the file again. But a handoff is a record from when it was written: read it as a hypothesis, "
+           "not a fact, and check only the one or two claims the next step depends on with git or the files before you continue.")
 CONCEPT_HEAD = ("[baton] 아래는 이 저장소 {path}에서 프롬프트와 맞은 개념 한 절이다"
                 "(실험 기능 BATON_CONCEPT_INJECT=on). 개념은 탐색 앵커다. 실제 동작은 필요한 경우 코드로 확인한다.")
+CONCEPT_HEAD_EN = ("[baton] Below is the one concept section in this repo's {path} that matches the prompt "
+                   "(experimental feature BATON_CONCEPT_INJECT=on). A concept is a starting point for finding things. "
+                   "Check the code when you need the actual behavior.")
 
 
 def read_input():
@@ -103,7 +114,7 @@ def inject_concept(repo, prompt):
         return "", None
     num, name, body = hits[0]
     text = concept_text(num, name, body)
-    head = CONCEPT_HEAD.format(path=rel)
+    head = i18n.pick(repo, CONCEPT_HEAD, CONCEPT_HEAD_EN).format(path=rel)
     if len(text) + len(head) + 2 > CONCEPT_LIMIT_CHARS:
         return "", None
     return head + "\n\n" + text + "\n", num
@@ -231,9 +242,16 @@ def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None, reserv
     if already_injected(data, sha):
         return "", None, "already"
     lines = text.splitlines()
+    lang = i18n.lang(repo)
     deadline = None if hook_deadline is None else min(time.monotonic() + rules.GIT_BUDGET, hook_deadline)
-    fresh = rules.safe_freshness(repo, text, deadline)
-    head = HEAD + "\n" + rules.freshness_line(fresh)
+    fresh = rules.safe_freshness(repo, text, deadline, lang)
+    head = (HEAD if lang == "ko" else HEAD_EN) + "\n" + rules.freshness_line(fresh, lang)
+    try:
+        must = handoff_check.must_read_line(text, lang)
+    except Exception:
+        must = ""  # 필독 줄이 깨져도 인계서는 그대로 넣는다
+    if must:
+        head += "\n" + must
     full = LIMIT_CHARS - len(head) - TAIL_RESERVE  # 신선도 한 줄을 먼저 만들고 실제 길이를 뺀다
 
     def cut(budget):
@@ -242,9 +260,13 @@ def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None, reserv
             if used + len(ln) + 1 > budget: break
             keep += 1; used += len(ln) + 1
         out = head + "\n\n" + "\n".join(lines[:keep]) + "\n"
-        if keep < len(lines):
+        if keep < len(lines) and lang == "ko":
             out += (f"\n[baton] 인계서가 {len(lines)}줄이라 {keep}줄까지만 넣었다(상한 {LIMIT}줄·{LIMIT_CHARS}자). "
                     f"나머지는 HANDOFF.md {keep + 1}줄부터 — 필요하면 그 부분만 읽는다. 인계서는 짧게 유지한다.\n")
+        elif keep < len(lines):
+            out += (f"\n[baton] HANDOFF.md has {len(lines)} lines; only the first {keep} went in (limit {LIMIT} lines, "
+                    f"{LIMIT_CHARS:,} chars). The rest starts at line {keep + 1}: read only that part if you need it. "
+                    f"Keep the handoff short.\n")
         return out, keep
 
     out, keep = cut(max(min(full, HANDOFF_KEEP), full - reserve))
@@ -302,7 +324,8 @@ def main():
     try:
         mtext, rel, iskip = concept_index(repo, data, machine)
         if iskip is None:
-            itext = concepts.index(mtext, concepts.INDEX_LIMIT_CHARS, rel)
+            ilang = i18n.lang(repo)
+            itext = concepts.index(mtext, concepts.INDEX_LIMIT_CHARS, rel, lang=ilang)
             iskip = None if itext else "empty"
     except Exception:
         mtext, itext, iskip = "", "", "error"
@@ -315,7 +338,7 @@ def main():
             sep = 1 if htext else 0
             room = LIMIT_CHARS - len(htext) - len(ctext) - sep - (1 if ctext else 0)
             if len(itext) > room:
-                itext = concepts.index(mtext, room, rel) if room > 0 else ""
+                itext = concepts.index(mtext, room, rel, lang=i18n.lang(repo)) if room > 0 else ""
                 iskip = None if itext else "budget"
         except Exception:
             itext, iskip = "", "error"

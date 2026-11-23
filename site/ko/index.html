@@ -6,7 +6,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>baton — AI가 새 대화마다 프로젝트를 다시 읽지 않게</title>
-<meta name="description" content="Claude Code와 Codex에서 쓰는 플러그인이에요. 새 대화는 한 장짜리 인계서로 이어받고, 필요한 파일은 개념 지도로 찾아요.">
+<meta name="description" content="Claude Code와 Codex에서 쓰는 플러그인이에요. 작업을 끝낼 때 AI가 한 장짜리 인계서를 남기고, 다음 대화는 그 한 장에서 시작해요.">
 <link rel="canonical" href="https://sulabo.github.io/baton/ko/">
 <link rel="alternate" hreflang="en" href="https://sulabo.github.io/baton/">
 <link rel="alternate" hreflang="ko" href="https://sulabo.github.io/baton/ko/">
@@ -18,7 +18,7 @@
 <meta property="og:locale:alternate" content="en_US">
 <meta property="og:url" content="https://sulabo.github.io/baton/ko/">
 <meta property="og:title" content="baton — AI가 새 대화마다 프로젝트를 다시 읽지 않게">
-<meta property="og:description" content="Claude Code와 Codex에서 쓰는 플러그인이에요. 새 대화는 한 장짜리 인계서로 이어받고, 필요한 파일은 개념 지도로 찾아요.">
+<meta property="og:description" content="Claude Code와 Codex에서 쓰는 플러그인이에요. 작업을 끝낼 때 AI가 한 장짜리 인계서를 남기고, 다음 대화는 그 한 장에서 시작해요.">
 <meta property="og:image" content="https://sulabo.github.io/baton/og.png">
 <meta property="og:image:width" content="2576">
 <meta property="og:image:height" content="632">
@@ -100,6 +100,8 @@ h2 { font-size: var(--text-h2); line-height: 1.06; letter-spacing: -0.03em; }
 h3 { font-size: var(--text-h3); line-height: 1.15; letter-spacing: -0.02em; }
 p { margin: 0; }
 .mark-accent { color: var(--accent); }
+.nw { white-space: nowrap; } /* 함께 읽어야 하는 말을 한 줄에 둔다 */
+.sent { display: inline-block; } /* 제목 속 문장: 앞 문장과 한 줄에 다 들어가지 않으면 새 줄에서 시작한다 */
 .label { font: 600 0.75rem/1.4 var(--font-ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
 .lede { font-size: var(--text-lg); line-height: 1.6; color: var(--ink-2); max-width: 46ch; }
 .muted { color: var(--ink-3); }
@@ -153,6 +155,7 @@ p { margin: 0; }
 .card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: 12px 16px; border-bottom: 1px solid var(--line);
   font-size: var(--text-xs); color: var(--ink-2); }
 .card-top strong { color: var(--ink); font-weight: 600; }
+.hero .card-top { flex-wrap: wrap; } /* 좁은 화면에서는 실행 표시가 제목 아래로 내려간다 */
 .tag { font: 500 0.6875rem/1 var(--font-mono); letter-spacing: 0.02em; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; white-space: nowrap; }
 .rows { display: grid; }
 .row { padding: 14px 16px; display: grid; gap: 6px; border-bottom: 1px solid var(--line); min-width: 0; }
@@ -189,6 +192,25 @@ html.lenis, html.lenis body { height: auto; }
 .problem-inner { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(32px, 6vw, 96px); align-items: end; }
 .big-num { font: 400 clamp(4.5rem, 2rem + 9vw, 9rem)/0.9 var(--font-display); letter-spacing: -0.04em; color: var(--ink); }
 .big-num small { font-size: 0.42em; letter-spacing: -0.02em; color: var(--ink-3); }
+/* 비용 그림: 막대 길이는 실제 값에 비례(289K = 트랙 전체). 값은 오른쪽 칸에 따로 둬서 점선과 겹치지 않는다. 점선은 첫 호출의 2배(134K) 자리 */
+.cost { margin: 0; display: grid; gap: var(--space-6); min-width: 0; }
+.cost-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-4); }
+.cost-head b { font: 400 clamp(3.5rem, 2rem + 5vw, 6.5rem)/0.9 var(--font-display); letter-spacing: -0.04em; color: var(--ink); }
+.cost-head span { max-width: 15em; color: var(--ink-2); }
+.cost-title { font: 600 var(--text-sm)/1.4 var(--font-ui); color: var(--ink-2); }
+.cost-plot { --x2: 46.4%; position: relative; display: grid; grid-template-columns: 4.25rem minmax(0, 1fr) 3.75rem; gap: var(--space-6) 12px; align-items: center; padding-top: 30px; }
+.cost-over { position: absolute; left: calc(4.25rem + 12px); right: calc(3.75rem + 12px); top: 0; bottom: -8px; pointer-events: none; }
+.cost-over::before { content: ""; position: absolute; left: var(--x2); top: 0; bottom: 0; border-left: 1.5px dashed var(--accent); }
+.cost-mark { position: absolute; left: var(--x2); top: 0; padding-left: 8px; font: 600 var(--text-xs)/1.2 var(--font-ui); color: var(--accent); white-space: nowrap; }
+.cost-k { font: 500 var(--text-xs)/1.2 var(--font-ui); color: var(--ink-3); white-space: nowrap; }
+.cost-bar { display: block; min-width: 0; }
+.cost-bar i { display: block; height: 10px; border-radius: 2px; width: var(--v);
+  background: linear-gradient(to right, var(--ink-quiet) 0 var(--c, 100%), var(--accent) var(--c, 100%) 100%); }
+.cost-v { justify-self: end; font: 400 clamp(1.25rem, 1rem + 0.8vw, 1.625rem)/1 var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.cost-nudge { max-width: 34em; font-size: var(--text-sm); color: var(--ink-2); }
+.flip { display: grid; gap: var(--space-1); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+.flip-n { font: 400 clamp(1.5rem, 1.15rem + 1.2vw, 2.125rem)/1.15 var(--font-display); letter-spacing: -0.02em; color: var(--ink); }
+.flip-t { font-size: var(--text-sm); color: var(--ink-2); }
 
 /* ---------- story (Sol-style: pinned stage, sliding step track, sliding panel strip) ---------- */
 .story { position: relative; }
@@ -203,6 +225,7 @@ html.lenis, html.lenis body { height: auto; }
 .step-num { font: 500 var(--text-xs)/1 var(--font-mono); color: var(--accent); transition: color var(--dur-mid) var(--ease-out); }
 .step h3 { transition: color var(--dur-mid) var(--ease-out); }
 .step p { color: var(--ink-2); max-width: 38ch; transition: color var(--dur-mid) var(--ease-out); }
+.step p.fine { font-size: var(--text-xs); color: var(--ink-3); max-width: 30em; } /* 기술 용어는 작은 글씨로 */
 .panel { min-width: 0; margin-top: var(--space-6); }
 .strip-window { display: none; }
 
@@ -302,6 +325,7 @@ html.lenis, html.lenis body { height: auto; }
   .stats { grid-template-columns: minmax(0, 1fr); }
   .stat, .stat:nth-child(even) { padding: var(--space-6) 0; border-right: 0 !important; }
   .facts li { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .problem .cost { order: 1; } /* 한 줄로 쌓이면 제목과 글이 먼저, 비용 그림이 뒤 */
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
@@ -312,6 +336,16 @@ html.lenis, html.lenis body { height: auto; }
 /* 한국어판: 한글은 Pretendard(라틴 글자는 영어판 글꼴 그대로), 낱말 중간에서 줄을 바꾸지 않는다 */
 body { word-break: keep-all; }
 .label { letter-spacing: 0.04em; } /* 한글에 넓은 자간을 주면 띄어 쓴 것처럼 보인다 */
+/* 글 폭: ch는 라틴 숫자 0의 폭이라 한글(약 2ch)에는 좁다 — 한글 기준 em으로 다시 잡는다 */
+.lede { max-width: 30em; }
+.step p { max-width: 30em; }
+.stat p { max-width: 30em; }
+.diff .aside { max-width: 36em; }
+.tabpanel .note { max-width: 32em; }
+.faq details p { max-width: 36em; }
+.foot-statement { max-width: 15em; }
+.cost-head { flex-wrap: nowrap; column-gap: 0.1em; } /* "85%는"이 한 덩어리로 읽히게 */
+.cost-head span { min-width: 0; }
 </style>
 </head>
 <body>
@@ -335,34 +369,52 @@ body { word-break: keep-all; }
     <svg class="relay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M44 50 C 48 50, 49 54, 53 54" vector-effect="non-scaling-stroke"/></svg>
     <div class="container hero-grid hero-fade">
       <div class="hero-copy">
-        <a class="pill enter d1" href="https://github.com/sulabo/baton/releases"><b>새 버전</b><span>v1.0.0-beta.3 · 같은 인계서는 대화마다 한 번만 넣어요</span></a>
-        <h1 id="hero-title" class="enter d1">AI가 새 대화마다 프로젝트를 처음부터 <span class="mark-accent">다시 읽지</span> 않게.</h1>
-        <p class="lede enter d2">지난 대화는 인계서 한 장으로 이어받고, 필요한 파일은 개념 지도로 바로 찾아요.</p>
+        <a class="pill enter d1" href="https://github.com/sulabo/baton/releases"><b>새 버전</b><span>v1.0.0-beta.4 · 인계서 자동 갱신</span></a>
+        <h1 id="hero-title" class="enter d1">AI가 <span class="nw">새 대화마다</span> 프로젝트를 처음부터 <span class="nw"><span class="mark-accent">다시 읽지</span> 않게.</span></h1>
+        <p class="lede enter d2">어제 한 일을 설명하느라 오늘 토큰을 쓰지 않아도 돼요. <span class="nw">새 대화를 열면</span> AI가 <span class="nw">멈춘 곳과</span> <span class="nw">다음 할 일부터</span> 말해요.</p>
         <div class="install enter d3" id="hero-install">
           <div class="cmd"><code>/plugin marketplace add sulabo/baton</code><button class="copy" type="button" id="copy-hero" data-copy="/plugin marketplace add sulabo/baton">복사</button></div>
           <a class="textlink" href="https://github.com/sulabo/baton">GitHub에서 보기</a>
         </div>
-        <p class="note enter d3">Claude Code와 Codex에서 써요. git과 python3가 필요해요. 무료 오픈소스예요(MIT).</p>
+        <p class="note enter d3"><span class="nw">Claude Code</span>와 Codex에서 써요. git과 python3가 필요해요. 무료 오픈소스예요(MIT).</p>
       </div>
       <figure class="card enter d4" style="margin:0">
-        <div class="card-top"><span><strong>새 대화</strong> · 데모 저장소</span><span class="tag">HANDOFF.md · 한 번만 넣음</span></div>
+        <div class="card-top"><span><strong>새 대화의 첫 순간</strong> · <span class="nw">데모 저장소</span></span><span class="tag">실제 출력(beta.3) · 줄임</span></div>
         <div class="rows">
           <div class="row"><div class="row-head"><span>나</span></div><div>어디까지 했지?</div></div>
-          <div class="row"><div class="row-head"><span class="fresh"><i></i>AI가 먼저 받는 줄</span><span class="tag">실제 출력</span></div>
-            <div class="out"><span class="b">[baton]</span> 이 인계서는 2026-11-11(11일 전, 첫 줄 작성일) 기준이다. 그 뒤 커밋 3개는 인계서에 없다 — <code>git log --oneline -3 -- .</code>부터 본다. 11일 지났다 — 다음 행동이 아직 유효한지부터 확인한다.</div></div>
-          <div class="row"><div class="row-head"><span>그다음 인계서 본문</span></div><div class="out"># Session Handoff (작성: 2026-11-11)</div></div>
+          <div class="row"><div class="row-head"><span>baton 없이</span><span class="tag">파일 6개부터 읽음</span></div><p class="note">인계서 주입을 끈 같은 설정</p>
+            <div class="out">$ <span class="nw">git status ·</span> <span class="nw">git log ·</span> <span class="nw">ls -la ·</span> <span class="nw">cat HANDOFF.md</span><br>$ <span class="nw">cat src/*.ts README.md</span></div></div>
+          <div class="row"><div class="row-head"><span class="fresh"><i></i>baton과 함께</span><span class="tag">파일 2개만 확인</span></div>
+            <div class="out">$ <span class="nw">git status ·</span> <span class="nw">git log ·</span> <span class="nw">cat src/levels.ts src/game.ts</span></div>
+            <div>레벨 데이터를 넣기 직전에서 멈춰 있습니다. … 다음에 할 일: <code>src/levels.ts</code>에 1~3레벨을 넣습니다.</div></div>
         </div>
+        <div class="summary"><span class="nw">호출 3번 → 2번 ·</span> <span class="nw">비용 $0.38 → $0.34 ·</span> <span class="nw">입력 토큰 152K → 102K</span><br><span class="nw">각 1번 실행,</span> 비용은 <span class="nw">API 가격 환산.</span> 실제 사용에서는 토큰이 아직 <span class="nw">줄지 않았어요.</span></div>
       </figure>
     </div>
   </section>
 
   <section class="problem gutter" aria-labelledby="problem-title">
     <div class="container problem-inner" data-rise="120">
-      <div class="big-num" aria-hidden="true">41<small> / 42</small></div>
+      <figure class="cost">
+        <p class="cost-head"><b>85%</b><span>는 대화 양이 점선을 넘은 뒤에 쓴 비용이에요.</span></p>
+        <div>
+          <p class="cost-title">AI를 부를 때마다 다시 읽는 대화 양</p>
+          <div class="cost-plot">
+            <span class="cost-over" aria-hidden="true"><span class="cost-mark">첫 호출의 2배</span></span>
+            <span class="cost-k">첫 호출</span><span class="cost-bar" style="--v:23.2%"><i></i></span><b class="cost-v">67K</b>
+            <span class="cost-k">50번째</span><span class="cost-bar" style="--v:66.4%;--c:69.8%"><i></i></span><b class="cost-v">192K</b>
+            <span class="cost-k">100번째</span><span class="cost-bar" style="--v:100%;--c:46.4%"><i></i></span><b class="cost-v">289K</b>
+          </div>
+        </div>
+        <p class="cost-nudge">baton은 대화 양이 첫 호출의 2배, 3배를 넘을 때 새로 시작하자고 <span class="nw">알려 줘요(Claude Code).</span> 새로 시작해서 실제로 얼마나 아끼는지는 아직 <span class="nw">재지 않았어요.</span></p>
+        <figcaption class="note">호출은 AI 모델에 한 번 요청하는 것, K는 토큰(AI가 읽는 글의 단위) 1,000개예요. 만든 사람의 대화 중 호출이 20번 이상인 60개(메인 대화만)의 중앙값이고, 100번째는 그중 37개 기준이에요. <span class="nw">2026-08-31~09-30</span>, 비용은 API 가격 기준이에요.</figcaption>
+      </figure>
       <div style="display:grid;gap:var(--space-4)">
         <p class="label">문제</p>
-        <h2 id="problem-title">새 대화는 읽는 일부터 시작해요.</h2>
-        <p class="muted">만든 사람의 기록을 보면, "어디까지 했지?" 같은 진행 질문으로 시작한 대화 42개 중 41개에서 AI가 첫 5번 호출(AI가 모델에 한 번 요청하는 것) 안에 <code>HANDOFF.md</code>를 다시 읽었어요. 읽은 내용은 대화가 끝날 때까지 맥락에 남아요. 맥락은 AI를 부를 때마다 다시 보내는 대화 내용이에요. 오래된 메모는 지금 코드와 어긋나 있을 수도 있어요.</p>
+        <h2 id="problem-title"><span class="nw">대화가 길어질수록,</span> <span class="nw">비용은 대부분</span> <span class="nw">후반에 나가요.</span></h2>
+        <p class="muted">AI를 부를 때마다, 그때까지 나눈 대화가 전부 다시 들어가요. 그래서 대화가 길어질수록 같은 일도 비싸져요. <span class="nw">새 대화를</span> 열면 가벼워지지만, AI는 어디까지 했는지 찾느라 지난 기록부터 다시 열어요.</p>
+        <p class="flip"><span class="flip-n"><span class="nw">42개 중 41개</span> → <span class="nw">11개 중 3개</span></span><span class="flip-t">진행 상황을 물으며 시작한 대화 중, AI가 <span class="nw">첫 5번 호출 안에</span> 인계서를 다시 연 대화예요. <span class="nw">baton 설치 전 → 설치 후.</span> 일부만 읽은 대화는 <span class="nw">설치 전 3개,</span> <span class="nw">설치 후 2개예요.</span></span></p>
+        <p class="note">실제 사용, 설치 전 <span class="nw">08-31~10-04</span> · 설치 후 <span class="nw">10-19~11-20</span>. 설치 후는 대화가 11개뿐이라 방향만 보여 줘요. 같은 대화들에서 첫 5번 호출의 입력 토큰은 오히려 <span class="nw">339–404K → 446–494K</span>로 늘었어요(주별 중앙값). 자세한 숫자는 아래 <span class="nw">"지금까지 잰 것"에</span> 있어요.</p>
       </div>
     </div>
   </section>
@@ -374,7 +426,7 @@ body { word-break: keep-all; }
       <div class="container">
         <div class="story-head" data-rise="60">
           <p class="label">작동 방식</p>
-          <h2 id="how-title">한 장으로 넘기고, <span class="mark-accent">바뀐 곳</span>만 다시 읽어요.</h2>
+          <h2 id="how-title"><span class="nw">대화가 바뀌어도,</span> <span class="nw">일은 <span class="mark-accent">이어져요.</span></span></h2>
         </div>
         <div class="story-grid" data-rise="160">
           <div class="steps-window">
@@ -382,11 +434,12 @@ body { word-break: keep-all; }
           <ol class="steps" id="steps">
             <li class="step is-active">
               <span class="step-num">1 · 대화를 마칠 때</span>
-              <h3>인계서를 써요. 저장하는 순간 검사해요.</h3>
-              <p>"인계서 써 줘"라고 말하세요. 정해진 때에 도는 작은 스크립트(훅)가 길이, 꼭 있어야 하는 8개 항목, 비밀값, 홈 폴더 경로, 직접 정해 둔 비공개 단어를 검사해요. 문제가 있으면 AI에게 돌려줘요.</p>
+              <h3><span class="nw">작업을 끝내면,</span> <span class="nw">AI가 인계서 한 장을</span> <span class="nw">남겨요.</span></h3>
+              <p>저장하는 순간, 비밀번호나 빠진 항목이 없는지 검사해요.</p>
+              <p class="fine"><span class="nw">Claude Code</span>에서는 파일을 3개 이상 고치면 baton이 AI에게 <span class="nw">인계서(HANDOFF.md)를</span> 갱신하라고 해요. <span class="nw">"인계서 써 줘"</span>라고 해도 돼요. 검사는 <span class="nw">정해진 때에</span> 도는 스크립트(훅)가 해요.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
-                  <div class="card-top"><span><strong>저장한 HANDOFF.md</strong> · 데모 저장소</span><span class="tag">실제 출력</span></div>
+                  <div class="card-top"><span><strong>저장한 HANDOFF.md</strong> · <span class="nw">데모 저장소</span></span><span class="tag">실제 출력</span></div>
                   <div class="rows">
                     <div class="row"><div class="out"><span class="b">[baton]</span> 방금 쓴 HANDOFF.md에 인계서 검사 문제가 있다. 고친 뒤 다시 저장한다:<br>
                       <span class="w">- 6줄:</span> API 토큰 의심 값 — 지우거나 일반 표기(~/, &lt;키&gt;)로 바꾼다<br>
@@ -400,11 +453,12 @@ body { word-break: keep-all; }
             </li>
             <li class="step">
               <span class="step-num">2 · 다음 대화</span>
-              <h3>"어디까지 했지?"라고 물어보세요. 인계서가 작성 시점과 함께 한 번 들어가요.</h3>
-              <p>훅이 인계서를 맥락에 넣으면서, 언제 썼는지와 그 뒤 커밋이 몇 개인지 알려 주는 한 줄을 붙여요. 한 대화에 한 번만 넣고, 보조 AI(서브에이전트)가 보낸 메시지에는 넣지 않아요.</p>
+              <h3><span class="nw">다음 대화는,</span> <span class="nw">그 한 장에서</span> <span class="nw">시작해요.</span></h3>
+              <p><span class="nw">"어디까지 했지?"라고</span> 물으면, AI가 파일을 뒤지기 전에 <span class="nw">그 한 장을</span> 받아요.</p>
+              <p class="fine">한 대화에 한 번 넣어요. 언제 썼는지, <span class="nw">그 뒤</span> 커밋(저장소에 남긴 변경)이 <span class="nw">몇 개인지도</span> 함께 알려 줘요.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
-                  <div class="card-top"><span><strong>새 대화</strong> · 데모 저장소</span><span class="tag">실제 출력</span></div>
+                  <div class="card-top"><span><strong>새 대화</strong> · <span class="nw">데모 저장소</span></span><span class="tag">실제 출력</span></div>
                   <div class="rows">
                     <div class="row"><div class="row-head"><span>나</span></div><div>어디까지 했지?</div></div>
                     <div class="row"><div class="out"><span class="b">[baton]</span> 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). 파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, 다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다.</div></div>
@@ -414,13 +468,14 @@ body { word-break: keep-all; }
               </div>
             </li>
             <li class="step">
-              <span class="step-num">3 · 커밋한 뒤</span>
-              <h3>파일이 바뀐 개념만 다시 봐요.</h3>
-              <p><code>CONCEPTS.md</code>는 개념마다 관련 파일과 마지막으로 확인한 커밋을 묶어 둬요. baton은 신선한지 짐작하지 않고, 커밋 수를 세요.</p>
+              <span class="step-num">3 · 코드가 바뀐 뒤</span>
+              <h3><span class="nw">코드가 바뀌면,</span> <span class="nw">다시 볼 곳을</span> <span class="nw">알려 줘요.</span></h3>
+              <p><span class="nw">새 대화를</span> 열 때, <span class="nw">다시 볼 곳이</span> <span class="nw">몇 군데인지</span> <span class="nw">한 줄로</span> <span class="nw">보여 줘요.</span></p>
+              <p class="fine">아래에서 설명하는 <span class="nw">개념 지도(CONCEPTS.md)에</span> 이름마다 파일과 마지막으로 확인한 커밋을 적어 두고, git 기록으로 세어 봐요. 자세한 표는 <code>/drift</code>.</p>
               <div class="panel">
                 <figure class="card" style="margin:0">
-                  <div class="card-top"><span><strong>/drift</strong> · 데모 저장소</span><span class="tag">실제 출력</span></div>
-                  <div class="row"><div class="out"><span class="b">[baton]</span> 개념 지도에 재확인 대상 2건 (신선 1건). 자세히는 /drift</div></div>
+                  <div class="card-top"><span><strong>/drift</strong> · <span class="nw">데모 저장소</span></span><span class="tag">실제 출력</span></div>
+                  <div class="row"><div class="out"><span class="b">[baton]</span> 개념 지도에서 다시 확인할 개념이 2개 있어요(그대로인 개념 1개). 자세히 보려면 /drift</div></div>
                   <div class="table-wrap"><table class="drift"><thead><tr><th>#</th><th>개념</th><th>상태</th><th>판정</th></tr></thead><tbody>
                     <tr><td>1</td><td>목숨</td><td>일치</td><td class="v-re">재확인 필요 — 커밋 1건</td></tr>
                     <tr><td>2</td><td>점수</td><td>일치</td><td class="v-fresh">신선</td></tr>
@@ -442,23 +497,18 @@ body { word-break: keep-all; }
     <div class="container map-grid">
       <div class="map-copy" data-rise="80">
         <p class="label">개념 지도</p>
-        <h2 id="map-title">셀 수 없으면, 셀 수 없다고 말해요.</h2>
-        <p class="muted">한 번도 확인하지 않은 개념은 기준이 없어요. 그래서 신선한 것으로 세지 않고 따로 표시해요. 판정은 늘 커밋 수이거나, 셀 수 없는 까닭(예: 기준 없음)이에요.</p>
+        <h2 id="map-title"><span class="sent"><span class="nw">바뀐 개념만</span> <span class="nw">다시 봐요.</span></span> <span class="sent"><span class="nw">나머지는</span> <span class="nw">건너뛰어요.</span></span></h2>
+        <p class="muted">게임의 "목숨", "점수"처럼 프로젝트에서 부르는 이름마다, 관련 파일과 마지막으로 확인한 때를 <span class="nw">적어 둬요(<code>CONCEPTS.md</code>).</span> <span class="nw">새 대화를 열면</span> AI가 <span class="nw">이 목록을</span> 먼저 받아요. 이름마다 <span class="nw">주로 넷 중 하나가</span> 붙어요.</p>
         <ul class="facts">
-          <li><b>신선</b><span>확인한 뒤로 커밋이 없어요. 다시 읽을 게 없어요.</span></li>
-          <li><b>커밋 N건</b><span>확인한 커밋 뒤에 이 개념의 파일이 바뀌었어요.</span></li>
-          <li><b>기준 없음</b><span>확인한 커밋이 아직 기록되지 않았어요.</span></li>
+          <li><b>신선</b><span>확인한 뒤로 파일이 그대로예요. <span class="nw">건너뛰어도 돼요.</span></span></li>
+          <li><b>커밋 N건</b><span>확인한 뒤로 파일을 바꾼 커밋이 N건 있어요. <span class="nw">다시 봐요.</span></span></li>
+          <li><b>기준 없음</b><span>확인한 기록이 아직 없어요. 그래서 그대로라고 치지 않아요.</span></li>
           <li><b>문서 커밋 N건</b><span>코드는 그대로인데, 그 코드를 설명하는 문서가 바뀌었어요.</span></li>
         </ul>
       </div>
       <figure class="card" style="margin:0" id="map-card" data-rise="200">
-        <div class="card-top"><span><strong>대화의 첫 프롬프트</strong> · 데모 저장소</span><span class="tag">1,500자 이하 · 실제 출력</span></div>
+        <div class="card-top"><span><strong>대화를 <span class="nw">시작할 때</span></strong> · <span class="nw">데모 저장소</span></span><span class="tag">1,500자 이하 · 실제 출력</span></div>
         <div class="row"><div class="out"><span class="b">[baton]</span> 이 저장소 개념 지도(CONCEPTS.md) 색인이다. 작업에 맞는 개념의 파일부터 연다. 개념은 탐색 앵커다 — 실제 동작은 코드로 확인한다. 자세한 근거는 CONCEPTS.md의 그 절에.<br>1. 목숨 — 시작할 때 목숨 수 · 파일: src/lives.ts<br>2. 점수 — 코인 하나당 점수 · 파일: src/score.ts<br>3. 레벨 — 레벨 목록, 아직 비어 있음 · 파일: src/levels.ts</div></div>
-        <div class="table-wrap"><table class="drift"><thead><tr><th>#</th><th>개념</th><th>판정</th></tr></thead><tbody>
-          <tr><td>1</td><td>목숨</td><td class="v-re">재확인 필요 — 커밋 1건</td></tr>
-          <tr><td>2</td><td>점수</td><td class="v-fresh">신선</td></tr>
-          <tr><td>3</td><td>레벨</td><td class="v-re">재확인 필요 — 기준 없음</td></tr>
-        </tbody></table></div>
       </figure>
     </div>
   </section>
@@ -467,14 +517,14 @@ body { word-break: keep-all; }
     <div class="container">
       <div class="measured-head" data-rise="80">
         <p class="label">지금까지 잰 것</p>
-        <h2 id="measured-title">잰 것과, 아직 못 잰 것.</h2>
-        <p>숫자는 모두 만든 사람 한 명이 자기 저장소에서 쓴 기록에서 나왔어요. 숫자마다 기간과 범위가 달라요. 명령과 출처는 <a href="https://github.com/sulabo/baton/blob/main/CHANGELOG.md">변경 기록</a>에 있어요.</p>
+        <h2 id="measured-title"><span class="sent"><span class="nw">실험에서는</span> <span class="nw">토큰이 줄었어요.</span></span> <span class="sent"><span class="nw">실제 사용에서는</span> <span class="nw">아직이에요.</span></span></h2>
+        <p>모두 만든 사람 한 명이 자기 저장소에서 잰 숫자예요. 실제 사용은 평소에 쓴 대화의 기록이고, 실험은 <span class="nw">같은 저장소 상태에서</span> 조건만 바꿔 되풀이한 결과예요. 조건과 출처는 <a class="nw" href="https://github.com/sulabo/baton/blob/main/README.ko.md#baton을-쓰고-달라진-것">README의 결과 표</a>에 있어요.</p>
       </div>
       <div class="stats" data-rise="160">
-        <div class="stat"><div class="n">41/42 → 3/11</div><p>AI가 첫 5번 호출 안에 <code>HANDOFF.md</code>를 다시 읽은 대화예요. 설치 전과 설치 후를 비교했어요.</p><p class="scope">설치 전 08-31~10-04, 설치 후 10-19~11-20. 설치 후 대화가 11개뿐이라, 효과의 크기가 아니라 방향만 보여 줘요.</p></div>
-        <div class="stat"><div class="n">40–54%</div><p>진행 상황을 물을 때 인계서를 넣었더니 입력 토큰(AI에게 보내는 글의 양)이 이만큼 줄었어요. 같은 저장소 상태에서 되풀이한 실험(스냅숏) 결과예요.</p><p class="scope">저장소 3곳, 조건마다 3~5번. 관련 없는 작업에 인계서를 넣었을 때는 입력 토큰을 약 11% 더 썼어요(저장소 1곳, 5번).</p></div>
-        <div class="stat"><div class="n">아직</div><p>실제 사용에서는 아직 토큰이 줄지 않았어요. 같은 인계서가 대화 39개에서 269번 들어갔어요. 대화마다 한 번만 넣도록 고쳤어요. 그 효과는 아직 재지 못했어요.</p><p class="scope">10-04~11-19. 같은 기간에 다른 플러그인이 처음부터 차지하는 맥락도 커졌어요.</p></div>
-        <div class="stat"><div class="n">85%</div><p>전체 비용 중, 맥락이 첫 호출 때 크기의 2배를 넘은 뒤에 나간 몫이에요. 그래서 baton은 2배와 3배일 때 인계서를 쓰자고 알려요.</p><p class="scope">AI 호출이 20번 이상인 대화 60개, API 가격 기준.</p></div>
+        <div class="stat"><div class="n">40–54%</div><p>진행 상황을 물을 때 인계서를 넣었더니 줄어든 <span class="nw">입력 토큰이에요.</span> AI가 일을 마치기까지 주고받은 횟수도 중앙값 <span class="nw">5–6번</span>에서 3번으로 줄었어요.</p><p class="scope">실험. 저장소 3곳, 조건마다 <span class="nw">3~5번</span>.</p></div>
+        <div class="stat"><div class="n">+11%</div><p>관련 없는 작업에 인계서를 넣었더니, <span class="nw">입력 토큰이</span> 오히려 이만큼 늘었어요.</p><p class="scope">실험. 저장소 1곳, 5번. 그래서 물어볼 때만 넣어요.</p></div>
+        <div class="stat"><div class="n"><span class="nw">$1.00 →</span> <span class="nw">$0.68</span></div><p>대화 한 번의 평균 비용이에요. 인계서 없이는 $1.00이었고, <span class="nw">인계서 한 장</span> 전체를 넣으면 $0.68이었어요. 줄인 <span class="nw">요약 카드만</span> 넣으면 <span class="nw">$0.88–1.05였고,</span> AI가 5번 모두 파일을 다시 열었어요.</p><p class="scope">실험, API 가격 환산. 저장소 1곳, 조건마다 5번, <span class="nw">2026-09</span>. 전체·카드 실험은 기준 실험 뒤에 따로 돌렸어요. 그래서 baton은 요약이 아니라 <span class="nw">한 장 전체를</span> 넣어요.</p></div>
+        <div class="stat"><div class="n"><span class="nw">61–71K →</span> <span class="nw">77–87K</span></div><p>실제 사용에서 대화 첫 호출에 담긴 대화 양이에요. 줄지 않고 늘었어요. <span class="nw">같은 기간에</span> 다른 플러그인이 처음부터 차지하는 양도 커져서, baton 몫을 떼어 보지 못했어요.</p><p>따로 찾은 문제도 있었어요. 같은 인계서가 대화 39개에 269번 들어갔어요(대화를 시작할 때 들어간 건 32번). 지금은 대화마다 <span class="nw">한 번만</span> 넣고, 그 효과는 아직 재지 못했어요.</p><p class="scope">주별 중앙값, 설치 전 <span class="nw">08-31~10-04</span> · 설치 후 <span class="nw">10-19~11-20</span>. 인계서 횟수는 <span class="nw">10-04~11-19</span>.</p></div>
       </div>
     </div>
   </section>
@@ -483,15 +533,15 @@ body { word-break: keep-all; }
     <div class="container diff-grid" data-rise="100">
       <div style="display:grid;gap:var(--space-4);align-content:start">
         <p class="label">다른 도구와 함께</p>
-        <h2 id="diff-title"><code style="font-size:0.8em">/compact</code> 대신이 아니라, 함께 써요.</h2>
+        <h2 id="diff-title"><span class="sent"><span class="nw"><code style="font-size:0.8em">/compact</code>는</span> <span class="nw">그대로 쓰세요.</span></span> <span class="sent"><span class="nw">baton은</span> <span class="nw">새 대화를 맡아요.</span></span></h2>
       </div>
       <div>
         <ol>
-          <li><h3>이어서 하자고 할 때만 인계서를 넣어요</h3><p>한 대화에 한 번만 넣고, 보조 AI나 다른 대화가 보낸 메시지에는 넣지 않아요.</p></li>
-          <li><h3>저장할 때 인계서를 검사해요</h3><p>길이, 꼭 있어야 하는 항목, 비밀값, 홈 폴더 경로, 직접 정해 둔 비공개 단어를 봐요.</p></li>
-          <li><h3>개념마다 마지막으로 확인한 커밋을 적어 둬요</h3><p>바뀌지 않은 개념은 다시 읽지 않아요. 결정 기록, 코드, 문서가 서로 다른 말을 하는 곳도 표시해요.</p></li>
+          <li><h3><span class="nw">인계서는</span> <span class="nw">이어서 하자고 할 때만</span> <span class="nw">넣어요</span></h3><p>보조 AI(서브에이전트)나 다른 대화가 보낸 메시지에는 넣지 않아요.</p></li>
+          <li><h3><span class="nw">AI가 아니라</span> <span class="nw">규칙이 검사해요</span></h3><p>마지막으로 커밋한 판에 있던 줄이 빠져도 알려 줘요. 실패한 방법이나 결정이 말없이 사라지지 않게요.</p></li>
+          <li><h3><span class="nw">결정, 코드, 문서가</span> <span class="nw">어긋난 곳을 짚어요</span></h3><p>정해 두고 아직 안 만든 것처럼, 셋이 서로 <span class="nw">다른 말을</span> 하는 곳을 개념마다 표시해요.</p></li>
         </ol>
-        <p class="aside">2026-11-21과 11-22에 살펴본 도구 중, 이 세 가지를 문서에 적어 둔 곳은 없었어요. <code>/compact</code>와 <code>/resume</code>은 대화 하나를 계속 이어 가요. baton은 새 대화에 짧은 인계서를 건네요. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.ko.md#다른-도구와-비교">전체 비교 보기</a></p>
+        <p class="aside">2026-11-21과 11-22에 살펴본 도구 중, <span class="nw">이 세 가지를</span> 문서에 적어 둔 곳은 없었어요. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.ko.md#다른-도구와-비교">전체 비교 보기</a></p>
       </div>
     </div>
   </section>
@@ -499,7 +549,7 @@ body { word-break: keep-all; }
   <section class="get gutter" id="install" aria-labelledby="install-title">
     <div class="get-inner" data-rise="100" data-stay>
       <p class="label">설치</p>
-      <h2 id="install-title">두 줄로 설치하고, "어디까지 했지?"라고 물어보세요.</h2>
+      <h2 id="install-title"><span class="nw">두 줄로 설치하고,</span> <span class="nw">"어디까지 했지?"라고</span> <span class="nw">물어보세요.</span></h2>
       <div class="tabs" role="tablist" aria-label="쓰는 도구 고르기">
         <button role="tab" type="button" id="tab-claude" aria-selected="true" aria-controls="panel-claude">Claude Code</button>
         <button role="tab" type="button" id="tab-codex" aria-selected="false" aria-controls="panel-codex" tabindex="-1">Codex</button>
@@ -507,7 +557,7 @@ body { word-break: keep-all; }
       <div class="tabpanel" role="tabpanel" id="panel-claude" aria-labelledby="tab-claude">
         <div class="cmd"><code>/plugin marketplace add sulabo/baton</code><button class="copy" type="button" id="copy-c1" data-copy="/plugin marketplace add sulabo/baton">복사</button></div>
         <div class="cmd"><code>/plugin install baton@baton</code><button class="copy" type="button" id="copy-c2" data-copy="/plugin install baton@baton">복사</button></div>
-        <p class="note">Claude Code 안에서 실행하세요. 그다음 새 대화를 열고 <code>/baton-doctor</code>를 실행하세요.</p>
+        <p class="note"><span class="nw">Claude Code</span> 안에서 실행하세요. 그다음 <span class="nw">새 대화를</span> 열고 <span class="nw"><code>/baton-doctor</code>를</span> 실행하세요.</p>
       </div>
       <div class="tabpanel" role="tabpanel" id="panel-codex" aria-labelledby="tab-codex" hidden>
         <div class="cmd"><code>codex plugin marketplace add sulabo/baton</code><button class="copy" type="button" id="copy-x1" data-copy="codex plugin marketplace add sulabo/baton">복사</button></div>
@@ -522,11 +572,11 @@ body { word-break: keep-all; }
       <h2 id="faq-title">설치하기 전에.</h2>
       <div>
         <details open><summary>baton이 인터넷으로 무언가를 보내나요?</summary><p>아니요. 훅은 git 기록과 내 컴퓨터의 파일만 읽고, <code>~/.cache/baton/</code> 아래에만 써요.</p></details>
-        <details><summary>토큰이 줄어드나요?</summary><p>스냅숏 실험에서는 진행 상황을 물을 때 줄었어요. 실제 사용에서는 아직 줄어든 걸 보여 주지 못했어요. 숫자와 범위는 위의 "지금까지 잰 것"에 있어요.</p></details>
-        <details><summary>/compact나 /resume과 뭐가 달라요?</summary><p>그 둘은 대화 하나를 요약과 그 뒤 메시지로 계속 이어 가요. baton은 새 대화를 시작할 때 써요. 직접 읽고 고칠 수 있는 짧은 인계서를 AI에게 건네고, 그 인계서가 얼마나 오래됐는지도 알려 줘요. baton과 그 둘을 함께 써도 돼요.</p></details>
-        <details><summary>어떤 말을 하면 인계서가 들어가나요?</summary><p>"이어서", "어디까지", "인계", "handoff" 같은 말이 프롬프트에 있으면 들어가요(한 대화에 한 번). 그런 말이 없으면 넣지 않아요. 이런 말은 <code>/baton-setup</code>에서 더 추가할 수 있어요.</p></details>
-        <details><summary>DECISIONS.md가 꼭 있어야 하나요?</summary><p>아니요. 파일 신선도는 git 기록만으로 계산해요. 결정 기록이 없으면 "정했는데 아직 안 만든 것"은 잡지 못하고, 파일이 없는 개념은 추적하지 않아요.</p></details>
-        <details><summary>내 파일을 바꾸나요?</summary><p>훅은 알림을 보여 주고 문제를 AI에게 돌려줄 뿐이에요. <code>CONCEPTS.md</code>와 <code>HANDOFF.md</code>는 요청할 때 AI가 써요.</p></details>
+        <details><summary>토큰이 줄어드나요?</summary><p>실험에서는 진행 상황을 물을 때 <span class="nw">40–54%</span> 줄었어요. 실제 사용에서는 아직 줄지 않았어요. 조건은 위의 <span class="nw">"지금까지 잰 것"에</span> 있어요.</p></details>
+        <details><summary>/compact나 /resume과 뭐가 달라요?</summary><p><code>/compact</code>는 지금 대화를 요약해서 이어 가고, <code>/resume</code>은 지난 대화를 다시 열어요. 둘 다 대화 하나를 계속 이어 가요. baton은 <span class="nw">새 대화를</span> 열 때 써요. 대화 양이 첫 호출의 2배, 3배를 넘으면 새로 시작하자고 알려 주고<span class="nw">(Claude Code)</span>, 다음 대화에 직접 읽고 고칠 수 있는 <span class="nw">한 장을</span> 건네요. 어느 쪽이 비용이 덜 드는지는 아직 비교하고 있어요.</p></details>
+        <details><summary>어떤 말을 하면 인계서가 들어가나요?</summary><p>"이어서", "어디까지", "인계", "handoff" <span class="nw">같은 말이</span> 프롬프트에 있으면 들어가요. 그런 말이 없으면 넣지 않아요. 이런 말은 <span class="nw"><code>/baton-setup</code>에서</span> 더 추가할 수 있어요.</p></details>
+        <details><summary>DECISIONS.md가 꼭 있어야 하나요?</summary><p>아니요. 파일이 바뀌었는지는 git 기록만으로 알 수 있어요. 다만 결정 기록이 없으면 <span class="nw">"정했는데 아직 안 만든 것"</span>은 찾지 못해요. 파일이 없는 개념도 추적하지 않아요.</p></details>
+        <details><summary>내 파일을 바꾸나요?</summary><p>네, <code>HANDOFF.md</code>는 바뀔 수 있어요. <span class="nw">Claude Code</span>에서는 파일을 3개 이상 고친 뒤 baton이 AI에게 이 파일을 갱신하라고 해요. 제안만 받고 싶으면 <span class="nw"><code>BATON_HANDOFF_AUTO=off</code>로</span> 꺼요. <code>CONCEPTS.md</code>는 요청할 때만 AI가 써요. 훅이 직접 파일을 고치지는 않고, 커밋도 하지 않아요.</p></details>
       </div>
     </div>
   </section>
@@ -534,7 +584,7 @@ body { word-break: keep-all; }
 
 <footer class="foot gutter">
   <div class="container foot-inner">
-    <p class="foot-statement">한 번 적어 두면, 다음 대화는 거기서 시작해요.</p>
+    <p class="foot-statement"><span class="nw">오늘 토큰은</span> <span class="nw">오늘 할 일에 쓰세요.</span></p>
     <div class="foot-row">
       <a class="wordmark" href="#top" aria-label="baton, 맨 위로"><svg viewBox="0 0 100 50" aria-hidden="true"><path d="M66.87 12.32 C67.41 12.12 67.95 11.93 68.51 11.77 C69.07 11.60 69.64 11.45 70.21 11.33 C70.79 11.20 71.38 11.10 71.98 11.02 C72.58 10.95 73.18 10.89 73.80 10.87 C74.41 10.85 75.03 10.85 75.66 10.89 C76.28 10.93 76.91 11.00 77.54 11.11 C78.16 11.22 78.80 11.36 79.42 11.55 C80.04 11.73 80.66 11.95 81.27 12.21 C81.87 12.47 82.47 12.77 83.05 13.11 C83.63 13.46 84.19 13.84 84.72 14.27 C85.25 14.69 85.77 15.16 86.24 15.66 C86.71 16.16 87.16 16.70 87.56 17.28 C87.95 17.85 88.32 18.46 88.63 19.09 C88.93 19.72 89.20 20.39 89.41 21.07" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/><path d="M89.41 28.93 C89.09 29.98 88.62 31.01 88.06 31.94 C87.51 32.87 86.82 33.74 86.08 34.51 C85.34 35.27 84.49 35.95 83.62 36.53 C82.75 37.10 81.81 37.58 80.86 37.96 C79.92 38.34 78.93 38.61 77.96 38.81 C76.99 39.01 76.00 39.10 75.03 39.13 C74.07 39.17 73.11 39.11 72.18 39.00 C71.25 38.90 70.33 38.71 69.45 38.49 C68.57 38.27 67.71 37.99 66.88 37.68 C66.04 37.37 65.24 37.01 64.47 36.62 C63.69 36.24 62.94 35.82 62.22 35.39 C61.49 34.95 60.79 34.49 60.11 34.01 C59.43 33.54 58.78 33.04 58.14 32.54 C57.50 32.03 56.88 31.51 56.27 30.98 C55.66 30.46 55.07 29.92 54.49 29.38 C53.90 28.84 53.33 28.29 52.77 27.74 C52.20 27.19 51.64 26.64 51.08 26.08 C50.53 25.53 49.97 24.97 49.42 24.42 C48.86 23.86 48.30 23.31 47.74 22.75 C47.18 22.20 46.61 21.65 46.03 21.11 C45.46 20.57 44.87 20.02 44.27 19.49 C43.67 18.96 43.06 18.44 42.43 17.92 C41.80 17.41 41.16 16.91 40.49 16.42 C39.83 15.94 39.14 15.46 38.43 15.01 C37.72 14.56 36.99 14.13 36.23 13.73 C35.46 13.33 34.68 12.95 33.86 12.62 C33.05 12.28 32.21 11.97 31.34 11.72 C30.47 11.47 29.57 11.26 28.66 11.11 C27.74 10.97 26.79 10.87 25.83 10.86 C24.88 10.85 23.90 10.90 22.92 11.04 C21.95 11.18 20.96 11.40 20.00 11.73 C19.04 12.05 18.08 12.46 17.18 12.98 C16.28 13.50 15.40 14.12 14.62 14.83 C13.83 15.53 13.09 16.35 12.47 17.24 C11.85 18.12 11.31 19.11 10.92 20.13 C10.53 21.14 10.24 22.25 10.10 23.34 C9.97 24.43 9.97 25.57 10.10 26.66 C10.24 27.75 10.52 28.86 10.92 29.87 C11.31 30.89 11.85 31.88 12.47 32.76 C13.09 33.65 13.83 34.46 14.61 35.17 C15.40 35.88 16.28 36.50 17.18 37.02 C18.08 37.54 19.04 37.95 20.00 38.27 C20.96 38.60 21.95 38.82 22.92 38.96 C23.89 39.10 24.88 39.15 25.83 39.14 C26.79 39.13 27.74 39.03 28.65 38.89 C29.57 38.74 30.47 38.53 31.34 38.28 C32.21 38.03 33.05 37.72 33.86 37.38 C34.68 37.05 35.46 36.67 36.23 36.27 C36.99 35.87 37.72 35.44 38.43 34.99 C39.14 34.54 39.82 34.06 40.49 33.58 C41.16 33.09 41.80 32.59 42.43 32.08 C43.06 31.56 43.67 31.04 44.27 30.51 C44.87 29.98 45.45 29.43 46.03 28.89 C46.61 28.35 47.18 27.80 47.74 27.25 C48.30 26.69 48.86 26.14 49.42 25.58 C49.97 25.03 50.53 24.47 51.08 23.92 C51.64 23.36 52.20 22.81 52.77 22.26 C53.33 21.71 53.90 21.16 54.49 20.62 C55.07 20.08 55.66 19.54 56.27 19.02 C56.88 18.49 57.50 17.97 58.14 17.47 C58.78 16.96 59.43 16.46 60.11 15.99 C60.79 15.51 61.49 15.05 62.22 14.61 C62.94 14.18 63.69 13.76 64.47 13.38 C65.24 12.99 66.04 12.63 66.87 12.32" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>baton</a>
       <ul class="foot-links">

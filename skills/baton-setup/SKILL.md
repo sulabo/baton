@@ -1,121 +1,173 @@
 ---
 name: baton-setup
-description: 설치 후 한 번 돌리는 개인화. 이 사용자의 과거 세션 기록·git 이력·인계서를 읽어 baton 문턱(세션 끊기 알림·인계서 제안)과 인계 트리거 말, 인계서 검사가 막을 개인 자료 목록을 그 사람 분포로 제안하고, 사용자가 고른 것만 설정 파일에 쓴다. "baton 설정해줘", "baton setup", "문턱 내 기록으로 맞춰줘", "개인 자료 목록 만들어줘"에도 발동. Also triggers on English requests such as "set up baton", "tune baton thresholds to my history", "build my private terms list".
+description: 설치 후 한 번 돌리는 개인화. 이 사용자의 과거 세션 기록·git 이력·인계서를 읽어 baton 문턱(세션 끊기 알림·인계서 제안)과 인계 트리거 말, 인계서 검사가 막을 개인 자료 목록, 출력 언어를 그 사람 분포로 제안하고, 사용자가 고른 것만 설정 파일에 쓴다. "baton 설정해줘", "baton setup", "문턱 내 기록으로 맞춰줘", "개인 자료 목록 만들어줘"에도 발동. Also triggers on English requests such as "set up baton", "tune baton thresholds to my history", "build my private terms list", "set baton's language".
+allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py), Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/config.py)
 ---
 
-# Baton Setup — 내 기록으로 baton 맞추기
+# Baton Setup — tune baton to your own history
 
-## 목적
+Reply in the user's language. The scanner prints its report in the output language (`BATON_LANG`, otherwise the
+locale); relay it in the language the user writes in. This skill writes no `HANDOFF.md` or `CONCEPTS.md`, only the
+config file.
 
-baton의 문턱은 만든 사람의 저장소 몇 곳에서 정했다. 세션 끊기 알림 2배·3배는 세션 60개에서
-"비용의 85%가 맥락이 첫 호출의 2배를 넘은 뒤에 나갔다"로, 인계서 제안 3개는 세션 94개에서
-"1~2개 고친 세션은 인계서를 16%, 3개 이상은 67% 썼다"로 정했다. **다른 사람에게도 같은 지점에서 갈리는지는 모른다.**
+## Purpose
 
-이 스킬은 같은 방법을 **이 사용자의 기록**에 다시 돌려 문턱을 제안한다. 그리고 인계서에 새어 나가면 안 되는
-이 사람만의 단어(이름·이메일·다른 프로젝트 이름)를 후보로 뽑아, 고른 것을 인계서 검사가 막게 한다.
+baton's thresholds were set on a few of the author's repos. The context-growth notice at 2× and 3× comes from 60
+sessions, where "85% of the cost was spent after the context passed 2× the first call". The handoff nudge at 3 files
+comes from 94 sessions, where "sessions that edited 1–2 files wrote a handoff 16% of the time, sessions with 3 or more
+67%". **Whether other people split at the same points is unknown.**
 
-**사람이 고르기 전에는 아무것도 바꾸지 않는다.** 스캐너는 읽기만 한다.
+This skill runs the same methods on **this user's history** and proposes thresholds. It also picks out candidate words
+that belong only to this person and must not leak into a handoff (names, emails, other project names), so the handoff
+check blocks the ones the user picks. It also proposes the output language from the language of the user's prompts.
 
-## 실행 절차
+**Nothing changes until the user picks.** The scanner only reads.
 
-### 1. 스캔 (읽기만)
+## Steps
 
-저장소 안 어디서 돌려도 된다. 설정 절은 git 최상위 폴더를 키로 쓰고 훅도 같은 함수로 찾으므로, Claude Code를 하위 폴더에서 열어도
-같은 절이 적용된다. git 워크트리는 최상위가 따로라 절도 따로다.
+### 1. Scan (read only)
+
+Run it from anywhere inside the repo. The config section is keyed by the git top-level folder, and the hooks find it
+with the same function, so the same section applies when Claude Code is opened in a subfolder. A git worktree has its
+own top level, so it gets its own section.
 
 ```bash
-python3 "$CLAUDE_PLUGIN_ROOT/lib/setup_scan.py"
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py
 ```
 
-읽는 것: 이 저장소 최상위에서 연 Claude Code 세션 기록(`~/.claude/projects`), git 작성자, 추적 파일과 무시되지 않은 미추적 파일
-(`git grep --untracked`), 다른 프로젝트 세션 기록의 작업 폴더 이름(프로젝트 이름 후보용), `HANDOFF.md`·`DECISIONS.md`·`CONCEPTS.md`.
-쓰는 것: 없다. 관찰 로그(`~/.cache/baton/runs.jsonl`)에도 프롬프트를 남기지 않는다.
+Run it exactly as written, with no arguments: that form is pre-approved in `allowed-tools`. Claude Code fills in the
+plugin path when it loads this file (the plugin-root variable is not set in the shell, so don't replace the path with
+a shell variable). `apply` (step 4) writes the config file and is not pre-approved, so it still asks.
 
-**개인 자료가 어디에 남는지 먼저 알린다.** 스킬이 스캐너를 돌리면 그 출력(개인 자료 후보·트리거 후보 말)이 에이전트 맥락과
-Claude Code 세션 기록(`~/.claude/projects`)에 들어간다. 그게 싫으면 사용자가 **세션 밖의 다른 터미널**에서 직접 돌리게 한다
-(`!` 접두 명령도 출력이 대화에 들어간다).
+What it reads: Claude Code session logs opened at this repo's top level (`~/.claude/projects`), the git author, tracked
+files and untracked files that are not ignored (`git grep --untracked`), the working-folder names in other projects'
+session logs (as project-name candidates), and `HANDOFF.md`, `DECISIONS.md`, `CONCEPTS.md`.
+What it writes: nothing. It doesn't put prompts in the observation log (`~/.cache/baton/runs.jsonl`) either.
 
-### 2. 결과를 한국어로 보여 준다
+**Tell the user first where private data ends up.** When the skill runs the scanner, its output (private-word
+candidates, trigger phrase candidates) goes into the agent's context and the Claude Code session log
+(`~/.claude/projects`). If the user doesn't want that, have them run it themselves **in another terminal outside the
+session** (a command with the `!` prefix also puts its output into the conversation).
 
-출력의 여섯 항목을 그대로 옮기되, 항목마다 **센 것과 못 센 것**을 같이 말한다.
+### 2. Show the results in the user's language
 
-| 항목 | 무엇 | 설정 키 |
+Relay the seven items of the output as they are, and for each item say **what was counted and what could not be
+counted**.
+
+| Item | What | Config key |
 |---|---|---|
-| 1) 세션 끊기 문턱 | 세션마다 최대 맥락 ÷ 첫 호출 맥락의 분포, 문턱 후보별로 닿는 세션·그 뒤에 남은 비용 | `BATON_SPLIT_RATIOS` |
-| 2) 인계서 제안 문턱 | 고친 파일 수별로 인계서를 쓴 비율 | `BATON_HANDOFF_NUDGE_FILES` |
-| 3) 실제로 쓴 인계서 이름 | `HANDOFF-x.md`처럼 주입 훅이 안 읽는 이름을 썼는지 | 없음(보고만) |
-| 4) 트리거 추가 말 | 에이전트가 인계서를 읽었는데 지금 트리거가 안 맞은 세션의 첫 프롬프트에 자주 나온 말 | `BATON_HANDOFF_TRIGGERS_EXTRA` |
-| 5) 개인 자료 후보 | git 작성자·이메일, OS 사용자 이름, 이 저장소 파일에 나오는 다른 프로젝트 이름, 파일 속 이메일 | `private_terms` |
-| 6) 저장소 권고 | `HANDOFF.md` 추적 여부, `DECISIONS.md`·`CONCEPTS.md` 유무 | 없음(보고만) |
+| 1) Context-growth thresholds | Per session, largest context ÷ first-call context; for each candidate threshold, the sessions that reach it and the cost left after it | `BATON_SPLIT_RATIOS` |
+| 2) Handoff nudge threshold | How often a handoff was written, by number of edited files | `BATON_HANDOFF_NUDGE_FILES` |
+| 3) Handoff names actually written | Whether names the injection hook doesn't read, such as `HANDOFF-x.md`, were used | none (report only) |
+| 4) Extra trigger phrases | Phrases that often appeared in the first prompt of sessions where the agent read the handoff but no current trigger matched | `BATON_HANDOFF_TRIGGERS_EXTRA` |
+| 5) Private-word candidates | git author and email, OS user name, other project names that appear in this repo's files, emails in files | `private_terms` |
+| 6) Repo advice | Whether `HANDOFF.md` is tracked, whether `DECISIONS.md` and `CONCEPTS.md` exist | none (report only) |
+| 7) Output language | Human prompts that contain Korean vs. other languages; the language in effect now and where it came from | `BATON_LANG` |
 
-옮길 때 지킬 것:
+When you relay:
 
-- **0을 "없음"으로 말하지 않는다.** 세션 기록을 못 찾았으면 "0건"이 아니라 "못 셈"이다. 스캐너가 그 구분을 출력하니 그 줄을 옮긴다.
-- **표본이 10세션 미만이면 문턱은 기본값을 권한다.** 왜인지(몇 세션의 우연에 흔들린다)도 함께 말한다.
-- 트리거 후보는 "그 밖의 프롬프트 N개에도 걸린다"를 꼭 같이 보여 준다 — 훅은 세션 첫 프롬프트만이 아니라 **모든 프롬프트**를
-  부분 문자열로 보므로, 그만큼 인계와 무관한 프롬프트에도 인계서가 들어간다(무관한 작업에 넣으면 토큰 +11%, 루프 1). 상한이다 — 일부는 맞는 주입일 수 있다.
-- 문턱 제안이 "바꾸지 않음"이면 지금 적용 값을 같이 말한다. 이미 설정한 값을 지우라는 뜻이 아니다.
-- 세션 끊기의 "재계산 절감"은 반사실 추정 상한이다. 실측처럼 말하지 않는다.
-- Codex 세션은 세지 않는다. 스캐너가 그렇게 말하면 그대로 옮긴다.
+- **Don't call 0 "none".** If no session logs were found, that is "could not count", not "0". The scanner prints that
+  distinction; relay that line.
+- **With fewer than 10 sessions, recommend the default thresholds**, and say why (a few sessions can swing them by chance).
+- For trigger candidates, always show "also matches N other prompts". The hook checks **every prompt**, not only the
+  first one of a session, as a substring, so the handoff also goes into that many prompts that have nothing to do with
+  a handoff (injecting it into an unrelated task cost +11% tokens, loop 1). It is an upper bound: some of those may be
+  correct injections.
+- When a threshold proposal is "no change", also say the value in effect now. It does not mean that a value already
+  set should be removed.
+- The "recomputed saving" of the context-growth notice is a counterfactual upper-bound estimate. Don't present it as
+  a measurement.
+- Codex sessions are not counted. When the scanner says so, relay it as is.
+- The language proposal counts prompts, not characters: a prompt that contains Korean counts as Korean, a prompt with
+  letters but no Korean counts as another language, a prompt with no letters is not counted. More than half Korean
+  proposes `ko`, less than half proposes `en`, exactly half proposes nothing. When the language already comes from
+  `BATON_LANG` with the same value, it proposes nothing; when it only comes from the locale, it proposes writing it
+  so the language stays the same where the locale is different or not set.
 
-### 3. 사용자에게 고르게 한다
+### 3. Let the user pick
 
-Claude Code에서는 `AskUserQuestion`으로, Codex에서는 평문으로 묻는다. **한 번에 한 가지씩**, 추천안과 이유를 먼저 둔다.
+Ask with `AskUserQuestion` on Claude Code, in plain text on Codex. **One thing at a time**, with the recommendation
+and its reason first.
 
-1. 문턱 두 개 — 스캐너 제안값 / 기본값 유지. 제안이 "기본값 유지"면 묻지 않고 넘어간다.
-2. 트리거 추가 말 — 후보 중 고르기(여러 개 가능) / 추가 안 함.
-3. 개인 자료 목록 — 후보 중 고르기(여러 개 가능) / 직접 입력 / 추가 안 함.
-4. 범위 — 이 저장소만(기본) / 모든 저장소(전역).
+1. The two thresholds: the scanner's proposal / keep the default. If the proposal is "keep the default", skip the
+   question.
+2. Extra trigger phrases: pick from the candidates (several allowed) / add none.
+3. Private-words list: pick from the candidates (several allowed) / type your own / add none.
+4. Output language: the scanner's proposal / keep. If the proposal is "no change", skip the question.
+5. Scope: this repo only (default) / all repos (global). The output language is about the person, not the repo, so
+   recommend global for `BATON_LANG`.
 
-**사용자가 고르지 않은 것은 쓰지 않는다.** 묻지 않고 기본값을 바꾸지 않는다.
+**Don't write anything the user didn't pick.** Don't change a default without asking.
 
-### 4. 고른 것만 쓴다
+### 4. Write only what was picked
 
 ```bash
-python3 "$CLAUDE_PLUGIN_ROOT/lib/setup_scan.py" apply \
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply \
   --set BATON_SPLIT_RATIOS=2.5,3.5 --set BATON_HANDOFF_NUDGE_FILES=4 --trigger "지난번"
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply --global --set BATON_LANG=en
 ```
 
-- **개인 자료 단어는 명령줄에 적지 않는다.** `--private-term 홍길동`처럼 적으면 그 명령이 세션 기록에 남는다.
-  사용자에게 두 길을 제안한다: (가) 사용자가 고른 단어를 한 줄에 하나씩 파일에 적고 `--private-terms-file <경로>`로 넘긴다,
-  (나) 세션 밖 터미널에서 사용자가 직접 `python3 <플러그인 경로>/lib/setup_scan.py apply --private-terms-file -` 를 돌리고 단어를 입력한다.
-  사용자가 대화에 남아도 괜찮다고 하면 `--private-term`을 써도 된다.
-- **단어 파일은 저장소 밖에 둔다**(예: 홈 폴더). 저장소 안에 만들었다면 apply 뒤에 지운다 — 커밋되면 막으려던 단어가 그대로 공개된다.
-  파일은 UTF-8로 저장한다(BOM은 떼고 읽는다).
-- 전역에 쓰려면 `--global`. `BATON_OBSERVE`·`BATON_LOG`는 전역에만 둔다.
-- 쓸 수 있는 키는 기존 환경변수 이름 그대로이고 값은 키마다 검사한다: 문턱 배수는 쉼표로 나눈 1 이상 숫자, 파일 수는 1 이상 정수,
-  스위치는 on/off(1/0·true/false·yes/no), 트리거 말·개인 자료 단어는 두 글자 이상. 어기면 쓰지 않고 멈춘다.
-- 설정 파일이 깨져 있으면 덮어쓰지 않고 멈춘다. 그 사실을 사용자에게 알리고 고치거나 지우게 한다.
+- **Don't put private words on the command line.** `--private-term 홍길동` leaves that command in the session log.
+  Offer the user two ways: (a) the user writes the picked words in a file, one per line, and you pass it with
+  `--private-terms-file <path>`; (b) the user runs `python3 <plugin path>/lib/setup_scan.py apply --private-terms-file -`
+  in a terminal outside the session and types the words. If the user says it is fine for the words to stay in the
+  conversation, `--private-term` may be used.
+- **Keep the word file outside the repo** (for example in the home folder). If it was created inside the repo, delete
+  it after apply: once committed, the words it was meant to block are public. Save the file as UTF-8 (a BOM is
+  stripped when read).
+- To write to the global section, add `--global`. `BATON_OBSERVE` and `BATON_LOG` go only in the global section.
+- The keys are the existing environment variable names, and each value is checked per key: threshold ratios are
+  numbers of 1 or more separated by commas, the file count is a whole number of 1 or more, switches are on/off
+  (1/0, true/false, yes/no), `BATON_LANG` is ko, en or auto (auto follows the locale), trigger phrases and private
+  words are at least two characters. A value that breaks a rule is not written, and apply stops.
+- If the config file is broken, apply stops without overwriting it. Tell the user, and have them fix or delete it.
 
-### 5. 바뀐 것과 되돌리는 법을 알린다
+### 5. Say what changed and how to undo it
 
-- 무엇이 어디에 쓰였는지: `~/.config/baton/config.json`(또는 `$XDG_CONFIG_HOME/baton/config.json`)의 이 저장소 절·전역 절, 키와 값.
-- 개인 자료 단어는 다시 출력하지 않는다 — "개인 자료 목록 단어 N개"로만 말한다.
-- 되돌리기: 키는 `apply --unset <키>`, 목록 하나만 빼려면 `apply --remove-terms-file <경로|->` · `apply --remove-trigger <말>`
-  (전역이면 `--global`). 개인 자료 단어를 빼는 것도 명령줄 대신 파일로 넘긴다. 빼기는 대소문자를 무시하고, 출력이 "N개 중 M개를 뺐다"와
-  "다른 절에 남아 여전히 적용된다"를 알려 주면 그대로 옮긴다.
-- 같은 이름의 환경변수가 설정 파일보다 우선한다. 잠깐 끄거나 바꿔 보려면 환경변수가 가장 빠르다.
-- 지금 적용된 값은 `python3 "$CLAUDE_PLUGIN_ROOT/lib/config.py"`로 본다.
+- What was written where: this repo's section or the global section of `~/.config/baton/config.json` (or
+  `$XDG_CONFIG_HOME/baton/config.json`), with keys and values.
+- Don't print private words again. Say only "N words on the private-words list".
+- To undo: a key with `apply --unset <key>`; to remove single list entries, `apply --remove-terms-file <path|->` or
+  `apply --remove-trigger <phrase>` (add `--global` for the global section). Pass private words to remove in a file,
+  not on the command line, too. Removal ignores case. When the output says "removed M of N" and "still in another
+  section and still applies", relay it as is.
+- An environment variable with the same name wins over the config file. To turn something off or try a value for a
+  while, an environment variable is the fastest way.
+- The values in effect now, including the output language and where it came from, are shown by
+  `python3 ${CLAUDE_PLUGIN_ROOT}/lib/config.py` (pre-approved, read only).
 
-## 우선순위
+## Order of precedence
 
-**실제 환경변수 > 이 저장소 절 > 전역 절 > 코드 기본값.** 목록 키(`private_terms`·`BATON_HANDOFF_TRIGGERS_EXTRA`)는
-전역 목록에 저장소 목록을 더한다(`BATON_HANDOFF_TRIGGERS_EXTRA` 환경변수가 있으면 쉼표로 나눈 그것만 쓴다).
+**Environment variable > this repo's section > global section > code default.** For the list keys (`private_terms`,
+`BATON_HANDOFF_TRIGGERS_EXTRA`), the repo list is added to the global list (if the `BATON_HANDOFF_TRIGGERS_EXTRA`
+environment variable is set, only its comma-separated entries are used). For the output language, when `BATON_LANG`
+is not set (or is `auto`; an empty environment variable counts as not set), the locale decides: the first non-empty
+of `LC_ALL`, `LC_MESSAGES`, `LANG`. A value is Korean when it is `ko` or starts with `ko` followed by `_`, `.`, `@` or
+`-` (so `kok_IN` is not Korean). On macOS with no locale variable (an app started outside a terminal), the first entry
+of the system language list (`AppleLanguages`) decides. With none of these it is English.
 
-## 하지 말 것
+## Don't
 
-- 사용자가 고르지 않은 값을 쓰기
-- 표본이 작은데 문턱을 바꾸자고 밀기
-- 못 센 것을 0건·없음으로 보고하기
-- 개인 자료 단어를 요약·보고에 다시 적기, 사용자 동의 없이 명령줄에 적기
-- 설정 파일을 손으로 고쳐 쓰기(스캐너의 `apply`가 권한 600·바꿔치기 쓰기·다른 저장소 절 보존을 지킨다)
+- Write a value the user didn't pick
+- Push to change a threshold when the sample is small
+- Report what could not be counted as 0 or "none"
+- Repeat private words in a summary or report, or put them on the command line without the user's consent
+- Edit the config file by hand (the scanner's `apply` keeps mode 600, writes through a temporary file, and keeps
+  other repos' sections)
 
-## 한계 (정직하게)
+## Limits (honestly)
 
-- **Claude Code 세션 기록만 센다.** Codex 세션 파일 형식은 이 저장소 코드가 아직 다루지 않는다.
-- **세션은 저장소 최상위에서 연 것만 센다.** 하위 폴더에서 연 세션은 분포에 안 들어간다(설정은 하위 폴더에도 적용된다).
-- **개인 자료는 이 대화에 남을 수 있다.** 스캔 출력과 apply 명령줄은 세션 기록에 들어간다 — 위 "개인 자료가 어디에 남는지".
-- 문턱 규칙은 기본값을 정한 방법을 그대로 옮겼지만, 원래 측정이 저장소 몇 곳·만든 사람 한 명이었다는 점은 그대로다.
-  인계서 제안 문턱의 원래 94세션 측정은 실험·SDK 세션까지 센 분모였고, 스캐너는 대화형 세션만 센다 — 같은 사람에게서도 값이 다를 수 있다.
-- 트리거 후보는 조사를 떼지 않은 단어 묶음이다. '계속해'와 '계속'을 따로 센다.
-- 개인 자료 후보는 휴리스틱이다. 이름이 흔한 단어면 엉뚱하게 막을 수 있으니 고를 때 확인한다.
+- **Only Claude Code session logs are counted.** This repo's code doesn't read the Codex session file format yet.
+- **Only sessions opened at the repo's top level are counted.** Sessions opened in a subfolder are not in the
+  distribution (the config still applies in subfolders).
+- **Private data can stay in this conversation.** The scan output and the apply command line go into the session log;
+  see "where private data ends up" above.
+- The threshold rules carry over the methods that set the defaults, but the original measurements still come from a
+  few repos and one person. The original 94-session measurement of the handoff nudge counted experiment and SDK
+  sessions in the denominator, while the scanner counts only interactive sessions, so the value can differ even for
+  the same person.
+- Trigger candidates are word groups with particles left on. '계속해' and '계속' are counted separately.
+- Private-word candidates are a heuristic. A name that is also a common word can block the wrong text, so check when
+  picking.
+- The language proposal looks only at the prompts of this repo's sessions. Pasted text (error output, documents) is
+  part of a prompt and counts toward its language.
