@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""북극성 길 단계 3 훅: HANDOFF.md를 쓰면 검사해 모델에게 돌려주고, 인계서 없이 파일을 여럿 고치면 세션에 한 번 제안한다."""
+"""북극성 길 단계 3 훅: HANDOFF.md를 쓰면 검사해 모델에게 돌려주고, 인계서 없이 파일을 여럿 고치면 세션에 한 번
+모델에게 인계서를 쓰게 한다(BATON_HANDOFF_AUTO, 기본 켬) — 끄면 예전처럼 사용자에게 제안만 한다."""
 import json
 import os
 import subprocess
@@ -11,11 +12,11 @@ from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOK = os.path.join(HERE, "handoff-check.py")
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
-from test_handoff_check import GOOD
+from test_handoff_check import GOOD, GOOD_EN
 
 
 _CFG = tempfile.TemporaryDirectory()  # 실제 설정 파일(~/.config/baton/config.json)을 읽지 않는다 — 훅 자식 프로세스도 이 환경을 물려받는다
-_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name})
+_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name, "BATON_LANG": "ko"})  # 한국어 단언은 ko로 고정
 
 
 def setUpModule():
@@ -45,7 +46,7 @@ class HandoffCheckHookTest(unittest.TestCase):
         env = os.environ.copy()
         env["XDG_CACHE_HOME"] = os.path.join(self.root, "cache")  # 실제 캐시에 쓰지 않는다
         env["BATON_LOG"] = self.log
-        for k in ("BATON_HANDOFF_CHECK", "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_NUDGE_FILES"):
+        for k in ("BATON_HANDOFF_CHECK", "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_NUDGE_FILES", "BATON_HANDOFF_AUTO"):
             env.pop(k, None)
         env.update(extra_env or {})
         r = subprocess.run([sys.executable, HOOK], input=raw if raw is not None else json.dumps(payload),
@@ -119,14 +120,115 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIsNone(self.post(other))
         self.assertIsNone(self.post(self.handoff("# Session Handoff\n"), extra_env={"BATON_HANDOFF_CHECK": "off"}))
 
-    # Stop — 제안
+    # Stop — 제안(BATON_HANDOFF_AUTO=off). 자동 쓰기는 아래 AutoWrite 테스트
     def write(self, lines):
         with open(self.transcript, "w", encoding="utf-8") as f:
             f.write("\n".join([json.dumps({"type": "user", "message": {"content": "시작"}})] + lines + ["{깨진 줄"]) + "\n")
 
-    def stop(self, sid="s1", **kw):
-        out = self.run_hook({"hook_event_name": "Stop", "transcript_path": self.transcript, "session_id": sid}, **kw)
+    def stop(self, sid="s1", extra_env=None, **kw):
+        env = dict({"BATON_HANDOFF_AUTO": "off"}, **(extra_env or {}))
+        out = self.run_hook({"hook_event_name": "Stop", "transcript_path": self.transcript, "session_id": sid},
+                            extra_env=env, **kw)
         return out["systemMessage"] if out else None
+
+    def auto(self, sid="s1", extra_env=None, **payload):
+        """자동 쓰기 켬(기본)의 Stop 출력 dict 또는 None."""
+        return self.run_hook(dict({"hook_event_name": "Stop", "transcript_path": self.transcript, "session_id": sid,
+                                   "cwd": "/r"}, **payload), extra_env=extra_env)
+
+    def events(self):
+        if not os.path.exists(self.log):
+            return []
+        with open(self.log, encoding="utf-8") as f:
+            return [json.loads(l) for l in f if l.strip()]
+
+    def test_auto_write_blocks_once_with_reason_for_the_model(self):
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/sub/c.py", "Write")])
+        out = self.auto()
+        self.assertEqual(set(out), {"decision", "reason"})  # Stop 훅 형식: decision "block" + reason(모델이 받는다)
+        self.assertEqual(out["decision"], "block")
+        reason = out["reason"]
+        self.assertIn("파일 3개를 고쳤다: a.py, b.py, sub/c.py.", reason)  # cwd(/r) 기준 상대 경로
+        self.assertIn("BATON_HANDOFF_AUTO=off", reason)
+        checker = reason.split('python3 "', 1)[1].split('"', 1)[0]
+        self.assertTrue(os.path.isfile(checker), checker)  # 검사기 경로는 실제 플러그인 파일
+        skill = reason.split("baton 인계서 스킬(", 1)[1].split("의 ", 1)[0]
+        with open(skill, encoding="utf-8") as f:
+            self.assertIn("## When the Stop hook asks", f.read())  # 요청이 가리키는 스킬 절이 실제로 있다
+        self.assertEqual([(e["event"], e["files"]) for e in self.events()], [("handoff_auto", 3)])
+        self.assertIsNone(self.auto())  # 세션에 한 번
+        self.assertIsNone(self.stop())  # 자동 쓰기를 했으면 같은 세션에 제안도 없다
+        self.assertEqual(self.auto(sid="s2")["decision"], "block")
+
+    def test_auto_write_never_blocks_while_stop_hook_active(self):
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py")])
+        self.assertIsNone(self.auto(stop_hook_active=True))
+        self.assertEqual(self.events(), [])
+        self.assertEqual(self.auto()["decision"], "block")  # 상태를 남기지 않았다 — 다음 턴 끝에 다시 본다
+        self.assertIsNotNone(self.stop(sid="s2", raw=json.dumps({"hook_event_name": "Stop", "transcript_path": self.transcript,
+                                                                  "session_id": "s2", "stop_hook_active": True})))  # 제안은 예전 그대로
+
+    def test_auto_write_follows_threshold_resets_and_switches(self):
+        self.write([edit("/r/a.py"), edit("/r/b.py")])
+        self.assertIsNone(self.auto())
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py"), edit("/r/HANDOFF.md", "Write"), edit("/r/d.py")])
+        self.assertIsNone(self.auto())  # 인계서를 쓴 뒤로는 1개
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py")])
+        self.assertIsNone(self.auto(sid="s3", extra_env={"BATON_HANDOFF_NUDGE": "off"}))  # 끄면 둘 다 없다
+        self.assertIsNone(self.auto(sid="s3", extra_env={"BATON_HANDOFF_NUDGE": "off", "BATON_HANDOFF_AUTO": "off"}))
+        self.assertEqual(self.auto(sid="s4", extra_env={"BATON_HANDOFF_NUDGE_FILES": "4"}), None)
+        self.assertIn("systemMessage", self.auto(sid="s5", extra_env={"BATON_HANDOFF_AUTO": "off"}))
+
+    def test_auto_write_lists_at_most_ten_files(self):
+        self.write([edit(f"/r/f{i:02}.py") for i in range(12)] + [edit("/elsewhere/x.py")])
+        reason = self.auto()["reason"]
+        self.assertIn("f08.py 외 3개.", reason)
+        self.assertNotIn("f10.py", reason)
+        reason = self.auto(sid="s2", extra_env={"BATON_LANG": "en"})["reason"]
+        self.assertIn("/elsewhere/x.py, f00.py", reason)  # cwd 밖은 경로 그대로
+        self.assertIn("f08.py, and 3 more.", reason)
+
+    def test_codex_transcript_gets_neither(self):
+        # Codex 기록(~/.codex/sessions)에는 "tool_use" 편집 줄이 없다 — 편집은 custom_tool_call apply_patch(11-23 실제 기록)
+        patch = {"type": "response_item", "payload": {"type": "custom_tool_call", "name": "apply_patch",
+                                                      "input": "*** Begin Patch\n*** Update File: /r/a.py\n*** End Patch"}}
+        with open(self.transcript, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(patch) for _ in range(5)) + "\n")
+        self.assertIsNone(self.auto())
+        self.assertIsNone(self.stop(sid="s2"))
+
+    def test_english_messages(self):
+        en = {"BATON_LANG": "en"}
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py")])
+        reason = self.auto(extra_env=en)["reason"]
+        self.assertTrue(reason.startswith("[baton] You edited 3 files in this session since the handoff (HANDOFF.md or "
+                                          "HANDOFF_*.md) was last written: a.py, b.py, c.py. Write or update HANDOFF.md"), reason)
+        self.assertIn("section 'When the Stop hook asks'", reason)
+        self.assertIn("Skip the promotion review and do not commit.", reason)
+        self.assertIn("Then end your turn with one line to the user saying the handoff was updated and that "
+                      "BATON_HANDOFF_AUTO=off turns this off.", reason)
+        msg = self.stop(sid="s2", extra_env=en)
+        self.assertTrue(msg.startswith("[baton] You edited 3 files in this session, and the handoff"), msg)
+        self.assertIn("once per session", msg)
+        out = self.post(self.handoff("# Session Handoff (written: 2026-11-23)\n- path /Users/someone/x\n"), extra_env=en)
+        self.assertTrue(out["reason"].startswith("[baton] The HANDOFF.md you just wrote has handoff-check problems. "
+                                                 "Fix them and save again:\n- missing required sections: Goal and done criteria"),
+                        out["reason"])
+        self.assertIn("\n- line 2: looks like an absolute home path", out["reason"])
+        self.assertNotIn("someone", out["reason"])
+        text = GOOD_EN.replace("## Verified facts and decisions\n- None\n", "## Verified facts and decisions\n- no mark\n")
+        ctx = self.post(self.handoff(text), extra_env=en)["hookSpecificOutput"]["additionalContext"]
+        self.assertTrue(ctx.startswith("[baton] Handoff-check warnings for the HANDOFF.md you just wrote (not blocking):\n- warning: "), ctx)
+        self.assertIsNone(self.post(self.handoff(GOOD_EN), extra_env=en))  # 영어 템플릿은 조용히 통과
+        self.assertIsNone(self.post(self.handoff(GOOD_EN)))  # 메시지가 한국어여도 영어 파일을 읽는다
+
+    def test_locale_fallback_reaches_the_hook(self):
+        self.write([edit("/r/a.py"), edit("/r/b.py"), edit("/r/c.py")])
+        env = mock.patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
+        for k in ("BATON_LANG", "LC_ALL", "LC_MESSAGES"):
+            os.environ.pop(k, None)
+        self.assertIn("파일 3개를 고쳤다", self.auto(extra_env={"LANG": "ko_KR.UTF-8"})["reason"])
+        self.assertIn("You edited 3 files", self.auto(sid="s2", extra_env={"LANG": "C.UTF-8"})["reason"])
 
     def test_nudges_once_after_three_files(self):
         self.write([edit("/r/a.py"), edit("/r/b.py")])

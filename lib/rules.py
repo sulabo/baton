@@ -11,7 +11,7 @@
 import json, os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import concepts, config
+import concepts, config, i18n
 
 VERSION = "rules-v1"
 
@@ -147,65 +147,87 @@ def decide(repo, prompt):
     }
 
 
-def index_line(repo, machine):
+def index_line(repo, machine, lang="ko"):
     """explain의 개념 색인 한 줄 — 훅(hooks/handoff-inject.py concept_index)과 같은 순서: 끄기 → 지도 → 기계 프롬프트."""
+    ko = lang == "ko"
     if config.get("BATON_CONCEPT_INDEX", repo).strip().lower() in ("off", "0", "false", "no"):
-        return "개념 색인 넣지 않는다 — BATON_CONCEPT_INDEX=off"
+        return "개념 색인 넣지 않는다 — BATON_CONCEPT_INDEX=off" if ko else "concept index  not injected — BATON_CONCEPT_INDEX=off"
     path, rel = concept_path(repo)
     if not path:
-        return "개념 색인 넣지 않는다 — 개념 지도(CONCEPTS.md)가 없다"
+        return ("개념 색인 넣지 않는다 — 개념 지도(CONCEPTS.md)가 없다" if ko
+                else "concept index  not injected — there is no concept map (CONCEPTS.md)")
     if machine:
-        return "개념 색인 넣지 않는다 — 다른 세션·작업 알림이 보낸 메시지다"
+        return ("개념 색인 넣지 않는다 — 다른 세션·작업 알림이 보낸 메시지다" if ko
+                else "concept index  not injected — the message came from another session or a task notification")
     try:
         text = concepts.index(concepts.read_text(path), concepts.INDEX_LIMIT_CHARS, rel)
     except Exception as e:
-        return f"개념 색인 못 만들었다({type(e).__name__}) — 훅은 색인 없이 간다"
+        return (f"개념 색인 못 만들었다({type(e).__name__}) — 훅은 색인 없이 간다" if ko
+                else f"concept index  could not be built ({type(e).__name__}) — the hook goes on without it")
     if not text:
-        return f"개념 색인 넣지 않는다 — {rel}에 넣을 개념이 없다"
+        return f"개념 색인 넣지 않는다 — {rel}에 넣을 개념이 없다" if ko else f"concept index  not injected — {rel} has no concepts to list"
     n = sum(1 for l in text.splitlines()[1:] if re.match(r"\d{1,2}\. ", l))
-    return (f"개념 색인 넣는다 — {len(text):,}자·개념 {n}개, 세션의 첫 사람 프롬프트에 한 번(압축 뒤 다시). "
-            f"이 세션에 이미 넣었으면 안 넣는다. 인계서와 같이 들어가 자리가 모자라면 줄인다")
+    if ko:
+        return (f"개념 색인 넣는다 — {len(text):,}자·개념 {n}개, 세션의 첫 사람 프롬프트에 한 번(압축 뒤 다시). "
+                f"이 세션에 이미 넣었으면 안 넣는다. 인계서와 같이 들어가 자리가 모자라면 줄인다")
+    return (f"concept index  injected — {len(text):,} chars, {n} concept{'' if n == 1 else 's'}, once on the session's first human prompt "
+            f"(again after compaction). Not injected if this session already has it. Shortened if there is not enough room "
+            f"next to the handoff")
 
 
 def explain(repo, prompt):
     d = decide(repo, prompt)
     h, c, t = d["handoff"], d["concepts"], d["task_type"]
-    lines = [f"[baton] 규칙 판단 ({d['version']}) — 저장소 {repo}", ""]
+    lang = i18n.lang(repo)
+    tr = (lambda ko, en: ko) if lang == "ko" else (lambda ko, en: en)  # 한국어 문구는 그대로, 영어는 옆에
+    words = ", ".join(h["words"])
+    lines = [tr(f"[baton] 규칙 판단 ({d['version']}) — 저장소 {repo}", f"[baton] Rule verdict ({d['version']}) — repo {repo}"), ""]
     # 훅(hooks/handoff-inject.py inject_handoff)과 같은 순서로 본다: 끄기 → 트리거 → 파일 → 기계 프롬프트
     if h["state"] == "MATCHED" and config.get("BATON_HANDOFF_INJECT", repo).strip().lower() in ("off", "0", "false", "no"):
-        lines.append(f"인계서   MATCHED — 하지만 BATON_HANDOFF_INJECT=off라 넣지 않는다 (맞은 말: {', '.join(h['words'])})")
+        lines.append(tr(f"인계서   MATCHED — 하지만 BATON_HANDOFF_INJECT=off라 넣지 않는다 (맞은 말: {words})",
+                        f"handoff   MATCHED — but not injected because BATON_HANDOFF_INJECT=off (matched: {words})"))
     elif h["state"] == "MATCHED" and not h["file"]:
-        lines.append(f"인계서   MATCHED — 하지만 HANDOFF.md가 없어 못 넣는다 (맞은 말: {', '.join(h['words'])})")
+        lines.append(tr(f"인계서   MATCHED — 하지만 HANDOFF.md가 없어 못 넣는다 (맞은 말: {words})",
+                        f"handoff   MATCHED — but there is no HANDOFF.md to inject (matched: {words})"))
     elif h["state"] == "MATCHED" and d["machine"]:
-        lines.append(f"인계서   MATCHED — 하지만 사람이 아니라 다른 세션·작업 알림이 보낸 메시지라 넣지 않는다 (맞은 말: {', '.join(h['words'])})")
+        lines.append(tr(f"인계서   MATCHED — 하지만 사람이 아니라 다른 세션·작업 알림이 보낸 메시지라 넣지 않는다 (맞은 말: {words})",
+                        f"handoff   MATCHED — but not injected: the message came from another session or a task notification, "
+                        f"not a person (matched: {words})"))
     elif h["state"] == "MATCHED":
-        lines.append(f"인계서   MATCHED — 넣는다 (맞은 말: {', '.join(h['words'])})")
+        lines.append(tr(f"인계서   MATCHED — 넣는다 (맞은 말: {words})", f"handoff   MATCHED — injected (matched: {words})"))
         try:  # 넣을 때만 신선도를 센다(git 최대 GIT_BUDGET초) — 훅도 같다
             with open(os.path.join(repo, "HANDOFF.md"), encoding="utf-8", errors="replace") as fh:
                 text = fh.read()
-            lines.append("         " + freshness_line(safe_freshness(repo, text)).replace("[baton] ", "", 1))
+            lines.append(tr("         ", "          ")
+                         + freshness_line(safe_freshness(repo, text, lang=lang), lang).replace("[baton] ", "", 1))
         except OSError:
             pass
     else:
-        lines.append("인계서   NO_MATCH — 넣지 않는다")
+        lines.append(tr("인계서   NO_MATCH — 넣지 않는다", "handoff   NO_MATCH — not injected"))
     if c["state"] == "MACHINE":
-        lines.append("개념     MACHINE — 다른 세션·작업 알림이 보낸 메시지라 후보를 세지 않았다")
+        lines.append(tr("개념     MACHINE — 다른 세션·작업 알림이 보낸 메시지라 후보를 세지 않았다",
+                        "concepts  MACHINE — sent by another session or a task notification, so candidates were not counted"))
     elif c["state"] == "NO_MAP":
-        lines.append("개념     지도 없음(CONCEPTS.md 없거나 못 읽음) — 후보를 못 셌다")
+        lines.append(tr("개념     지도 없음(CONCEPTS.md 없거나 못 읽음) — 후보를 못 셌다",
+                        "concepts  no map (CONCEPTS.md missing or unreadable) — candidates could not be counted"))
     else:
-        names = ", ".join(f"{x['num']}. {x['name']}" for x in c["candidates"]) or "없음"
-        lines.append(f"개념     {c['state']} — 후보: {names}")
-        lines.append("         (관찰만 한다. 개념 절 주입은 BATON_CONCEPT_INJECT=on이고 후보가 정확히 하나이며 그 절이 2,000자 이하일 때만)")
-    lines.append(index_line(repo, d["machine"]))
+        names = ", ".join(f"{x['num']}. {x['name']}" for x in c["candidates"]) or tr("없음", "none")
+        lines.append(tr(f"개념     {c['state']} — 후보: {names}", f"concepts  {c['state']} — candidates: {names}"))
+        lines.append(tr("         (관찰만 한다. 개념 절 주입은 BATON_CONCEPT_INJECT=on이고 후보가 정확히 하나이며 그 절이 2,000자 이하일 때만)",
+                        "          (observed only. A concept section goes in only when BATON_CONCEPT_INJECT=on, there is exactly "
+                        "one candidate, and the section is 2,000 chars or less)"))
+    lines.append(index_line(repo, d["machine"], lang))
     if t["state"] == "MACHINE":  # "없음"이면 0건으로 읽힌다 — 센 적이 없다
-        lines.append("작업 종류 MACHINE — 다른 세션·작업 알림이 보낸 메시지라 세지 않았다")
+        lines.append(tr("작업 종류 MACHINE — 다른 세션·작업 알림이 보낸 메시지라 세지 않았다",
+                        "task type MACHINE — sent by another session or a task notification, so not counted"))
     else:
-        tv = t["value"] if isinstance(t["value"], str) else ", ".join(t["value"] or []) or "없음"
-        lines.append(f"작업 종류 {t['state']} — {tv}")
-    lines.append("도메인   UNCONFIGURED — 사람이 아직 정하지 않았다(못 셈)")
-    lines.append("맥락 조립: lib/compiler.py explain으로 따로 본다 — 아직 훅에 안 붙어 넣지도 로그에 남기지도 않는다")
+        tv = t["value"] if isinstance(t["value"], str) else ", ".join(t["value"] or []) or tr("없음", "none")
+        lines.append(tr(f"작업 종류 {t['state']} — {tv}", f"task type {t['state']} — {tv}"))
+    lines.append(tr("도메인   UNCONFIGURED — 사람이 아직 정하지 않았다(못 셈)", "domain    UNCONFIGURED — not set by a person yet (not counted)"))
+    lines.append(tr("맥락 조립: lib/compiler.py explain으로 따로 본다 — 아직 훅에 안 붙어 넣지도 로그에 남기지도 않는다",
+                    "context assembly: see lib/compiler.py explain — not wired into the hook yet, so nothing is injected or logged"))
     lines.append("")
-    lines.append("판단 경로: rules (Jev 없음 — 길 단계 4 전)")
+    lines.append(tr("판단 경로: rules (Jev 없음 — 길 단계 4 전)", "verdict path: rules (no Jev yet — before roadmap step 4)"))
     return "\n".join(lines)
 
 
@@ -220,6 +242,31 @@ STALE_DAYS = 7  # ponytail: 근거 없는 기본값. 인계서 나이 분포(관
 # 있을 때)는 git 시한이 각 5초라, git이 멈추면 그 둘만으로 훅 시한 10초에 닿을 수 있다(이 기능 전부터, PR #16 기준 10.1초 실측)
 GIT_BUDGET = 3.0
 FRESHNESS_MAX = 500  # 신선도 한 줄의 상한(자). 함께 나올 수 없는 까닭까지 전부 붙인 과대 추정이 448자다(hooks/test_handoff_inject.py HookOutputBudgetTest) — 실제 줄은 자르지 않는다
+# 영어 줄의 상한. 영어 머리말(hooks/handoff-inject.py HEAD_EN)이 더 길어 같은 9,600자 예산 안에 검사기 상한 8,700자를 지키려면 이만큼만 남는다.
+# 실제로 함께 나올 수 있는 까닭은 둘까지(잘못된 첫 줄 날짜 + git 쪽 하나)라 가장 긴 실제 줄도 이 안에 든다(HookOutputBudgetTest)
+FRESHNESS_MAX_EN = 350
+
+# 못 센 까닭(사람이 읽을 말) — (한국어, 영어). 한국어 문구는 그대로 둔다. NO_DATE는 첫 줄에 작성일이 없을 때 앞에 붙는다
+NO_DATE = ("첫 줄에 작성일이 없고 ", "no date in the first lines, and ")
+WHY = {
+    "bad_date":    ("첫 줄 날짜({})가 잘못됐다", "the date in the first lines ({}) is invalid"),
+    "deadline":    ("그 뒤 커밋 수를 못 셌다(훅 시한)", "could not count the commits since then (hook time limit)"),
+    "shallow":     ("얕은 복제라 그 뒤 커밋 수를 못 셌다", "shallow clone, so could not count the commits since then"),
+    "count":       ("그 뒤 커밋 수를 못 셌다(git 시한 초과 또는 오류)", "could not count the commits since then (git timed out or failed)"),
+    "uncommitted": ("HANDOFF.md가 커밋된 적 없어 그 뒤 커밋 수를 못 셌다",
+                    "HANDOFF.md was never committed, so could not count the commits since then"),
+    "no_git":      ("그 뒤 커밋 수를 못 셌다(git 저장소가 아니거나 시한 초과·오류)",
+                    "could not count the commits since then (not a git repo, or git timed out or failed)"),
+    "never":       ("HANDOFF.md가 커밋된 적 없다", "HANDOFF.md was never committed"),
+    "no_log":      ("git 기록도 못 읽었다", "could not read the git history either"),
+    "crash":       ("신선도 계산 실패({})", "freshness check failed ({})"),
+}
+
+
+def unknown_reason(key, lang, *args, no_date=False):
+    """못 센 까닭 한 줄. lang이 ko가 아니면 영어."""
+    i = 0 if lang == "ko" else 1
+    return (NO_DATE[i] if no_date else "") + WHY[key][i].format(*args)
 
 
 def header_date(text):
@@ -244,13 +291,14 @@ def _git(repo, deadline, *args):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
-def handoff_freshness(repo, text, today=None, deadline=None):
+def handoff_freshness(repo, text, today=None, deadline=None, lang=None):
     """인계서가 얼마나 오래됐나. {"written", "source", "days", "commits_after", "dirty", "unknown"} — 못 센 값은 None.
     written은 첫 3줄의 작성일(header_date), 없거나 잘못된 날짜면 HANDOFF.md를 마지막으로 커밋한 날(source="commit",
     author 날짜 — rebase로 바뀌지 않게). commits_after는 그 커밋 뒤 이 폴더(-- .)를 건드린 커밋 수 — 인계서가 모르는 변경.
     커밋 안 한 수정 중(dirty)이거나 얕은 복제(shallow — 경계 커밋이 HANDOFF.md를 만든 것처럼 보인다)면 세지 않는다.
-    unknown은 못 센 까닭(사람이 읽을 말) 목록. deadline(time.monotonic 기준)이 없으면 지금부터 GIT_BUDGET초."""
+    unknown은 못 센 까닭(사람이 읽을 말, lang 언어 — 없으면 이 저장소의 언어) 목록. deadline(time.monotonic 기준)이 없으면 지금부터 GIT_BUDGET초."""
     import datetime, time
+    lang = lang or i18n.lang(repo)
     today = today or datetime.date.today()
     deadline = time.monotonic() + GIT_BUDGET if deadline is None else deadline
     out = {"written": None, "source": None, "days": None, "commits_after": None, "dirty": None, "unknown": []}
@@ -265,9 +313,9 @@ def handoff_freshness(repo, text, today=None, deadline=None):
     if head and valid(head):
         out["written"], out["source"] = head, "header"
     elif head:
-        out["unknown"].append(f"첫 줄 날짜({head})가 잘못됐다")
+        out["unknown"].append(unknown_reason("bad_date", lang, head))
     if deadline - time.monotonic() <= 0.05:  # 훅 시한이 이미 다 됐다 — git을 하나도 부르지 않는다(_git과 같은 문턱)
-        out["unknown"].append(("" if head else "첫 줄에 작성일이 없고 ") + "그 뒤 커밋 수를 못 셌다(훅 시한)")
+        out["unknown"].append(unknown_reason("deadline", lang, no_date=not head))
         if out["written"]:
             out["days"] = (today - valid(out["written"])).days
         return out
@@ -284,26 +332,28 @@ def handoff_freshness(repo, text, today=None, deadline=None):
             n = _git(repo, deadline, "rev-list", "--count", f"{sha}..HEAD", "--", ".")
             out["commits_after"] = int(n) if n and n.isdigit() else None
         if shallow == "true":
-            out["unknown"].append("얕은 복제라 그 뒤 커밋 수를 못 셌다")
+            out["unknown"].append(unknown_reason("shallow", lang))
         elif out["commits_after"] is None and out["dirty"] is not True:
-            out["unknown"].append("그 뒤 커밋 수를 못 셌다(git 시한 초과 또는 오류)")
+            out["unknown"].append(unknown_reason("count", lang))
     elif out["written"]:
         # 작성일은 있지만 커밋 수는 못 셌다 — 조용히 빼면 "그 뒤 커밋 없음"으로 읽힌다. 시한이 다 됐을 수 있어 git을 더 부르지 않는다
-        out["unknown"].append("HANDOFF.md가 커밋된 적 없어 그 뒤 커밋 수를 못 셌다" if last == ""
-                              else "그 뒤 커밋 수를 못 셌다(git 저장소가 아니거나 시한 초과·오류)")
+        out["unknown"].append(unknown_reason("uncommitted" if last == "" else "no_git", lang))
     else:
         # log가 비었거나(미추적) 실패했다(커밋이 하나도 없는 저장소도 실패한다) — git 저장소인지로 둘을 가른다
         inside = last == "" or _git(repo, deadline, "rev-parse", "--is-inside-work-tree") == "true"
-        lead = "" if head else "첫 줄에 작성일이 없고 "  # 잘못된 날짜는 앞에서 이미 말했다 — "없다"와 겹쳐 모순되지 않게
-        out["unknown"].append(lead + ("HANDOFF.md가 커밋된 적 없다" if inside else "git 기록도 못 읽었다"))
+        # 잘못된 날짜는 앞에서 이미 말했다 — "없다"와 겹쳐 모순되지 않게
+        out["unknown"].append(unknown_reason("never" if inside else "no_log", lang, no_date=not head))
     if out["written"]:
         out["days"] = (today - valid(out["written"])).days
     return out
 
 
-def freshness_line(f):
+def freshness_line(f, lang=None):
     """주입 머리말 바로 뒤에 붙일 한 줄. 아무것도 못 셌으면 그 까닭을 말한다(빈 줄로 두면 '신선함'으로 읽힌다).
-    FRESHNESS_MAX자를 넘지 않는다 — 훅이 이 길이만큼 인계서 본문 예산을 덜 쓰므로 길이에 상한이 있어야 한다."""
+    상한(한국어 FRESHNESS_MAX, 영어 FRESHNESS_MAX_EN)을 넘지 않는다 — 훅이 이 길이만큼 인계서 본문 예산을 덜 쓰므로 길이에 상한이 있어야 한다.
+    lang이 없으면 i18n.lang()(저장소 절 없이)."""
+    if (lang or i18n.lang()) != "ko":
+        return freshness_line_en(f)
     why = " · ".join(f.get("unknown") or [])
     if not f["written"]:
         line = f"[baton] 인계서 작성일을 못 셌다({why or '까닭 모름'}) — 다음 행동이 기대는 사실을 먼저 확인한다."
@@ -327,13 +377,48 @@ def freshness_line(f):
     return line if len(line) <= FRESHNESS_MAX else line[:FRESHNESS_MAX - 1] + "…"
 
 
-def safe_freshness(repo, text, deadline=None):
+def freshness_line_en(f):
+    """freshness_line의 영어판(docs/GUIDE.md의 예시와 같은 문장). 상한은 FRESHNESS_MAX_EN."""
+    def plural(n, word):
+        return f"{n} {word}" + ("" if n == 1 else "s")
+
+    why = " · ".join(f.get("unknown") or [])
+    if not f["written"]:
+        line = (f"[baton] Could not tell when this handoff was written ({why or 'reason unknown'}) — "
+                f"first check the facts the next step depends on.")
+    else:
+        when = "date in its first line" if f["source"] == "header" else "date of its last commit"
+        days = f["days"]
+        age = ("today" if days == 0 else plural(days, "day") + " ago" if days > 0
+               else plural(-days, "day") + " in the future — check the date")
+        parts = [f"[baton] This handoff is as of {f['written']} ({age}, {when})."]
+        if f["dirty"]:
+            parts.append("It has uncommitted edits.")
+        elif f["commits_after"]:
+            n = f["commits_after"]
+            parts.append(f"{plural(n, 'commit')} since then {'is' if n == 1 else 'are'} not in it — "
+                         f"start with `git log --oneline -{min(n, 20)} -- .`.")
+        elif f["commits_after"] == 0:
+            parts.append("No commits since then.")
+        if why:
+            parts.append(why[:1].upper() + why[1:] + ".")
+        if days >= STALE_DAYS:
+            parts.append(f"{plural(days, 'day')} have passed — first check that the next step still holds.")
+        line = " ".join(parts)
+    return line if len(line) <= FRESHNESS_MAX_EN else line[:FRESHNESS_MAX_EN - 1] + "…"
+
+
+def safe_freshness(repo, text, deadline=None, lang=None):
     """훅·explain용. 무엇이 터져도 '못 셌다'로 떨어진다 — 신선도 한 줄 때문에 인계서 주입이 사라지면 안 된다(fail-open)."""
     try:
-        return handoff_freshness(repo, text, deadline=deadline)
+        return handoff_freshness(repo, text, deadline=deadline, lang=lang)
     except Exception as e:
+        try:
+            reason = unknown_reason("crash", lang or i18n.lang(repo), type(e).__name__)
+        except Exception:
+            reason = f"신선도 계산 실패({type(e).__name__})"
         return {"written": None, "source": None, "days": None, "commits_after": None, "dirty": None,
-                "unknown": [f"신선도 계산 실패({type(e).__name__})"]}
+                "unknown": [reason]}
 
 
 def repo_root(start=None):

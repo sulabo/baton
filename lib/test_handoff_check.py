@@ -14,7 +14,8 @@ import handoff_check
 
 
 _CFG = tempfile.TemporaryDirectory()  # 실제 설정 파일(~/.config/baton/config.json)을 읽지 않는다 — 훅 자식 프로세스도 이 환경을 물려받는다
-_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name})
+# 한국어 메시지를 보는 테스트는 BATON_LANG=ko로 고정한다(로캘과 무관하게). 영어 테스트는 각자 en으로 덮는다
+_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name, "BATON_LANG": "ko"})
 
 
 def setUpModule():
@@ -172,13 +173,19 @@ class HandoffCheckTest(unittest.TestCase):
         self.assertIn("세지 못했다", out[0])
 
     def test_untouched_skill_template_warns(self):
-        # 템플릿을 고치지 않고 남기면 통과하면 안 된다 — 안내는 주석이라 세지 않고, 빈 "-" 항목이 걸린다
+        # 템플릿을 고치지 않고 남기면 통과하면 안 된다 — 안내는 주석이라 세지 않고, 빈 "-" 항목이 걸린다. 영어·한국어 템플릿 둘 다
         with open(os.path.join(os.path.dirname(HERE), "skills", "baton", "SKILL.md"), encoding="utf-8") as f:
             skill = f.read()
-        template = skill.split("```markdown\n", 1)[1].split("\n```", 1)[0]
-        out = handoff_check.warnings(template)
-        self.assertEqual(len(out), 1, out)
-        self.assertIn("1개 중 1개에 [V]·[?] 표시 없음", out[0])
+        templates = [b.split("\n```", 1)[0] for b in skill.split("```markdown\n")[1:]]
+        self.assertEqual([t.splitlines()[0] for t in templates],
+                         ["# Session Handoff (written: YYYY-MM-DD)", "# Session Handoff (작성: YYYY-MM-DD)"])
+        for template in templates:
+            out = handoff_check.warnings(template)
+            self.assertEqual(len(out), 1, out)
+            self.assertIn("1개 중 1개에 [V]·[?] 표시 없음", out[0])
+            self.assertFalse(any("필수 절 없음" in x for x in handoff_check.check(template)), template[:40])  # 8절이 다 있다
+            en = handoff_check.warnings(template, lang="en")
+            self.assertIn("1 of 1 items in the Verified facts and decisions section have no [V]/[?] mark", en[0])
         self.assertEqual(handoff_check.warnings(self.facts("<!-- 안내 -->\n- [V] 확인함\n")), [])
 
     def unmarked_lines(self, body):
@@ -286,6 +293,123 @@ class HandoffCheckTest(unittest.TestCase):
             self.assertIn("필수 절 없음", bad.stdout)
 
 
+GOOD_EN = """# Session Handoff (written: 2026-10-01)
+
+## Goal and done criteria
+- Goal: checker
+
+## Verified facts and decisions
+- None
+
+## Files and symbols
+- `lib/handoff_check.py`
+
+## Changes made
+- None
+
+## Failed approaches (do not retry)
+- None
+
+## Verification evidence
+- Command: python3 -m unittest
+
+## Risks and next actions
+- Next action: install
+
+## Promotion candidates (to DECISIONS.md)
+- None
+
+### Rejected (do not raise again)
+- None
+"""
+
+
+class EnglishHandoffTest(unittest.TestCase):
+    """영어 템플릿 인계서도 같은 검사를 받고, 메시지는 BATON_LANG을 따른다. 빠진 절 이름은 파일이 쓴 언어로."""
+
+    def setUp(self):
+        env = mock.patch.dict(os.environ, {"BATON_LANG": "en"}); env.start(); self.addCleanup(env.stop)
+
+    def facts(self, body):
+        return GOOD_EN.replace("## Verified facts and decisions\n- None\n", "## Verified facts and decisions\n" + body)
+
+    def test_english_template_passes_both_languages(self):
+        self.assertEqual(handoff_check.check(GOOD_EN), [])
+        self.assertEqual(handoff_check.check(GOOD_EN, lang="ko"), [])
+        self.assertEqual(handoff_check.warnings(GOOD_EN), [])  # "- None"은 주장이 아니다
+        lower = GOOD_EN.replace("## Changes made", "## E. changes made").replace("## Goal and", "## **GOAL and")
+        self.assertEqual(handoff_check.check(lower), [])  # 영어 머리말은 대소문자·번호·굵게를 가리지 않는다
+
+    def test_missing_sections_named_in_the_files_language(self):
+        text = GOOD_EN.replace("## Verification evidence", "## Notes")
+        self.assertEqual(handoff_check.check(text), ["missing required sections: Verification evidence"])
+        self.assertEqual(handoff_check.check(text, lang="ko"), ["필수 절 없음: Verification evidence"])  # 틀은 메시지 언어, 이름은 파일 언어
+        self.assertEqual(handoff_check.check(GOOD.replace("## 검증 증거", "## 메모")), ["missing required sections: 검증 증거"])
+        self.assertEqual(handoff_check.check("# Session Handoff (written: 2026-10-01)\n", lang="ko")[0],
+                         "필수 절 없음: Goal and done criteria, Verified facts and decisions, Files and symbols, Changes made, "
+                         "Failed approaches, Verification evidence, Risks and next actions, Promotion candidates")
+        self.assertIn("목표와 완료 조건", handoff_check.check("# Session Handoff (작성: 2026-10-01)\n")[0])
+
+    def test_problem_messages_in_english(self):
+        token = "gh" + "p_" + "A1b2" * 9
+        out = handoff_check.check(GOOD_EN + f"- token {token}\n- path /Users/someone/x\n- api_key = abcdef123456\n")
+        n = GOOD_EN.count("\n")
+        self.assertEqual(out, [f"line {n + 1}: looks like an API token — remove it or write it generically (~/, <key>)",
+                               f"line {n + 2}: looks like an absolute home path — remove it or write it generically (~/, <key>)",
+                               f"line {n + 3}: looks like a password or key assignment — remove it or write it generically (~/, <key>)"])
+        self.assertNotIn(token, "\n".join(out))
+        over = GOOD_EN + "a" * (handoff_check.MAX_CHARS + 1 - len(GOOD_EN))
+        self.assertIn("8,701 chars — over the 8,700-char limit (the part past it will not be injected into the next session)",
+                      handoff_check.check(over))
+        self.assertTrue(any(x.startswith("201 lines — over the 200-line limit")
+                            for x in handoff_check.check(GOOD_EN + "-\n" * (201 - GOOD_EN.count("\n")))))
+        self.assertTrue(any("the code block at line" in x and "has 25 lines" in x
+                            for x in handoff_check.check(GOOD_EN + "```\n" + "x\n" * 25 + "```\n")))
+        self.assertTrue(any("is not closed" in x for x in handoff_check.check(GOOD_EN + "```\nx\n")))
+        self.assertTrue(any(x.startswith("2 lines look like a full diff")
+                            for x in handoff_check.check(GOOD_EN + "diff --git a/x b/x\n@@ -1,2 +1,3 @@\n")))
+        out = handoff_check.check(GOOD_EN + "- Jane Roe asked\n", private_terms=["jane roe"])
+        self.assertEqual(out, [f"1 word(s) from your private-words list found (lines {n + 1}) — remove them or write them generically"])
+
+    def test_english_marks_warnings(self):
+        self.assertEqual(handoff_check.warnings(self.facts("- [V] ran the tests\n- [?] Codex is the same\n")), [])
+        out = handoff_check.warnings(self.facts("- [V] checked\n- recalled claim\n"))
+        self.assertEqual(len(out), 1, out)
+        self.assertTrue(out[0].startswith("warning: 1 of 2 items in the Verified facts and decisions section have no [V]/[?] mark"))
+        self.assertNotIn("recalled", out[0])  # 줄 번호와 종류만, 내용은 옮기지 않는다
+        out = handoff_check.warnings(self.facts("Prose only.\n"))
+        self.assertIn("has no list items", out[0])
+        out = handoff_check.warnings(self.facts("- [V] list\nprose line\n"))
+        self.assertIn("1 line(s) in the Verified facts and decisions section are not list items", out[0])
+        self.assertEqual(handoff_check.warnings("# Handoff\n## Verified facts\n- no mark\n", strict=False), [])  # 다른 형식은 밀지 않는다
+
+    def test_leaks_kinds_in_english_on_request(self):
+        self.assertEqual(handoff_check.leaks("/Users/someone/x"), ["홈 절대경로"])  # 기본은 한국어(부르는 쪽 문장이 한국어)
+        self.assertEqual(handoff_check.leaks("/Users/someone/x Jane", ["jane"], lang="en"),
+                         ["absolute home path", "word from the private-words list"])
+
+    def cli(self, text, env):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "HANDOFF.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(text)
+            e = {k: v for k, v in os.environ.items() if k not in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")}
+            e.update(env)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "handoff_check.py"), p], capture_output=True, text=True, env=e)
+            return r.returncode, r.stdout.replace(p, "HANDOFF.md")
+
+    def test_cli_in_english_and_locale_fallback(self):
+        self.assertEqual(self.cli(GOOD_EN, {"BATON_LANG": "en"}), (0, "HANDOFF.md: no problems\n"))
+        code, out = self.cli(self.facts("- no mark\n"), {"BATON_LANG": "en"})
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith("warning: "), out)
+        self.assertTrue(out.endswith("HANDOFF.md: no problems (warnings only — not blocking)\n"), out)
+        self.assertEqual(self.cli("# Session Handoff\n", {"BATON_LANG": "en"})[0], 1)
+        # BATON_LANG이 없으면 로캘을 따른다
+        self.assertEqual(self.cli(GOOD_EN, {"LANG": "ko_KR.UTF-8"}), (0, "HANDOFF.md: 문제 없음\n"))
+        self.assertEqual(self.cli(GOOD_EN, {"LANG": "C.UTF-8"}), (0, "HANDOFF.md: no problems\n"))
+
+
 class InjectBudgetTest(unittest.TestCase):
     """검사를 통과한 인계서는 주입에서 잘리지 않는다 — 두 상한이 따로 박혀 있어 갈라지면 여기서 깨진다."""
 
@@ -300,6 +424,9 @@ class InjectBudgetTest(unittest.TestCase):
         # 신선도 한 줄이 가장 길 때의 본문 예산(머리말 + 줄바꿈 + 신선도 + 꼬리 안내 몫을 뺀 것)에 검사기 상한 + 끝 줄바꿈이 들어간다
         self.assertLessEqual(handoff_check.MAX_CHARS + 1,
                              hook.LIMIT_CHARS - len(hook.HEAD) - 1 - hook.rules.FRESHNESS_MAX - hook.TAIL_RESERVE)
+        # 영어 머리말·영어 신선도 상한으로도 같다
+        self.assertLessEqual(handoff_check.MAX_CHARS + 1,
+                             hook.LIMIT_CHARS - len(hook.HEAD_EN) - 1 - hook.rules.FRESHNESS_MAX_EN - hook.TAIL_RESERVE)
 
     def test_largest_passing_handoff_is_injected_whole(self):
         with tempfile.TemporaryDirectory() as root:
@@ -315,13 +442,15 @@ class InjectBudgetTest(unittest.TestCase):
             self.assertFalse(any("자 — 상한" in x or "줄 — 상한" in x for x in handoff_check.check(text)))
             with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
                 f.write(text)
-            env = dict(os.environ, CLAUDE_PROJECT_DIR=root, BATON_LOG=os.path.join(root, "runs.jsonl"),
-                       XDG_CACHE_HOME=os.path.join(root, ".cache"))
-            r = subprocess.run([sys.executable, self.HOOK], input='{"prompt": "어디까지 했지? 이어서"}',
-                               text=True, capture_output=True, env=env, check=False)
-            ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
-            self.assertIn(last, ctx)
-            self.assertNotIn("까지만 넣었다", ctx)
+            for lang in ("ko", "en"):  # 영어 머리말이 더 길어도 같다
+                env = dict(os.environ, CLAUDE_PROJECT_DIR=root, BATON_LOG=os.path.join(root, "runs.jsonl"),
+                           XDG_CACHE_HOME=os.path.join(root, ".cache"), BATON_LANG=lang)
+                r = subprocess.run([sys.executable, self.HOOK], input='{"prompt": "어디까지 했지? 이어서"}',
+                                   text=True, capture_output=True, env=env, check=False)
+                ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+                self.assertIn(last, ctx)
+                self.assertNotIn("까지만 넣었다", ctx)
+                self.assertNotIn("went in (limit", ctx)
 
 
 if __name__ == "__main__":

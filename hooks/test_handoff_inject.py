@@ -13,7 +13,7 @@ REPO = os.path.dirname(HERE)
 
 
 _CFG = tempfile.TemporaryDirectory()  # 실제 설정 파일(~/.config/baton/config.json)을 읽지 않는다 — 훅 자식 프로세스도 이 환경을 물려받는다
-_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name})
+_CFG_ENV = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": _CFG.name, "BATON_LANG": "ko"})  # 한국어 단언은 ko로 고정. 영어는 EnglishInjectTest
 
 
 def setUpModule():
@@ -567,6 +567,138 @@ class HookOutputBudgetTest(unittest.TestCase):
             self.assertIn("까지만 넣었다", out)
             self.assertLessEqual(len(out), hook.LIMIT_CHARS)
             self.assertLess(h["lines"], h["total"])
+
+    # 영어 — 머리말이 길어 신선도 상한이 rules.FRESHNESS_MAX_EN이다. 같은 9,600자 안에 검사기 상한 8,700자가 전부 들어가야 한다
+    def test_budget_arithmetic_in_english(self):
+        hook = self.load()
+        head_max = len(hook.HEAD_EN) + 1 + hook.rules.FRESHNESS_MAX_EN
+        self.assertLessEqual(head_max + (self.CHECKER_MAX + 1) + hook.TAIL_RESERVE, hook.LIMIT_CHARS)
+
+    def test_longest_real_english_freshness_line_is_bounded(self):
+        # 영어는 한국어판처럼 모든 까닭을 다 붙인 과대 추정이 상한에 안 든다 — 실제로 나올 수 있는 조합만 센다(rules.handoff_freshness):
+        # 첫 줄 날짜가 잘못됐으면(bad_date) 그 뒤에 git 쪽 까닭이 하나 붙을 수 있고, 그때는 커밋 수를 못 센 것이라 커밋 안내가 없다.
+        # 커밋 수를 셌으면 까닭은 bad_date뿐. "no date ..." 앞말은 첫 줄에 날짜가 없을 때만이라 bad_date와 같이 나오지 않고 작성일도 없다.
+        # 숫자는 7자리(9999999)로 부풀린다
+        rules = self.load().rules
+        git_keys = [k for k in rules.WHY if k not in ("bad_date", "crash")]
+        bad = rules.unknown_reason("bad_date", "en", "2026-13-45")
+        base = {"written": "2026-01-01", "source": "commit", "days": 9999999, "dirty": False, "commits_after": None}
+        cases = [dict(base, commits_after=9999999, unknown=[bad]), dict(base, days=-9999999, commits_after=9999999, unknown=[bad]),
+                 dict(base, dirty=True, unknown=[bad]),
+                 dict(base, written=None, unknown=[rules.unknown_reason("crash", "en", "UnicodeDecodeError")])]
+        cases += [dict(base, unknown=[bad, rules.unknown_reason(k, "en")]) for k in git_keys]
+        cases += [dict(base, written=None, unknown=[bad, rules.unknown_reason(k, "en")]) for k in git_keys]
+        cases += [dict(base, written=None, unknown=[rules.unknown_reason(k, "en", no_date=True)]) for k in git_keys]
+        for f in cases:
+            line = rules.freshness_line(f, "en")
+            self.assertLessEqual(len(line), rules.FRESHNESS_MAX_EN, line)
+            self.assertFalse(line.endswith("…"), line)
+        line = rules.freshness_line(cases[0], "en")
+        for part in ("9999999 days have passed", "`git log --oneline -20 -- .`", "The date in the first lines (2026-13-45) is invalid"):
+            self.assertIn(part, line)
+        self.assertEqual(len(rules.freshness_line(dict(base, unknown=["x" * 5000]), "en")), rules.FRESHNESS_MAX_EN)  # 넘으면 자른다
+        self.assertLessEqual(len(rules.freshness_line(dict(base, written=None, unknown=["x" * 5000]), "en")), rules.FRESHNESS_MAX_EN)
+
+    def test_largest_handoff_goes_in_whole_in_english(self):
+        hook = self.load()
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(os.environ, {"BATON_LANG": "en"}):
+            text, _ = self.write_handoff(root, self.CHECKER_MAX)
+            longest = "F" * hook.rules.FRESHNESS_MAX_EN
+            with mock.patch.object(hook.rules, "freshness_line", return_value=longest):
+                out, h, _ = hook.inject_handoff(root, "where were we", {})
+                reserved, h2, _ = hook.inject_handoff(root, "where were we", {}, reserve=hook.concepts.INDEX_LIMIT_CHARS + 1)
+            self.assertTrue(out.startswith(hook.HEAD_EN + "\n" + longest + "\n\n" + text), out[:400])
+            self.assertEqual((h["lines"], h2["lines"]), (h["total"], h2["total"]))
+            self.assertIn(text, reserved)
+            self.assertLessEqual(len(out), hook.LIMIT_CHARS)
+
+    def test_truncation_note_fits_its_reserve_in_both_languages(self):
+        hook = self.load()
+        for lang, mark in (("ko", "까지만 넣었다"), ("en", "went in (limit 200 lines, 9,600 chars)")):
+            with tempfile.TemporaryDirectory() as root, mock.patch.dict(os.environ, {"BATON_LANG": lang}):
+                self.write_handoff(root, 30000)
+                with mock.patch.object(hook.rules, "freshness_line", return_value="F" * 100):
+                    out, h, _ = hook.inject_handoff(root, "이어서", {})
+                body = out.split("F" * 100 + "\n\n", 1)[1]
+                note = body[body.rindex("\n[baton] "):]
+                self.assertIn(mark, note)
+                self.assertLessEqual(len(note), hook.TAIL_RESERVE)
+                # 줄 수가 아주 커도(7자리) 꼬리 몫 안이다
+                with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as fh:
+                    fh.write("x\n" * 9999999)
+                with mock.patch.object(hook.rules, "freshness_line", return_value="F" * 100):
+                    out, _, _ = hook.inject_handoff(root, "이어서", {})
+                self.assertLessEqual(len(out[out.rindex("\n[baton] "):]), hook.TAIL_RESERVE, lang)
+
+
+class EnglishInjectTest(unittest.TestCase):
+    """BATON_LANG=en이면 머리말·신선도 한 줄·잘림 안내·개념 절 머리말이 영어다. 인계서 본문은 언어와 무관하게 그대로."""
+
+    def run_hook(self, root, prompt, **env):
+        e = dict(os.environ, CLAUDE_PROJECT_DIR=root, BATON_LOG=os.path.join(root, "runs.jsonl"),
+                 XDG_CACHE_HOME=os.path.join(root, ".cache"), BATON_CONCEPT_INDEX="off", **env)
+        r = subprocess.run([sys.executable, HOOK], input=json.dumps({"prompt": prompt}), capture_output=True, text=True, env=e)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] if r.stdout.strip() else ""
+
+    def git(self, root, *args):
+        subprocess.run(["git", "-C", root, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false",
+                        *args], check=True, capture_output=True)
+
+    def test_header_and_freshness_line_in_english(self):
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+                f.write("# Session Handoff (written: 2020-01-01)\n- Next action: x\n")
+            self.git(root, "init", "-q"); self.git(root, "add", "HANDOFF.md"); self.git(root, "commit", "-qm", "h")
+            for name in ("a", "b"):
+                with open(os.path.join(root, name), "w") as f:
+                    f.write(name)
+                self.git(root, "add", name); self.git(root, "commit", "-qm", name)
+            ctx = self.run_hook(root, "where were we?", BATON_LANG="en")
+            head, fresh, blank, first = ctx.splitlines()[:4]
+            self.assertTrue(head.startswith("[baton] Below is the full HANDOFF.md of this repo (injected because the prompt "
+                                            "asks about handoff or progress). No need to open the file again."), head)
+            self.assertIn("read it as a hypothesis, not a fact", head)
+            self.assertRegex(fresh, r"^\[baton\] This handoff is as of 2020-01-01 \(\d+ days ago, date in its first line\)\. "
+                                    r"2 commits since then are not in it — start with `git log --oneline -2 -- \.`\. "
+                                    r"\d+ days have passed — first check that the next step still holds\.$")
+            self.assertEqual((blank, first), ("", "# Session Handoff (written: 2020-01-01)"))
+            ko = self.run_hook(root, "where were we?", BATON_LANG="ko")  # 영어 인계서의 작성일은 한국어 설정에서도 읽는다
+            self.assertIn("2020-01-01(", ko.splitlines()[1])
+            self.assertIn("첫 줄 작성일", ko.splitlines()[1])
+
+    def test_freshness_reasons_in_english(self):
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+                f.write("# Notes\nno date here\n")
+            fresh = self.run_hook(root, "catch me up", BATON_LANG="en").splitlines()[1]
+            self.assertEqual(fresh, "[baton] Could not tell when this handoff was written (no date in the first lines, and "
+                                    "could not read the git history either) — first check the facts the next step depends on.")
+            with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+                f.write("# Session Handoff (written: 2999-01-01)\n")
+            fresh = self.run_hook(root, "catch me up", BATON_LANG="en").splitlines()[1]
+            self.assertIn("days in the future — check the date", fresh)
+            self.assertIn("Could not count the commits since then (not a git repo, or git timed out or failed).", fresh)
+
+    def test_concept_section_head_in_english(self):
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "CONCEPTS.md"), "w", encoding="utf-8") as f:
+                f.write("## 1. Ending verdict — what decides the ending\nBased on the current build.\n\n## 2. Save slots\nbody\n")
+            ctx = self.run_hook(root, "fix the ending verdict", BATON_LANG="en", BATON_CONCEPT_INJECT="on")
+            self.assertTrue(ctx.startswith("[baton] Below is the one concept section in this repo's CONCEPTS.md that matches "
+                                           "the prompt (experimental feature BATON_CONCEPT_INJECT=on)."), ctx)
+            self.assertIn("## 1. Ending verdict", ctx)
+            self.assertNotIn("Save slots", ctx)
+
+    def test_locale_fallback_reaches_the_hook(self):
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+                f.write("next\n")
+            env = mock.patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
+            for k in ("BATON_LANG", "LC_ALL", "LC_MESSAGES"):
+                os.environ.pop(k, None)
+            self.assertTrue(self.run_hook(root, "이어서", LANG="ko_KR.UTF-8").startswith("[baton] 아래는 이 저장소 HANDOFF.md의 전문이다"))
+            self.assertTrue(self.run_hook(root, "이어서", LANG="C.UTF-8").startswith("[baton] Below is the full HANDOFF.md"))
 
 
 if __name__ == "__main__":
