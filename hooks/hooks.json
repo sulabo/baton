@@ -1,5 +1,5 @@
 {
-  "description": "baton — 개념 지도 신선도 알림, 인계서 on-demand 주입, 0건 구분 가드, 세션 끊기 알림, 인계서 검사·제안",
+  "description": "baton — 개념 지도 신선도 알림, 인계서 on-demand 주입, 0건 구분 가드, 인계서 검사·자동 갱신(파일 수·맥락 문턱)",
   "hooks": {
     "SessionStart": [
       {
@@ -49,11 +49,6 @@
     "Stop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/split-notice.py\"",
-            "timeout": 10
-          },
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/handoff-check.py\"",

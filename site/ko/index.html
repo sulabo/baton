@@ -406,7 +406,7 @@ body { word-break: keep-all; }
             <span class="cost-k">100번째</span><span class="cost-bar" style="--v:100%;--c:46.4%"><i></i></span><b class="cost-v">289K</b>
           </div>
         </div>
-        <p class="cost-nudge">baton은 대화 양이 첫 호출의 2배, 3배를 넘을 때 새로 시작하자고 <span class="nw">알려 줘요(Claude Code).</span> 새로 시작해서 실제로 얼마나 아끼는지는 아직 <span class="nw">재지 않았어요.</span></p>
+        <p class="cost-nudge">baton은 대화 양이 첫 호출의 2배, 3배를 넘으면 AI가 인계서를 써 두게 해서, 새로 시작할 수 있게 <span class="nw">해 줘요(Claude Code).</span> 새로 시작해서 실제로 얼마나 아끼는지는 아직 <span class="nw">재지 않았어요.</span></p>
         <figcaption class="note">호출은 AI 모델에 한 번 요청하는 것, K는 토큰(AI가 읽는 글의 단위) 1,000개예요. 만든 사람의 대화 중 호출이 20번 이상인 60개(메인 대화만)의 중앙값이고, 100번째는 그중 37개 기준이에요. <span class="nw">2026-08-31~09-30</span>, 비용은 API 가격 기준이에요.</figcaption>
       </figure>
       <div style="display:grid;gap:var(--space-4)">
@@ -461,7 +461,7 @@ body { word-break: keep-all; }
                   <div class="card-top"><span><strong>새 대화</strong> · <span class="nw">데모 저장소</span></span><span class="tag">실제 출력</span></div>
                   <div class="rows">
                     <div class="row"><div class="row-head"><span>나</span></div><div>어디까지 했지?</div></div>
-                    <div class="row"><div class="out"><span class="b">[baton]</span> 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). 파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, 다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다.</div></div>
+                    <div class="row"><div class="out"><span class="b">[baton]</span> 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). 파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, 다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다. '소유자 확인' 항목은 되돌릴 수 있으면 권장 기본값대로 진행하고, 되돌릴 수 없는 것만 묻는다.</div></div>
                     <div class="row"><div class="out"><span class="b">[baton]</span> 이 인계서는 2026-11-11(11일 전, 첫 줄 작성일) 기준이다. 그 뒤 커밋 3개는 인계서에 없다 — <code>git log --oneline -3 -- .</code>부터 본다. 11일 지났다 — 다음 행동이 아직 유효한지부터 확인한다.</div></div>
                   </div>
                 </figure>
@@ -573,10 +573,10 @@ body { word-break: keep-all; }
       <div>
         <details open><summary>baton이 인터넷으로 무언가를 보내나요?</summary><p>아니요. 훅은 git 기록과 내 컴퓨터의 파일만 읽고, <code>~/.cache/baton/</code> 아래에만 써요.</p></details>
         <details><summary>토큰이 줄어드나요?</summary><p>실험에서는 진행 상황을 물을 때 <span class="nw">40–54%</span> 줄었어요. 실제 사용에서는 아직 줄지 않았어요. 조건은 위의 <span class="nw">"지금까지 잰 것"에</span> 있어요.</p></details>
-        <details><summary>/compact나 /resume과 뭐가 달라요?</summary><p><code>/compact</code>는 지금 대화를 요약해서 이어 가고, <code>/resume</code>은 지난 대화를 다시 열어요. 둘 다 대화 하나를 계속 이어 가요. baton은 <span class="nw">새 대화를</span> 열 때 써요. 대화 양이 첫 호출의 2배, 3배를 넘으면 새로 시작하자고 알려 주고<span class="nw">(Claude Code)</span>, 다음 대화에 직접 읽고 고칠 수 있는 <span class="nw">한 장을</span> 건네요. 어느 쪽이 비용이 덜 드는지는 아직 비교하고 있어요.</p></details>
+        <details><summary>/compact나 /resume과 뭐가 달라요?</summary><p><code>/compact</code>는 지금 대화를 요약해서 이어 가고, <code>/resume</code>은 지난 대화를 다시 열어요. 둘 다 대화 하나를 계속 이어 가요. baton은 <span class="nw">새 대화를</span> 열 때 써요. 대화 양이 첫 호출의 2배, 3배를 넘으면 AI가 인계서를 써 두게 하고<span class="nw">(Claude Code)</span>, 다음 대화에 직접 읽고 고칠 수 있는 <span class="nw">한 장을</span> 건네요. 어느 쪽이 비용이 덜 드는지는 아직 비교하고 있어요.</p></details>
         <details><summary>어떤 말을 하면 인계서가 들어가나요?</summary><p>"이어서", "어디까지", "인계", "handoff" <span class="nw">같은 말이</span> 프롬프트에 있으면 들어가요. 그런 말이 없으면 넣지 않아요. 이런 말은 <span class="nw"><code>/baton-setup</code>에서</span> 더 추가할 수 있어요.</p></details>
         <details><summary>DECISIONS.md가 꼭 있어야 하나요?</summary><p>아니요. 파일이 바뀌었는지는 git 기록만으로 알 수 있어요. 다만 결정 기록이 없으면 <span class="nw">"정했는데 아직 안 만든 것"</span>은 찾지 못해요. 파일이 없는 개념도 추적하지 않아요.</p></details>
-        <details><summary>내 파일을 바꾸나요?</summary><p>네, <code>HANDOFF.md</code>는 바뀔 수 있어요. <span class="nw">Claude Code</span>에서는 파일을 3개 이상 고친 뒤 baton이 AI에게 이 파일을 갱신하라고 해요. 제안만 받고 싶으면 <span class="nw"><code>BATON_HANDOFF_AUTO=off</code>로</span> 꺼요. <code>CONCEPTS.md</code>는 요청할 때만 AI가 써요. 훅이 직접 파일을 고치지는 않고, 커밋도 하지 않아요.</p></details>
+        <details><summary>내 파일을 바꾸나요?</summary><p>네, <code>HANDOFF.md</code>는 바뀔 수 있어요. <span class="nw">Claude Code</span>에서는 파일을 3개 이상 고치거나 대화가 처음의 2배·3배를 넘으면 baton이 AI에게 이 파일을 갱신하라고 해요. 제안만 받고 싶으면 <span class="nw"><code>BATON_HANDOFF_AUTO=off</code>로</span> 꺼요. <code>CONCEPTS.md</code>는 요청할 때만 AI가 써요. 훅이 직접 파일을 고치지는 않고, 커밋도 하지 않아요.</p></details>
       </div>
     </div>
   </section>

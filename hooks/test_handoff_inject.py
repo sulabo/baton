@@ -696,9 +696,10 @@ class EnglishInjectTest(unittest.TestCase):
                 self.git(root, "add", name); self.git(root, "commit", "-qm", name)
             ctx = self.run_hook(root, "where were we?", BATON_LANG="en")
             head, fresh, blank, first = ctx.splitlines()[:4]
-            self.assertTrue(head.startswith("[baton] Below is the full HANDOFF.md of this repo (injected because the prompt "
-                                            "asks about handoff or progress). No need to open the file again."), head)
-            self.assertIn("read it as a hypothesis, not a fact", head)
+            self.assertEqual(head, "[baton] Below is this repo's full HANDOFF.md, injected because the prompt asks about handoff "
+                                   "or progress. No need to reopen it. It was written earlier: treat it as a hypothesis, check "
+                                   "the one or two claims the next step depends on, then continue with the next action. For Owner "
+                                   "decisions, use the recommended default if reversible; ask only about irreversible ones.")
             self.assertRegex(fresh, r"^\[baton\] This handoff is as of 2020-01-01 \(\d+ days ago, date in its first line\)\. "
                                     r"2 commits since then are not in it — start with `git log --oneline -2 -- \.`\. "
                                     r"\d+ days have passed — first check that the next step still holds\.$")
@@ -752,7 +753,7 @@ class EnglishInjectTest(unittest.TestCase):
             for k in ("BATON_LANG", "LC_ALL", "LC_MESSAGES"):
                 os.environ.pop(k, None)
             self.assertTrue(self.run_hook(root, "이어서", LANG="ko_KR.UTF-8").startswith("[baton] 아래는 이 저장소 HANDOFF.md의 전문이다"))
-            self.assertTrue(self.run_hook(root, "이어서", LANG="C.UTF-8").startswith("[baton] Below is the full HANDOFF.md"))
+            self.assertTrue(self.run_hook(root, "이어서", LANG="C.UTF-8").startswith("[baton] Below is this repo's full HANDOFF.md"))
 
 
 if __name__ == "__main__":

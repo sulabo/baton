@@ -390,7 +390,7 @@ html.lenis, html.lenis body { height: auto; }
             <span class="cost-k">100th</span><span class="cost-bar" style="--v:100%;--c:46.4%"><i></i></span><b class="cost-v">289K</b>
           </div>
         </div>
-        <p class="cost-nudge">baton suggests starting fresh when the conversation passes 2× and 3× its first-call size <span class="nw">(Claude Code).</span> How much that saves in real use isn't <span class="nw">measured yet.</span></p>
+        <p class="cost-nudge">When the conversation passes 2× and 3× its first-call size, baton has the agent save a handoff so you can start fresh <span class="nw">(Claude Code).</span> How much that saves in real use isn't <span class="nw">measured yet.</span></p>
         <figcaption class="note">A call is one request to the model; K is 1,000 tokens, the unit models read text in. Medians over 60 of the author's sessions with 20+ calls, main thread only; the 100th-call value is over 37 of them. <span class="nw">2026-08-31</span> to <span class="nw">09-30</span>, cost at API prices.</figcaption>
       </figure>
       <div style="display:grid;gap:var(--space-4)">
@@ -444,7 +444,7 @@ html.lenis, html.lenis body { height: auto; }
                   <div class="card-top"><span><strong>New session</strong> · <span class="nw">demo repo</span></span><span class="tag">shortened</span></div>
                   <div class="rows">
                     <div class="row"><div class="row-head"><span>You</span></div><div>where were we?</div></div>
-                    <div class="row"><div class="out"><span class="b">[baton]</span> Below is the full HANDOFF.md of this repo. No need to open the file again. Read it as a hypothesis, not a fact, and check only the one or two claims the next step depends on.</div></div>
+                    <div class="row"><div class="out"><span class="b">[baton]</span> Below is this repo's full HANDOFF.md. No need to reopen it. Treat it as a hypothesis, check the one or two claims the next step depends on, then continue with the next action. For Owner decisions, use the recommended default if reversible; ask only about irreversible ones.</div></div>
                     <div class="row"><div class="out"><span class="b">[baton]</span> This handoff is as of 2026-11-11 (11 days ago). 3 commits since then are not in it — start with <code>git log --oneline -3 -- .</code></div></div>
                   </div>
                 </figure>
@@ -556,10 +556,10 @@ html.lenis, html.lenis body { height: auto; }
       <div>
         <details open><summary>Does baton send anything over the network?</summary><p>No. The hooks read your git history and local files, and write only under <code>~/.cache/baton/</code>.</p></details>
         <details><summary>Does it save tokens?</summary><p>In snapshot runs, yes: <span class="nw">40–54%</span> fewer input tokens on progress questions. In real use, not yet. The conditions are in "Measured so far" above.</p></details>
-        <details><summary>How is this different from /compact or /resume?</summary><p><code>/compact</code> summarizes the current conversation and keeps going; <code>/resume</code> reopens an earlier one. Both continue a single conversation. baton is for opening a new session: it suggests starting fresh when the context passes 2× and 3× its first-call size (Claude Code), and gives the next session one page you can read and edit. Which of these costs less is still being compared.</p></details>
+        <details><summary>How is this different from /compact or /resume?</summary><p><code>/compact</code> summarizes the current conversation and keeps going; <code>/resume</code> reopens an earlier one. Both continue a single conversation. baton is for opening a new session: when the context passes 2× and 3× its first-call size, it has the agent save a handoff so you can start fresh (Claude Code), and gives the next session one page you can read and edit. Which of these costs less is still being compared.</p></details>
         <details><summary>Can I use it in English?</summary><p>Yes. Messages are in English unless your locale is Korean; set <code>BATON_LANG=en</code> to choose English. English requests start the skills, and handoff loading answers phrases such as "where were we" or "pick up where we left off". Add more trigger words with <code>/baton-setup</code>.</p></details>
         <details><summary>Do I need DECISIONS.md?</summary><p>No. Whether a concept's files changed comes from git history alone. Without a decision log, baton can't catch "decided but not built yet", and concepts without files aren't tracked.</p></details>
-        <details><summary>Does it change my files?</summary><p>Yes, <code>HANDOFF.md</code> can change. In <span class="nw">Claude Code</span>, after 3 or more files are edited, baton asks the agent to update it; set <code>BATON_HANDOFF_AUTO=off</code> to get a suggestion instead. <code>CONCEPTS.md</code> is written only when you ask. No hook edits files itself, and nothing is committed.</p></details>
+        <details><summary>Does it change my files?</summary><p>Yes, <code>HANDOFF.md</code> can change. In <span class="nw">Claude Code</span>, after 3 or more files are edited, or when the conversation passes 2× and 3× its first size, baton asks the agent to update it; set <code>BATON_HANDOFF_AUTO=off</code> to get a suggestion instead. <code>CONCEPTS.md</code> is written only when you ask. No hook edits files itself, and nothing is committed.</p></details>
       </div>
     </div>
   </section>

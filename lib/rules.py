@@ -251,10 +251,10 @@ STALE_DAYS = 7  # ponytail: 근거 없는 기본값. 인계서 나이 분포(관
 # deadline으로 넘긴다 — 신선도는 그보다 늦게 끝나지 않는다. 그 앞의 repo_root(Codex만)·config.repo_key(설정에 저장소 절이
 # 있을 때)는 git 시한이 각 5초라, git이 멈추면 그 둘만으로 훅 시한 10초에 닿을 수 있다(이 기능 전부터, PR #16 기준 10.1초 실측)
 GIT_BUDGET = 3.0
-FRESHNESS_MAX = 500  # 신선도 한 줄의 상한(자). 함께 나올 수 없는 까닭까지 전부 붙인 과대 추정이 448자다(hooks/test_handoff_inject.py HookOutputBudgetTest) — 실제 줄은 자르지 않는다
+FRESHNESS_MAX = 460  # (11-24 500 → 460: 주입 머리말에 소유자 확인 문장을 더한 몫) 신선도 한 줄의 상한(자). 함께 나올 수 없는 까닭까지 전부 붙인 과대 추정이 448자다(hooks/test_handoff_inject.py HookOutputBudgetTest) — 실제 줄은 자르지 않는다
 # 영어 줄의 상한. 영어 머리말(hooks/handoff-inject.py HEAD_EN)이 더 길어 같은 9,600자 예산 안에 검사기 상한 8,700자를 지키려면 이만큼만 남는다.
 # 실제로 함께 나올 수 있는 까닭은 둘까지(잘못된 첫 줄 날짜 + git 쪽 하나)라 가장 긴 실제 줄도 이 안에 든다(HookOutputBudgetTest)
-FRESHNESS_MAX_EN = 350
+FRESHNESS_MAX_EN = 320  # 11-24 350 → 320(머리말 문장 몫). 실제로 나올 수 있는 가장 긴 줄은 295자
 
 # 못 센 까닭(사람이 읽을 말) — (한국어, 영어). 한국어 문구는 그대로 둔다. NO_DATE는 첫 줄에 작성일이 없을 때 앞에 붙는다
 NO_DATE = ("첫 줄에 작성일이 없고 ", "no date in the first lines, and ")

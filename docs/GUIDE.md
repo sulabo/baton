@@ -32,7 +32,7 @@ When you finish a piece of work, ask the agent to "write a handoff". It writes `
 **What you see.** The first few lines the agent receives, from a demo repo where the handoff was written 11 days ago and 3 commits came after it:
 
 ```
-[baton] Below is the full HANDOFF.md of this repo (injected because the prompt asks about handoff or progress). No need to open the file again. But a handoff is a record from when it was written: read it as a hypothesis, not a fact, and check only the one or two claims the next step depends on with git or the files before you continue.
+[baton] Below is this repo's full HANDOFF.md, injected because the prompt asks about handoff or progress. No need to reopen it. It was written earlier: treat it as a hypothesis, check the one or two claims the next step depends on, then continue with the next action. For Owner decisions, use the recommended default if reversible; ask only about irreversible ones.
 [baton] This handoff is as of 2026-11-11 (11 days ago, date in its first line). 3 commits since then are not in it — start with `git log --oneline -3 -- .`. 11 days have passed — first check that the next step still holds.
 
 # Session Handoff (written: 2026-11-11)
@@ -42,7 +42,7 @@ When you finish a piece of work, ask the agent to "write a handoff". It writes `
 <summary>The same lines in Korean</summary>
 
 ```
-[baton] 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). 파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, 다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다.
+[baton] 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). 파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, 다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다. '소유자 확인' 항목은 되돌릴 수 있으면 권장 기본값대로 진행하고, 되돌릴 수 없는 것만 묻는다.
 [baton] 이 인계서는 2026-11-11(11일 전, 첫 줄 작성일) 기준이다. 그 뒤 커밋 3개는 인계서에 없다 — `git log --oneline -3 -- .`부터 본다. 11일 지났다 — 다음 행동이 아직 유효한지부터 확인한다.
 
 # Session Handoff (작성: 2026-11-11)
@@ -69,8 +69,8 @@ How it works:
 - **Once per session.** The same handoff goes into a session once. It goes in again only if `HANDOFF.md` changed or the session was compacted since (compaction is when a long conversation is replaced by a summary). Messages from other sessions or subagents (`<agent-message>`, `<cross-session-message>`) and task notifications (`<task-notification>`) get nothing, because no person asked.
 - **A freshness line.** The date comes from the handoff's first 3 lines, or else from the last commit of `HANDOFF.md`. The commit count is the number of commits that touched this folder since `HANDOFF.md` was last committed. After 7 days, the line also says to check the next step first. When baton can't count (uncommitted edits to the handoff, a shallow clone, or git taking more than 3 seconds), it says so instead of printing "no commits".
 - **Must-read entries.** In "Files and symbols", put `(must read)` (or `(필독)`) after up to 3 entries that the next session has to read before acting. When the handoff is injected, those entries go in one line right after the freshness line, so they are seen even if the handoff is cut. The checker warns when more than 3 are marked, and counts that line toward the 8,700-character limit.
-- **Written when a piece of work ends (Claude Code).** baton counts the files edited in the session since a handoff was last written in it (or since the session started). Once that reaches 3 (`BATON_HANDOFF_NUDGE_FILES`), the Stop hook, which runs when the agent ends its turn, keeps the turn going once per session and asks the agent to update `HANDOFF.md`. The agent starts from the current file and carries forward every line that is still true, instead of rewriting it from memory. It skips the promotion review, does not commit, and tells you in one line; the save hook runs the check. If the repo has a `HANDOFF.md` in another format, baton only suggests and doesn't rewrite it. This is on by default. `BATON_HANDOFF_AUTO=off` brings back the old behavior: a short suggestion to you, and you decide. `BATON_HANDOFF_NUDGE=off` turns off both. Writing a named handoff such as `HANDOFF_api.md` counts as writing one; only `HANDOFF.md` is checked and injected.
-- **Nudges.** The context is measured at the session's first model call. When it grows past 2× that size, and again past 3×, a notice suggests writing a handoff and starting fresh.
+- **Written when a piece of work ends (Claude Code).** baton counts the files edited in the session since a handoff was last written in it (or since the session started). Once that reaches 3 (`BATON_HANDOFF_NUDGE_FILES`), the Stop hook, which runs when the agent ends its turn, keeps the turn going once per session and asks the agent to update `HANDOFF.md`. The agent starts from the current file and carries forward every line that is still true, instead of rewriting it from memory. It skips the promotion review, does not commit, and tells you in one line; the save hook runs the check. If the repo has a `HANDOFF.md` in another format, baton only suggests and doesn't rewrite it. This is on by default. `BATON_HANDOFF_AUTO=off` brings back the old behavior: a short suggestion to you, and you decide. `BATON_HANDOFF_NUDGE=off` turns off both for this files-edited rule; the context rule below has its own switch. Writing a named handoff such as `HANDOFF_api.md` counts as writing one; only `HANDOFF.md` is checked and injected.
+- **Saved when the context grows (Claude Code).** The context is measured at the session's first model call. When it grows past 2× that size, and again past 3×, the Stop hook asks the agent once to update `HANDOFF.md` the same way, and the agent tells you in one line that you can continue in a new conversation by saying "where were we". baton doesn't suggest `/compact`. If the files-edited rule and the context rule fire at the same Stop, the agent is asked once. With `BATON_HANDOFF_AUTO=off` or a `HANDOFF.md` in another format, you get a short notice instead. `BATON_SPLIT_NOTICE=off` turns this off.
 - **`/promote`** lists constraints that survived several days of handoffs as candidates for `DECISIONS.md`. It doesn't write the decision for you: the reasons and the rejected alternatives exist only in the head of whoever decided.
 
 ### 2. Concept map: which parts of the project changed
@@ -256,6 +256,7 @@ baton prints its messages in English or Korean. The setting changes only the mes
 | `## Failed approaches (do not retry)` | `## 실패한 접근법 (다시 시도 금지)` |
 | `## Verification evidence` | `## 검증 증거` |
 | `## Risks and next actions` | `## 남은 리스크와 다음 행동` |
+| `- Owner decisions:` (sub-list in that section) | `- 소유자 확인:` |
 | `## Promotion candidates (to DECISIONS.md)` | `## 승격 후보 (DECISIONS.md로 올릴 것)` |
 | `### Rejected (do not raise again)` | `### 기각됨 (다시 올리지 않는다)` |
 | `(must read)` | `(필독)` |
@@ -321,7 +322,7 @@ All numbers come from one person's use (the author), on their own repositories. 
 - **Snapshot runs.** We ran 3 repos, 3–5 runs per condition, with the same prompt within each repo. Progress questions used **40–54% fewer input tokens** with the handoff injected. In one repo (5 runs), an unrelated task with the handoff loaded used about **11% more**. That is why the handoff goes in only when you ask.
 - **Tokens did not go down in real use so far.** The first calls of a session cost more after install. Over the same period the fixed context (other plugins and instructions) also grew, so the two effects can't be separated. One cause was ours. From 2026-10-04 to 11-19 the usage log shows **269 injections in 39 sessions, and only 32 of them on a session's first prompt**; the rest put the same handoff in again ([LOOP_PLAN](research/LOOP_PLAN.md)).[^count] The once-per-session rule is meant to fix this. Its effect hasn't been measured yet.
 - **Concept index: cost and effect not established yet.** In 24 runs (4 everyday questions × 3 × with and without, isolated), the first tool call aimed at the right file was, on average, call number 1.50 with the index and 2.33 without, with 11% fewer input tokens and 6% lower cost. But the index was better on only 2 of the 4 questions, so the result is inconclusive. In this repo the index takes 1,118 characters per session.
-- **Where the cost goes.** We looked at 60 of the author's sessions with 20 or more model calls (2026-08-31 to 09-30, main thread only). **85% of the cost** (weighted by API prices) came from calls made after the context had grown past 2× its size at the first call. That is why baton nudges you at 2× and 3× to write a handoff and start fresh. How much starting fresh actually saves hasn't been measured yet.
+- **Where the cost goes.** We looked at 60 of the author's sessions with 20 or more model calls (2026-08-31 to 09-30, main thread only). **85% of the cost** (weighted by API prices) came from calls made after the context had grown past 2× its size at the first call. That is why baton saves a handoff at 2× and 3×, so you can start fresh. How much starting fresh actually saves hasn't been measured yet.
 
 ## In development: the concept graph as Obsidian notes
 
@@ -383,7 +384,7 @@ Yes. Messages are in English unless your locale is Korean; set `BATON_LANG=en` t
 No. File freshness works from git history alone. Without a tracked `DECISIONS.md`, `AGENTS.md`, or `CLAUDE.md`, the decision-side check is skipped, so baton can't catch "decided but not built yet", and concepts without files aren't tracked.
 
 **Does it change my files?**
-The hooks only print notices and hand problems and requests back to the agent; they don't edit your repo themselves. `CONCEPTS.md` and `HANDOFF.md` are written by the agent when you ask for them. On Claude Code, the agent also updates `HANDOFF.md` when the Stop hook asks at the end of a piece of work, and doesn't commit it (`BATON_HANDOFF_AUTO=off` turns this off). `/baton-setup` writes only `~/.config/baton/config.json`, and only the values you pick.
+The hooks only print notices and hand problems and requests back to the agent; they don't edit your repo themselves. `CONCEPTS.md` and `HANDOFF.md` are written by the agent when you ask for them. On Claude Code, the agent also updates `HANDOFF.md` when the Stop hook asks (after 3 or more edited files, or when the context passes 2× and 3× its first size), and doesn't commit it (`BATON_HANDOFF_AUTO=off` turns this off). `/baton-setup` writes only `~/.config/baton/config.json`, and only the values you pick.
 
 ## Updating and uninstalling
 

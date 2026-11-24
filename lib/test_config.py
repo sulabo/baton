@@ -300,18 +300,19 @@ class HooksReadConfigTest(unittest.TestCase):
                                 "cwd": self.repo}, **env)
 
     def test_nudge_threshold_from_repo_section_and_env_wins(self):
-        self.assertIsNone(self.stop("handoff-check.py", "s1"))  # 기본 3 — 2개로는 안 뜬다
+        # 이 기록은 맥락도 4.5배라 같은 Stop에 맥락 문턱 요청이 겹친다 — 파일 문턱만 보려고 맥락 알림을 끈다(11-24 Stop 결정 한 곳)
+        self.assertIsNone(self.stop("handoff-check.py", "s1", BATON_SPLIT_NOTICE="off"))  # 기본 3 — 2개로는 안 뜬다
         self.config({"BATON_HANDOFF_NUDGE_FILES": "2"})
-        self.assertIsNotNone(self.stop("handoff-check.py", "s2"))
-        self.assertIsNone(self.stop("handoff-check.py", "s3", BATON_HANDOFF_NUDGE_FILES="5"))
+        self.assertIsNotNone(self.stop("handoff-check.py", "s2", BATON_SPLIT_NOTICE="off"))
+        self.assertIsNone(self.stop("handoff-check.py", "s3", BATON_HANDOFF_NUDGE_FILES="5", BATON_SPLIT_NOTICE="off"))
 
     def test_split_ratio_and_switch_from_config(self):
         self.config({"BATON_SPLIT_RATIOS": "5"})
-        self.assertIsNone(self.stop("split-notice.py", "s1"))  # 4.5배 < 5
+        self.assertIsNone(self.stop("handoff-check.py", "s1", BATON_HANDOFF_AUTO="off"))  # 4.5배 < 5
         self.config({"BATON_SPLIT_RATIOS": "4"})
-        self.assertIn("대화가 처음보다 4배 넘게 길어졌어요", self.stop("split-notice.py", "s2")["systemMessage"])
+        self.assertIn("대화가 처음보다 4배 넘게 길어졌어요", self.stop("handoff-check.py", "s2", BATON_HANDOFF_AUTO="off")["systemMessage"])
         self.config({"BATON_SPLIT_NOTICE": "off"})
-        self.assertIsNone(self.stop("split-notice.py", "s3"))
+        self.assertIsNone(self.stop("handoff-check.py", "s3", BATON_HANDOFF_AUTO="off"))
 
     def test_private_terms_block_without_echo(self):
         self.config({"private_terms": ["홍길동"]})
@@ -337,7 +338,7 @@ class HooksReadConfigTest(unittest.TestCase):
         for i, bad in enumerate(["{깨진", "[" * 200000, json.dumps(dict(off, pad="x" * (1024 * 1024)))]):
             self.config(bad)  # 깨진 JSON · 깊은 중첩(RecursionError) · 1MB 넘는 파일(안의 off는 무시돼야 한다)
             self.assertIn("[baton] 아래는", self.hook("handoff-inject.py", {"prompt": "이어서"})["hookSpecificOutput"]["additionalContext"])
-            self.assertIn("대화가 처음보다 3배 넘게 길어졌어요", self.stop("split-notice.py", f"b{i}")["systemMessage"])  # 기본 문턱 2,3 그대로
+            self.assertIn("대화가 처음보다 3배 넘게 길어졌어요", self.stop("handoff-check.py", f"b{i}", BATON_HANDOFF_AUTO="off")["systemMessage"])  # 기본 문턱 2,3 그대로
             out = self.hook("handoff-check.py", {"hook_event_name": "PostToolUse", "tool_input": {"file_path": p}, "cwd": self.repo})
             self.assertIn("홈 절대경로", out["reason"])
 
