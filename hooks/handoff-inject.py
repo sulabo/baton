@@ -70,7 +70,7 @@ HEAD = ("[baton] 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트
         "파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, "
         "다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다. "
         "'소유자 확인' 항목은 되돌릴 수 있으면 권장 기본값대로 진행하고, 되돌릴 수 없는 것만 묻는다.")
-# 마지막 문장(소유자 결정 11-24): compact 맞대기 실험에서 인계서 갈래 실패 3건이 모두 "사용자에게 확인할 것"을 묻고 멈춘 새 대화였다.
+# 마지막 문장(소유자 결정 11-24): compact 맞대기 실험에서 인계서 갈래에서 실패한 경우가 모두 "사용자에게 확인할 것"을 묻고 멈춘 새 대화였다.
 # 영어판은 한국어보다 길어 신선도 한 줄 상한을 rules.FRESHNESS_MAX_EN으로 줄인다 — 두 언어 모두 머리말 + 신선도 상한 + 검사기 상한
 # + 꼬리 몫이 LIMIT_CHARS 안이다(HookOutputBudgetTest). 문장을 더하면서 영어 머리말을 줄여 썼다(docs/GUIDE.md 예시도 바꿔야 한다)
 HEAD_EN = ("[baton] Below is this repo's full HANDOFF.md, injected because the prompt asks about handoff or progress. "

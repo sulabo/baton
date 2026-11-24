@@ -133,8 +133,8 @@ claims the next action depends on. The writer has three jobs.
   Example: "`split-notice.py` is registered but has never fired in a real window (the installed copy is the 10-04
   version) → reinstall, then check in a new window".
 - **The next session must be able to do each next action without asking.** Do not write "confirm with the user" as a
-  next action: in a 2026-11-24 experiment, all three failed handoffs were new sessions that stopped to ask the
-  questions their handoff told them to ask. Put what truly needs the owner in a separate sub-list, **Owner decisions**
+  next action: in a 2026-11-24 experiment, every failed handoff run was a new session that stopped to ask the
+  questions its handoff told it to ask. Put what truly needs the owner in a separate sub-list, **Owner decisions**
   (Korean: **소유자 확인**), inside "Risks and next actions": one item each, with a **recommended default** and whether
   the action is reversible. The next session goes ahead with the recommended default when the action is reversible,
   and asks only when it is irreversible, destructive, or outward-facing (pushing, publishing, deleting, sending,
