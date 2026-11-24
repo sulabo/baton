@@ -16,6 +16,9 @@
 #   저장소 루트의 HANDOFF.md가 baton 형식이 아니면(handoff_check.looks_ours) 자동 쓰기 대신 제안만 한다 — 남의 형식 파일을
 #   모델이 우리 템플릿으로 다시 쓰게 하지 않으려고(리뷰 11-23). HANDOFF.md가 없거나 baton 형식이면 자동 쓰기.
 #   문턱 3은 로컬 세션 94개 실측(2026-10-01): 1~2개 고친 세션은 인계서를 16% 썼고 3개 이상은 67% 썼다.
+#   맥락이 처음의 2배·3배(BATON_SPLIT_RATIOS)를 넘을 때도 같은 방식으로 한 번 쓰게 한다(소유자 결정 11-24, 측정·문장은
+#   hooks/split-notice.py). Stop 결정은 여기 한 곳 — 두 까닭이 한 Stop에 겹치면 한 번만 묻고, 이번 턴에 인계서를 이미 고쳤으면
+#   묻지 않고 알리기만 한다. 끄기: BATON_SPLIT_NOTICE=off(맥락 알림 전부), BATON_HANDOFF_AUTO=off(묻지 않고 알리기만).
 #
 # 끄기: BATON_HANDOFF_CHECK=off(검사) · BATON_HANDOFF_NUDGE=off(제안·자동 쓰기 둘 다) · BATON_HANDOFF_AUTO=off(자동 쓰기 대신 제안)
 #   문턱: BATON_HANDOFF_NUDGE_FILES=3. 환경변수 또는 설정 파일(lib/config.py, /baton-setup이 사용자 세션 분포로 문턱을 제안해 쓴다)에서 읽는다.
@@ -27,6 +30,11 @@ import json, os, re, sys, time
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PLUGIN, "lib"))
 import config, handoff_check, i18n, rules, runlog
+import importlib.util
+
+_spec = importlib.util.spec_from_file_location("split_notice", os.path.join(PLUGIN, "hooks", "split-notice.py"))
+split = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(split)  # 맥락 재기·알림 문장(Stop 결정은 on_stop 한 곳)
 
 LIST_MAX = 10  # 자동 쓰기 요청에 이름을 적는 파일 수. 나머지는 개수만
 OUT_MAX = 9600  # 검사 결과(reason·additionalContext)의 상한 — 주입 훅과 같은 여유
@@ -144,6 +152,32 @@ def edit_paths(path):
                     yield fp
 
 
+def turn_wrote_handoff(path):
+    """마지막 사람 프롬프트 뒤에 메인 스레드가 인계서를 썼나(이번 턴). 도구 결과·메타 줄은 사람 프롬프트가 아니다."""
+    wrote = False
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        for ln in f:
+            if '"user"' not in ln and '"tool_use"' not in ln:
+                continue
+            try:
+                d = json.loads(ln)
+            except ValueError:
+                continue
+            if not isinstance(d, dict) or d.get("isSidechain") or not isinstance(d.get("message"), dict):
+                continue
+            c = d["message"].get("content")
+            if d.get("type") == "user" and not d.get("isMeta"):
+                if isinstance(c, str) or (isinstance(c, list) and any(isinstance(b, dict) and b.get("type") == "text" for b in c)):
+                    wrote = False
+            elif isinstance(c, list):
+                for b in c:
+                    if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in EDIT_TOOLS:
+                        inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+                        if wrote_handoff(inp.get("file_path")):
+                            wrote = True
+    return wrote
+
+
 def edited_since_handoff(path):
     """이 세션이 마지막으로 인계서(HANDOFF.md 또는 이름 붙은 인계서)를 쓴 뒤 고친 다른 파일들."""
     files = set()
@@ -169,83 +203,130 @@ def file_list(files, cwd, lang):
     return out
 
 
-def auto_reason(files, cwd, lang):
-    """모델에게 돌려줄 자동 쓰기 요청. 스킬 경로는 플러그인 위치로 적는다.
+def auto_reason(files, cwd, lang, grown=None):
+    """모델에게 돌려줄 자동 쓰기 요청. files: 인계서 뒤에 고친 파일(없으면 빈 목록), grown: 맥락이 넘은 문턱 (배수, 첫, 마지막) 또는 None.
+    두 까닭이 겹치면 한 요청에 같이 적는다. 스킬 경로는 플러그인 위치로 적는다.
     검사기를 돌리라고 하지 않는다 — Claude Code에서는 저장 훅이 같은 검사를 돌리고(자동 쓰기는 Claude Code에서만 나간다),
     따옴표 친 절대 경로 명령은 스킬의 allowed-tools와 맞지 않아 중간에 권한 확인이 뜬다(리뷰 11-23)."""
     skill = os.path.join(PLUGIN, "skills", "baton", "SKILL.md")
-    listed = file_list(files, cwd, lang)
+    why = []
     if lang == "ko":
-        return (f"[baton] 이 세션에서 인계서(HANDOFF.md·HANDOFF_*.md)를 마지막으로 쓴 뒤 파일 {len(files)}개를 고쳤다: {listed}. "
+        if files:
+            why.append(f"이 세션에서 인계서(HANDOFF.md·HANDOFF_*.md)를 마지막으로 쓴 뒤 파일 {len(files)}개를 고쳤다: "
+                       f"{file_list(files, cwd, lang)}.")
+        if grown:
+            band, first, last = grown
+            why.append(f"이 대화의 맥락이 처음보다 {band:g}배 넘게 커졌다({split.man(first)} → {split.man(last)} 토큰).")
+        line = split.user_line(lang, grown[0]) if grown else "인계서를 고쳐 뒀어요. 이 기능을 끄려면 BATON_HANDOFF_AUTO=off로 설정하세요."
+        return ("[baton] " + " ".join(why) + " "
                 f"지금 baton 인계서 스킬({skill}의 'When the Stop hook asks' 절)대로 저장소 루트의 HANDOFF.md를 쓰거나 갱신한다 — "
                 f"기억으로 새로 쓰지 말고 지금 HANDOFF.md에서 시작해 아직 참인 줄은 그대로 옮긴다. "
                 f"짧게 쓴다 — 저장하면 저장 검사가 문제와 마지막 커밋판에서 빠진 줄을 알려 준다. "
-                f"승격 검토는 건너뛰고 커밋하지 않는다. "
-                f"그다음 사용자에게 이 한 줄만 쓰고 턴을 끝낸다: "
-                f"\"인계서를 고쳐 뒀어요. 이 기능을 끄려면 BATON_HANDOFF_AUTO=off로 설정하세요.\" "
-                f"이 요청은 세션에 한 번만 나온다.")
-    return (f"[baton] You edited {len(files)} files in this session since the handoff (HANDOFF.md or HANDOFF_*.md) was last "
-            f"written: {listed}. Write or update HANDOFF.md at the repo root now, following the baton handoff skill ({skill}, "
+                f"승격 검토는 건너뛰고 커밋하지 않는다. " + ("/compact는 권하지 않는다. " if grown else "")
+                + f"그다음 사용자에게 이 한 줄만 쓰고 턴을 끝낸다: \"{line}\" "
+                + ("이 요청은 맥락 문턱마다 한 번만 나온다." if grown else "이 요청은 세션에 한 번만 나온다."))
+    if files:
+        why.append(f"You edited {len(files)} files in this session since the handoff (HANDOFF.md or HANDOFF_*.md) was last "
+                   f"written: {file_list(files, cwd, lang)}.")
+    if grown:
+        band, first, last = grown
+        why.append(f"This conversation's context is now more than {band:g}× its size at the start "
+                   f"({first // 1000}K → {last // 1000}K tokens).")
+    line = split.user_line(lang, grown[0]) if grown else "I updated the handoff. To turn this off, set BATON_HANDOFF_AUTO=off."
+    return ("[baton] " + " ".join(why) + " "
+            f"Write or update HANDOFF.md at the repo root now, following the baton handoff skill ({skill}, "
             f"section 'When the Stop hook asks'). Start from the current HANDOFF.md and carry forward every line that is still "
             f"true; do not rewrite it from memory. Keep it short. When you save it, the save-time check reports problems "
             f"and lines dropped since the last committed version. "
-            f"Skip the promotion review and do not commit. "
-            f"Then end your turn with exactly this one line to the user: "
-            f"\"I updated the handoff. To turn this off, set BATON_HANDOFF_AUTO=off.\" "
-            f"baton asks for this once per session.")
+            f"Skip the promotion review and do not commit. " + ("Do not suggest /compact. " if grown else "")
+            + f"Then end your turn with exactly this one line to the user: \"{line}\" "
+            + ("baton asks for this once per context threshold." if grown else "baton asks for this once per session."))
+
+
+def nudge_message(n, lang):
+    """자동 쓰기를 못 할 때 사용자에게 보이는 파일 고침 제안."""
+    if lang == "ko":
+        return (f"[baton] 파일을 {n}개 고쳤는데 인계서는 그대로예요.\n"
+                f"하던 일이 끝났다면 \"인계서 써 줘\"라고 해 보세요. 다음 대화가 처음부터 다시 찾지 않아도 돼요.\n"
+                f"이 제안은 한 대화에 한 번만 나와요.")
+    return (f"[baton] You changed {n} {'file' if n == 1 else 'files'}, but the handoff hasn't changed.\n"
+            f"If you're done with the current task, try saying \"write a handoff\". "
+            f"The next conversation won't have to search from scratch.\n"
+            f"You'll see this suggestion only once per conversation.")
 
 
 def on_stop(data):
+    """Stop 결정 한 곳 — 까닭 둘(파일 고침 F·맥락 문턱 S)을 함께 보고 한 Stop에 많아야 한 번 묻는다.
+    물을 수 있으면(BATON_HANDOFF_AUTO 켬, 이번 턴에 인계서를 안 고침, stop_hook_active 아님, HANDOFF.md가 없거나 baton 형식)
+    decision "block" 하나에 두 까닭을 같이 적는다. 못 물으면 사용자에게 systemMessage 하나로 알린다. 상태는 까닭마다 따로
+    (F: 세션에 한 번 handoff-nudge/<sid>, S: 문턱마다 한 번 split/<sid>.json)."""
     cwd = data["cwd"] if isinstance(data.get("cwd"), str) else None
     repo = repo_of(cwd)
-    if off("BATON_HANDOFF_NUDGE", repo):
+    nudge_on, split_on = not off("BATON_HANDOFF_NUDGE", repo), not off("BATON_SPLIT_NOTICE", repo)
+    if not (nudge_on or split_on):
         return
     auto = not off("BATON_HANDOFF_AUTO", repo)
-    if auto and data.get("stop_hook_active") is True:
-        return  # Stop 훅 때문에 이미 이어서 일하는 중이다 — 또 막지 않는다. 상태를 남기지 않아 다음 턴 끝에 다시 본다
     path, sid = data.get("transcript_path"), data.get("session_id")
     if not isinstance(path, str) or not os.path.isfile(path) or not isinstance(sid, str) or not re.fullmatch(r"[\w-]{1,128}", sid):
         return  # sid는 상태 파일 이름이 된다 — 경로 문자가 섞인 값은 받지 않는다
     state = os.path.join(runlog.cache_dir(), "handoff-nudge", sid)
-    if os.path.exists(state):
-        return  # 세션에 한 번(제안이든 자동 쓰기든)
+    files = []
+    if nudge_on and not os.path.exists(state):  # F는 세션에 한 번(제안이든 자동 쓰기든)
+        try:
+            need = max(1, int(config.get("BATON_HANDOFF_NUDGE_FILES", repo, "3")))
+        except ValueError:
+            need = 3
+        try:
+            files = sorted(edited_since_handoff(path))
+        except Exception:
+            files = []  # 제안 하나 때문에 턴 끝이 오류로 끝나면 안 된다
+        files = files if len(files) >= need else []
+    grown = None
+    if split_on:
+        try:
+            hit = split.crossed_band(path, repo, sid)
+        except Exception:
+            hit = None
+        if hit:
+            grown, ratio = hit[:3], hit[3]
+    if not files and not grown:
+        return
     try:
-        need = max(1, int(config.get("BATON_HANDOFF_NUDGE_FILES", repo, "3")))
-    except ValueError:
-        need = 3
-    try:
-        files = edited_since_handoff(path)
+        written = turn_wrote_handoff(path)
     except Exception:
-        return  # 제안 하나 때문에 턴 끝이 오류로 끝나면 안 된다
-    if len(files) < need:
-        return
-    try:
-        os.makedirs(os.path.dirname(state), mode=0o700, exist_ok=True)
-        open(state, "w").close()
+        written = False
+    active = data.get("stop_hook_active") is True
+    if auto and active and not written:
+        return  # 다른 Stop 훅 때문에 이미 이어서 일하는 중 — 막지 않는다. 상태를 남기지 않아 다음 턴 끝에 다시 본다
+    try:  # 한 번만 묻는다는 약속을 못 지키면 아예 말하지 않는다
+        if files:
+            os.makedirs(os.path.dirname(state), mode=0o700, exist_ok=True)
+            open(state, "w").close()
+        if grown:
+            split.mark(sid, grown[0])
     except OSError:
-        return  # 한 번만 알린다는 약속을 못 지키면 아예 알리지 않는다
-    lang = i18n.lang(repo)
-    foreign = auto and not ours_or_absent(cwd)
-    if auto and not foreign:
-        print(json.dumps({"decision": "block", "reason": auto_reason(files, cwd, lang)}, ensure_ascii=False))
-        runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_auto", "session_id": sid,
-                       "files": len(files)})
         return
-    n = len(files)
-    if lang == "ko":
-        msg = (f"[baton] 파일을 {n}개 고쳤는데 인계서는 그대로예요.\n"
-               f"하던 일이 끝났다면 \"인계서 써 줘\"라고 해 보세요. 다음 대화가 처음부터 다시 찾지 않아도 돼요.\n"
-               f"이 제안은 한 대화에 한 번만 나와요.")
+    lang = i18n.lang(repo)
+    foreign = auto and not written and not ours_or_absent(cwd)
+    ask = auto and not written and not active and not foreign
+    ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    if ask:
+        print(json.dumps({"decision": "block", "reason": auto_reason(files, cwd, lang, grown)}, ensure_ascii=False))
     else:
-        msg = (f"[baton] You changed {n} {'file' if n == 1 else 'files'}, but the handoff hasn't changed.\n"
-               f"If you're done with the current task, try saying \"write a handoff\". "
-               f"The next conversation won't have to search from scratch.\n"
-               f"You'll see this suggestion only once per conversation.")
-    print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
-    rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_nudge", "session_id": sid, "files": len(files)}
-    if foreign:
-        rec["fallback"] = "foreign_handoff"  # 자동 쓰기 대신 제안한 까닭
-    runlog.append(rec)
+        msgs = ([split.notice(lang, grown[0], grown[1], grown[2], saved=written)] if grown else []) \
+            + ([nudge_message(len(files), lang)] if files else [])
+        print(json.dumps({"systemMessage": "\n\n".join(msgs)}, ensure_ascii=False))
+    if files:
+        rec = {"ts": ts, "event": "handoff_auto" if ask else "handoff_nudge", "session_id": sid, "files": len(files)}
+        if foreign:
+            rec["fallback"] = "foreign_handoff"  # 자동 쓰기 대신 제안한 까닭
+        runlog.append(rec)
+    if grown:
+        rec = {"ts": ts, "event": "split_notice", "session_id": sid, "first_ctx": grown[1], "last_ctx": grown[2],
+               "ratio": round(ratio, 2), "band": grown[0], "mode": "ask" if ask else "saved" if written else "notice"}
+        if foreign:
+            rec["fallback"] = "foreign_handoff"
+        runlog.append(rec)
 
 
 def ours_or_absent(cwd):

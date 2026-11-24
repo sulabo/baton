@@ -132,6 +132,13 @@ claims the next action depends on. The writer has three jobs.
   state is different.
   Example: "`split-notice.py` is registered but has never fired in a real window (the installed copy is the 10-04
   version) → reinstall, then check in a new window".
+- **The next session must be able to do each next action without asking.** Do not write "confirm with the user" as a
+  next action: in a 2026-11-24 experiment, half of the failed handoffs were new sessions that stopped to ask the
+  questions their handoff told them to ask. Put what truly needs the owner in a separate sub-list, **Owner decisions**
+  (Korean: **소유자 확인**), inside "Risks and next actions": one item each, with a **recommended default** and whether
+  the action is reversible. The next session goes ahead with the recommended default when the action is reversible,
+  and asks only when it is irreversible, destructive, or outward-facing (pushing, publishing, deleting, sending,
+  spending money). If there is nothing for the owner, write "None".
 - **Add how each verified fact was checked** (command, file, date), so the reader can check it again the same way.
 
 After writing, run the checker, fix what it reports, then commit.
@@ -169,8 +176,12 @@ Then:
   the changes made and the next actions matter most. The save-time check runs by itself when you save (this request
   only comes on Claude Code); fix what it reports, and restore each listed dropped line that is still true.
 - Skip the promotion review and do not commit — the user did not ask for either.
-- End the turn with one line to the user: the handoff was updated (not committed), and `BATON_HANDOFF_AUTO=off`
-  turns this off.
+- End the turn with the one line to the user that the request gives you, word for word.
+
+The same hook also asks once when the conversation's context passes 2× and 3× its size at the start
+(`BATON_SPLIT_RATIOS`, `BATON_SPLIT_NOTICE`). Then the line tells the user the handoff was saved and that they can
+continue in a new conversation with "where were we". Never suggest `/compact`. One Stop asks at most once, for both
+reasons together, and not again if the handoff was already updated in that turn.
 
 ## Templates
 
@@ -203,7 +214,9 @@ English:
 
 ## Risks and next actions
 - Risks/blockers:
-- Next action: current state (evidence) → what to do
+- Next action: current state (evidence) → what to do (the next session does it without asking)
+- Owner decisions:
+  - None, or: what / recommended default / reversible: yes or no
 
 ## Promotion candidates (to DECISIONS.md)
 - None, or: what / signal (repeated failure in N versions · dropped · reversal the owner mentioned) / hash of the version it rests on
@@ -241,7 +254,9 @@ Korean (한국어):
 
 ## 남은 리스크와 다음 행동
 - 리스크/블로커:
-- 다음 행동: 지금 상태(근거) → 할 일
+- 다음 행동: 지금 상태(근거) → 할 일 (다음 세션이 묻지 않고 바로 한다)
+- 소유자 확인:
+  - 없음, 또는: 무엇 / 권장 기본값 / 되돌릴 수 있나: 예·아니오
 
 ## 승격 후보 (DECISIONS.md로 올릴 것)
 - 없음, 또는: 무엇 / 신호(반복 실패 N판 · 탈락 · 소유자가 말한 번복) / 근거 판의 해시
@@ -297,6 +312,8 @@ If yes, DECISIONS; if not, HANDOFF.
 
 ## Do not
 
+- Write "ask the user" or "confirm with the owner" as a next action (put it under Owner decisions with a
+  recommended default)
 - Write `DECISIONS.md` for the owner
 - Fill in rejected alternatives by guessing
 - Keep growing a failure item that survived 3 or more versions instead of raising it as a promotion candidate

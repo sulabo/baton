@@ -7,7 +7,8 @@ import tempfile
 import unittest
 
 HERE = os.path.dirname(__file__)
-HOOK = os.path.join(HERE, "split-notice.py")
+HOOK = os.path.join(HERE, "handoff-check.py")  # Stop 결정은 handoff-check.py on_stop 한 곳(11-24). split-notice.py는 재기·문장만
+SPLIT = os.path.join(HERE, "split-notice.py")
 
 
 def call(ctx, sidechain=False, model="claude-opus-5-5"):
@@ -40,8 +41,10 @@ class SplitNoticeTest(unittest.TestCase):
         env["XDG_CACHE_HOME"] = os.path.join(self.root, "cache")  # 실제 캐시에 쓰지 않는다
         env["XDG_CONFIG_HOME"] = os.path.join(self.root, "config")  # 실제 설정 파일을 읽지 않는다
         env["BATON_LOG"] = os.path.join(self.root, "runs.jsonl")
-        env.pop("BATON_SPLIT_NOTICE", None)
-        env.pop("BATON_SPLIT_RATIOS", None)
+        for k in ("BATON_SPLIT_NOTICE", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_NUDGE_FILES"):
+            env.pop(k, None)
+        env["BATON_HANDOFF_AUTO"] = "off"  # 알림 문장을 보는 테스트 — 자동 쓰기(묻기)는 AutoSplitTest
+        env["CLAUDE_PROJECT_DIR"] = self.root  # 저장소 루트의 HANDOFF.md 형식을 이 임시 폴더에서 본다
         env["BATON_LANG"] = "ko"  # 한국어 알림을 보는 테스트 — 영어는 extra_env로 덮는다
         if extra_env:
             env.update(extra_env)
@@ -71,7 +74,7 @@ class SplitNoticeTest(unittest.TestCase):
         self.write([call(40000), call(85000)])
         first = self.message(self.run_hook())
         self.assertEqual(first, "[baton] 대화가 처음보다 2배 넘게 길어졌어요(4만 → 8만 5천 토큰).\n"
-                                "하던 일이 끝났다면 새 대화로 넘어가 보세요. 지난 대화로 계산해 보면 비용을 35~45% 아낄 수 있어요.\n"
+                                "하던 일이 끝났다면 새 대화로 넘어가 보세요.\n"
                                 "넘어가는 법: \"인계서 써 줘\" → /clear → \"이어서\"\n"
                                 "이 알림은 한 번만 나와요.")
         self.assertIsNone(self.message(self.run_hook()))  # 같은 문턱 다시 안 울림
@@ -79,7 +82,7 @@ class SplitNoticeTest(unittest.TestCase):
         self.write([call(40000), call(85000), call(130000)])
         third = self.message(self.run_hook())
         self.assertEqual(third, "[baton] 대화가 처음보다 3배 넘게 길어졌어요(4만 → 13만 토큰).\n"
-                                "하던 일이 끝났다면 새 대화로 넘어가 보세요. 지난 대화로 계산해 보면 비용을 30~34% 아낄 수 있어요.\n"
+                                "하던 일이 끝났다면 새 대화로 넘어가 보세요.\n"
                                 "넘어가는 법: \"인계서 써 줘\" → /clear → \"이어서\"\n"
                                 "이 알림은 한 번만 나와요.")
         self.assertIsNone(self.message(self.run_hook()))
@@ -137,7 +140,7 @@ class SplitNoticeTest(unittest.TestCase):
         self.assertIsNone(self.message(self.run_hook(extra_env={"BATON_SPLIT_RATIOS": "4"})))
         msg = self.message(self.run_hook(extra_env={"BATON_SPLIT_RATIOS": "1.5,4"}))
         self.assertTrue(msg.startswith("[baton] 대화가 처음보다 1.5배 넘게 길어졌어요(4만 → 9만 토큰).\n"), msg)
-        self.assertNotIn("아낄 수 있어요", msg)  # 1.5배는 재계산한 적이 없다 — 절감 몫을 말하지 않는다
+        self.assertNotIn("아낄 수 있어요", msg)  # 절감 추정은 어느 문턱에서도 말하지 않는다(11-24)
 
     def test_bad_input_fails_open(self):
         for stdin in ("", "not json", "[]", json.dumps({"transcript_path": "/없는/경로.jsonl", "session_id": "x"})):
@@ -149,20 +152,19 @@ class SplitNoticeTest(unittest.TestCase):
         self.write([call(40000), call(85000)])
         msg = self.message(self.run_hook(extra_env={"BATON_LANG": "en"}))
         self.assertEqual(msg, "[baton] This conversation is now more than 2× as long as at the start (40K → 85K tokens).\n"
-                              "If you're done with the current task, try moving to a new conversation. Based on past "
-                              "conversations, that can save 35–45% of the cost.\n"
+                              "If you're done with the current task, try moving to a new conversation.\n"
                               "To move: \"write a handoff\" → /clear → \"where were we\"\n"
                               "You'll see this notice only once.")
         self.write([call(40000), call(85000), call(130000)])
         third = self.message(self.run_hook(extra_env={"BATON_LANG": "en"}))
         self.assertTrue(third.startswith("[baton] This conversation is now more than 3× as long as at the start (40K → 130K tokens).\n"))
-        self.assertIn("that can save 30–34% of the cost.", third)
+        self.assertNotIn("save", third)  # 절감 추정은 뺐다(11-24 /compact 맞대기 실험과 맞지 않음)
         self.write([call(40000), call(85000), call(130000), call(170000)])
         self.assertNotIn("save", self.message(self.run_hook(sid="en4", extra_env={"BATON_LANG": "en", "BATON_SPLIT_RATIOS": "4"})))
 
     def test_korean_token_counts(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location("split_notice", HOOK)
+        spec = importlib.util.spec_from_file_location("split_notice", SPLIT)
         mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
         for n, want in ((85312, "8만 5천"), (172480, "17만 2천"), (40000, "4만"), (9500, "9천"), (999, "999"),
                         (1234567, "123만 4천"), (100000, "10만")):
@@ -179,6 +181,126 @@ class SplitNoticeTest(unittest.TestCase):
         lines = [json.dumps({"type": "response_item", "payload": {"type": "message", "role": "assistant"}})] * 3
         self.write(lines)
         self.assertIsNone(self.message(self.run_hook()))
+
+
+
+def edit(path):
+    return json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Edit", "input": {"file_path": path}}]}})
+
+
+def prompt(text):
+    return json.dumps({"type": "user", "message": {"content": text}})
+
+
+class AutoSplitTest(unittest.TestCase):
+    """맥락 문턱(2·3배)에서 모델이 인계서를 남기고 승인된 한 줄로 알린다(소유자 결정 11-24). /compact는 권하지 않는다.
+    파일 고침 자동 쓰기와 같은 Stop 결정 — 한 Stop에 많아야 한 번 묻는다."""
+    setUp, tearDown, write, run_hook = SplitNoticeTest.setUp, SplitNoticeTest.tearDown, SplitNoticeTest.write, SplitNoticeTest.run_hook
+
+    def run_auto(self, sid="s1", extra_env=None, **payload):
+        env = dict({"BATON_HANDOFF_AUTO": "on"}, **(extra_env or {}))
+        stdin = json.dumps(dict({"transcript_path": self.transcript, "session_id": sid, "hook_event_name": "Stop",
+                                 "cwd": self.root}, **payload))
+        r = self.run_hook(sid=sid, extra_env=env, raw_stdin=stdin)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout) if r.stdout.strip() else None
+
+    def events(self):
+        p = os.path.join(self.root, "runs.jsonl")
+        if not os.path.exists(p):
+            return []
+        with open(p, encoding="utf-8") as f:
+            return [json.loads(l) for l in f if l.strip()]
+
+    def test_threshold_asks_the_model_once_per_band(self):
+        self.write([call(40000), call(85000)])
+        out = self.run_auto()
+        self.assertEqual(set(out), {"decision", "reason"})
+        reason = out["reason"]
+        self.assertTrue(reason.startswith("[baton] 이 대화의 맥락이 처음보다 2배 넘게 커졌다(4만 → 8만 5천 토큰). 지금 baton 인계서 스킬("), reason)
+        self.assertIn("/compact는 권하지 않는다.", reason)
+        self.assertIn('그다음 사용자에게 이 한 줄만 쓰고 턴을 끝낸다: "대화가 처음보다 2배 넘게 길어져서 인계서를 남겨 뒀어요. '
+                      '하던 일이 끝났다면 새 대화에서 "이어서"라고 하면 이어 갈 수 있어요."', reason)
+        self.assertTrue(reason.endswith("이 요청은 맥락 문턱마다 한 번만 나온다."), reason)
+        self.assertNotIn("아낄", reason)
+        self.assertIsNone(self.run_auto())  # 같은 문턱은 다시 안 묻는다
+        self.write([call(40000), call(85000), call(130000)])
+        self.assertIn("3배 넘게 커졌다", self.run_auto()["reason"])  # 다음 문턱은 한 번 더
+        self.assertEqual([(e["event"], e["band"], e["mode"]) for e in self.events()],
+                         [("split_notice", 2.0, "ask"), ("split_notice", 3.0, "ask")])
+
+    def test_english_ask(self):
+        self.write([call(40000), call(85000)])
+        reason = self.run_auto(extra_env={"BATON_LANG": "en"})["reason"]
+        self.assertTrue(reason.startswith("[baton] This conversation's context is now more than 2× its size at the start "
+                                          "(40K → 85K tokens). Write or update HANDOFF.md"), reason)
+        self.assertIn("Do not suggest /compact.", reason)
+        self.assertIn('Then end your turn with exactly this one line to the user: "This conversation is now more than 2× as '
+                      'long as at the start, so I saved a handoff. If you\'re done with the current task, start a new '
+                      'conversation and say "where were we"."', reason)
+        self.assertTrue(reason.endswith("baton asks for this once per context threshold."), reason)
+
+    def test_never_blocks_while_stop_hook_active_and_retries_later(self):
+        self.write([call(40000), call(85000)])
+        self.assertIsNone(self.run_auto(stop_hook_active=True))
+        self.assertEqual(self.events(), [])  # 상태도 안 남긴다
+        self.assertEqual(self.run_auto()["decision"], "block")
+
+    def test_handoff_already_updated_this_turn_only_informs(self):
+        self.write([call(40000), prompt("이어서 해 줘"), edit(os.path.join(self.root, "HANDOFF.md")), call(85000)])
+        out = self.run_auto()
+        self.assertEqual(out, {"systemMessage": "[baton] 대화가 처음보다 2배 넘게 길어졌어요(4만 → 8만 5천 토큰). 인계서는 이번 턴에 "
+                                                "이미 남겨 뒀어요.\n하던 일이 끝났다면 새 대화에서 \"이어서\"라고 하면 이어 갈 수 있어요."})
+        self.assertEqual(self.events()[-1]["mode"], "saved")
+        self.write([call(40000), prompt("x"), edit(os.path.join(self.root, "HANDOFF.md")), call(130000)])
+        en = self.run_auto(sid="e", extra_env={"BATON_LANG": "en"})
+        self.assertEqual(en["systemMessage"], "[baton] This conversation is now more than 3× as long as at the start (40K → 130K "
+                                              "tokens). The handoff was already saved in this turn.\nIf you're done with the "
+                                              "current task, start a new conversation and say \"where were we\".")
+        # 앞 턴에 쓴 인계서는 "이번 턴"이 아니다 — 묻는다
+        self.write([call(40000), edit(os.path.join(self.root, "HANDOFF.md")), prompt("다음 일"), call(85000)])
+        self.assertEqual(self.run_auto(sid="t2")["decision"], "block")
+
+    def test_stop_hook_continuation_after_writing_informs_saved(self):
+        # 자동 쓰기로 이어 간 턴(stop_hook_active)에서 인계서를 쓴 뒤 문턱을 넘으면 묻지 않고 알린다
+        self.write([call(40000), prompt("x"), edit(os.path.join(self.root, "HANDOFF.md")), call(85000)])
+        out = self.run_auto(stop_hook_active=True)
+        self.assertIn("인계서는 이번 턴에 이미 남겨 뒀어요", out["systemMessage"])
+
+    def test_foreign_handoff_and_auto_off_fall_back_to_notice(self):
+        self.write([call(40000), call(85000)])
+        with open(os.path.join(self.root, "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write("# Project notes\n## Goal\n- ship\n")
+        out = self.run_auto()
+        self.assertEqual(set(out), {"systemMessage"})
+        self.assertTrue(out["systemMessage"].startswith("[baton] 대화가 처음보다 2배 넘게 길어졌어요(4만 → 8만 5천 토큰).\n하던 일이"))
+        self.assertEqual((self.events()[-1]["mode"], self.events()[-1]["fallback"]), ("notice", "foreign_handoff"))
+        os.remove(os.path.join(self.root, "HANDOFF.md"))
+        self.assertEqual(set(self.run_auto(sid="off", extra_env={"BATON_HANDOFF_AUTO": "off"})), {"systemMessage"})
+        self.assertIsNone(self.run_auto(sid="no", extra_env={"BATON_SPLIT_NOTICE": "off"}))  # 맥락 알림을 끄면 아무것도 없다
+
+    def test_both_reasons_in_one_stop_ask_once(self):
+        r = self.root
+        self.write([call(40000), edit(f"{r}/a.py"), edit(f"{r}/b.py"), edit(f"{r}/c.py"), call(85000)])
+        out = self.run_auto()
+        self.assertEqual(set(out), {"decision", "reason"})  # 묻기는 하나
+        reason = out["reason"]
+        self.assertTrue(reason.startswith("[baton] 이 세션에서 인계서(HANDOFF.md·HANDOFF_*.md)를 마지막으로 쓴 뒤 파일 3개를 고쳤다: "
+                                          "a.py, b.py, c.py. 이 대화의 맥락이 처음보다 2배 넘게 커졌다(4만 → 8만 5천 토큰)."), reason)
+        self.assertEqual(reason.count("그다음 사용자에게 이 한 줄만 쓰고"), 1)
+        self.assertIsNone(self.run_auto())  # 두 까닭 모두 상태가 남았다
+        self.assertEqual(sorted(e["event"] for e in self.events()), ["handoff_auto", "split_notice"])
+        off = self.run_auto(sid="o", extra_env={"BATON_HANDOFF_AUTO": "off"})  # 못 물으면 알림 하나에 둘 다
+        self.assertEqual(set(off), {"systemMessage"})
+        self.assertIn("2배 넘게 길어졌어요", off["systemMessage"])
+        self.assertIn("파일을 3개 고쳤는데 인계서는 그대로예요", off["systemMessage"])
+
+    def test_registered_split_notice_script_prints_nothing(self):
+        self.write([call(40000), call(85000), call(130000)])
+        r = subprocess.run([sys.executable, SPLIT], input=json.dumps({"transcript_path": self.transcript, "session_id": "s1",
+                                                                     "hook_event_name": "Stop"}),
+                           text=True, capture_output=True, env=dict(os.environ, XDG_CACHE_HOME=os.path.join(self.root, "c")))
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))  # 두 번 묻지 않게 — 결정은 handoff-check.py
 
 
 if __name__ == "__main__":

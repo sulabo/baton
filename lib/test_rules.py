@@ -279,6 +279,8 @@ class FreshnessTest(unittest.TestCase):
         self.assertIn("가설로 읽고", head)
         self.assertNotIn("그대로 이어서 진행한다", head)
         self.assertIn("파일을 다시 열 필요 없다", head)  # 재독 0/5를 만든 문장은 그대로(루프 2)
+        self.assertTrue(head.endswith("이어서 진행한다. '소유자 확인' 항목은 되돌릴 수 있으면 권장 기본값대로 진행하고, "
+                                      "되돌릴 수 없는 것만 묻는다."), head)  # 소유자 결정 11-24: 묻고 멈추지 않게
         self.assertIn("2020-01-01(", fresh)
         self.assertIn("지났다", fresh)
         self.assertEqual(blank, "")

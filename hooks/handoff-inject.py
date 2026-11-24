@@ -68,12 +68,15 @@ HOOK_DEADLINE = 8.5  # 훅 시작부터 이 초 뒤에는 신선도 git을 부�
 COMPACT_MARKS = (b'"subtype":"compact_boundary"', b'"type":"compacted"')
 HEAD = ("[baton] 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트가 인계·진행 상황을 가리켜 자동 주입). "
         "파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, "
-        "다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다.")
-# 영어판(docs/GUIDE.md의 예시와 같은 문장). 한국어보다 길어 신선도 한 줄 상한을 rules.FRESHNESS_MAX_EN으로 줄인다 —
-# 두 언어 모두 머리말 + 신선도 상한 + 검사기 상한 + 꼬리 몫이 LIMIT_CHARS 안이다(HookOutputBudgetTest)
-HEAD_EN = ("[baton] Below is the full HANDOFF.md of this repo (injected because the prompt asks about handoff or progress). "
-           "No need to open the file again. But a handoff is a record from when it was written: read it as a hypothesis, "
-           "not a fact, and check only the one or two claims the next step depends on with git or the files before you continue.")
+        "다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다. "
+        "'소유자 확인' 항목은 되돌릴 수 있으면 권장 기본값대로 진행하고, 되돌릴 수 없는 것만 묻는다.")
+# 마지막 문장(소유자 결정 11-24): compact 맞대기 실험에서 인계서 갈래 실패의 절반이 "사용자에게 확인할 것"을 묻고 멈춘 새 대화였다.
+# 영어판은 한국어보다 길어 신선도 한 줄 상한을 rules.FRESHNESS_MAX_EN으로 줄인다 — 두 언어 모두 머리말 + 신선도 상한 + 검사기 상한
+# + 꼬리 몫이 LIMIT_CHARS 안이다(HookOutputBudgetTest). 문장을 더하면서 영어 머리말을 줄여 썼다(docs/GUIDE.md 예시도 바꿔야 한다)
+HEAD_EN = ("[baton] Below is this repo's full HANDOFF.md, injected because the prompt asks about handoff or progress. "
+           "No need to reopen it. It was written earlier: treat it as a hypothesis, check the one or two claims the next step "
+           "depends on, then continue with the next action. For Owner decisions, use the recommended default if reversible; "
+           "ask only about irreversible ones.")
 CONCEPT_HEAD = ("[baton] 아래는 이 저장소 {path}에서 프롬프트와 맞은 개념 한 절이다"
                 "(실험 기능 BATON_CONCEPT_INJECT=on). 개념은 탐색 앵커다. 실제 동작은 필요한 경우 코드로 확인한다.")
 CONCEPT_HEAD_EN = ("[baton] Below is the one concept section in this repo's {path} that matches the prompt "
