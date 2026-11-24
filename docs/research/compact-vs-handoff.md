@@ -178,6 +178,10 @@ below are kept as published on 2026-11-24.
 - Every game-repo C next task started from that commit with "이어서 해줘", which matches baton's injection
   trigger. In each of the 5 runs, baton injected that file in full (4,487 characters with its header lines).
   So the game-repo C arm measured "/compact plus the build's handoff", not /compact alone.
+- A second path, found in review the same day, carried the same file. Right after each game-repo compaction
+  (C1–C5), Claude Code re-attached recently read files to the compacted session as `file` attachments, and one
+  of them is this `HANDOFF.md`, byte-identical to the switch point's copy. The five baton-repo compacted
+  sessions hold only path references (`compact_file_reference`) and no file content.
 - The H arm was affected differently. In the game repo, every H transition (5 per round) updated the build's
   `HANDOFF.md` instead of creating one; in the baton repo, all 10 created it. The game-repo next session still
   got its own arm's handoff, as designed, but that handoff started from one written inside the build. So
