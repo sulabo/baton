@@ -295,6 +295,21 @@ class AutoSplitTest(unittest.TestCase):
         self.assertIn("2배 넘게 길어졌어요", off["systemMessage"])
         self.assertIn("파일을 3개 고쳤는데 인계서는 그대로예요", off["systemMessage"])
 
+    def test_handoff_written_then_edits_in_same_turn_still_asks(self):
+        # 이번 턴에 인계서를 쓴 뒤 파일 3개를 더 고쳤으면 다시 낡았다 — 알림으로 떨어지지 않고 묻는다(리뷰 11-24)
+        r = self.root
+        self.write([call(40000), prompt("x"), edit(f"{r}/HANDOFF.md"), edit(f"{r}/a.py"), edit(f"{r}/b.py"), edit(f"{r}/c.py"),
+                    call(50000)])
+        out = self.run_auto()
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("파일 3개를 고쳤다", out["reason"])
+        self.write([call(40000), prompt("x"), edit(f"{r}/HANDOFF.md"), edit(f"{r}/a.py"), edit(f"{r}/b.py"), edit(f"{r}/c.py"),
+                    call(85000)])
+        both = self.run_auto(sid="b")  # 맥락도 넘으면 한 번에 둘 다 — "이미 남겨 뒀어요"와 "그대로예요"가 섞이지 않는다
+        self.assertEqual(set(both), {"decision", "reason"})
+        self.assertIn("2배 넘게 커졌다", both["reason"])
+        self.assertEqual([e["mode"] for e in self.events() if e["event"] == "split_notice"], ["ask"])
+
     def test_registered_split_notice_script_prints_nothing(self):
         self.write([call(40000), call(85000), call(130000)])
         r = subprocess.run([sys.executable, SPLIT], input=json.dumps({"transcript_path": self.transcript, "session_id": "s1",

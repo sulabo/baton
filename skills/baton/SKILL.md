@@ -133,7 +133,7 @@ claims the next action depends on. The writer has three jobs.
   Example: "`split-notice.py` is registered but has never fired in a real window (the installed copy is the 10-04
   version) → reinstall, then check in a new window".
 - **The next session must be able to do each next action without asking.** Do not write "confirm with the user" as a
-  next action: in a 2026-11-24 experiment, half of the failed handoffs were new sessions that stopped to ask the
+  next action: in a 2026-11-24 experiment, all three failed handoffs were new sessions that stopped to ask the
   questions their handoff told them to ask. Put what truly needs the owner in a separate sub-list, **Owner decisions**
   (Korean: **소유자 확인**), inside "Risks and next actions": one item each, with a **recommended default** and whether
   the action is reversible. The next session goes ahead with the recommended default when the action is reversible,
@@ -181,7 +181,8 @@ Then:
 The same hook also asks once when the conversation's context passes 2× and 3× its size at the start
 (`BATON_SPLIT_RATIOS`, `BATON_SPLIT_NOTICE`). Then the line tells the user the handoff was saved and that they can
 continue in a new conversation with "where were we". Never suggest `/compact`. One Stop asks at most once, for both
-reasons together, and not again if the handoff was already updated in that turn.
+reasons together, and only informs if the handoff was already updated in that turn and fewer than the
+threshold of files were edited after it.
 
 ## Templates
 

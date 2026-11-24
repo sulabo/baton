@@ -2,7 +2,7 @@
 # 북극성 길 단계 S "세션 끊기" — 이 세션의 호출당 맥락이 시작의 몇 배인지 재는 도구와 알림 문장.
 # 2026-11-24부터 Stop 결정은 hooks/handoff-check.py on_stop 한 곳에서 한다(파일 고침 자동 쓰기와 같은 규칙 — 한 Stop이 두 번 묻지
 # 않게). 문턱(기본 2배·3배)을 처음 넘으면 모델이 인계서를 남기고 사용자에게 한 줄로 알린다(소유자 결정 11-24: "우리가 강제로
-# compact를 하는 건 취지에 안 맞아" — /compact는 권하지 않는다). 이 파일의 main()은 아무것도 내지 않는다(hooks.json 등록은 남아 있다).
+# compact를 하는 건 취지에 안 맞아" — /compact는 권하지 않는다). 이 파일은 hooks.json에 등록하지 않는다(handoff-check.py가 불러 쓴다).
 #
 # 왜 (docs/research/LOOP_PLAN.md "토큰이 어디로 가나"·"세션 끊기 재계산", 2026-09-30):
 #  - 실사용 세션 60개에서 비용의 85%(비용 가중)가 맥락이 첫 호출의 2배를 넘은 뒤에 나갔다. 초반 5호출은 2.8%.
@@ -10,7 +10,7 @@
 #  - 인계서로 새로 시작한 실제 세션은 초반에 다른 세션보다 약 5~9K 토큰만 더 읽었다.
 # 정본 8절은 "Handoff는 컨텍스트 크기 때문에 발생하지 않는다"고 했다 — 소유자 결정(09-30)으로 크기를 "권고"로만 더한다.
 #
-# 문턱마다 한 번. 자동 쓰기를 못 할 때(BATON_HANDOFF_AUTO=off, 남의 형식 HANDOFF.md, 다른 Stop 훅이 턴을 잇는 중)는 사용자에게만 알린다.
+# 문턱마다 한 번. 자동 쓰기를 못 할 때(BATON_HANDOFF_AUTO=off, 남의 형식 HANDOFF.md)는 사용자에게만 알린다. 다른 Stop 훅이 턴을 잇는 중이면 말하지 않고 다음 턴 끝에 다시 본다.
 # 끄기: BATON_SPLIT_NOTICE=off · 문턱: BATON_SPLIT_RATIOS="2,3"
 #   환경변수 또는 설정 파일(lib/config.py, /baton-setup이 사용자 세션 분포로 문턱을 제안해 쓴다)에서 읽는다.
 import json, os, sys
@@ -138,7 +138,7 @@ def mark(sid, band):
 
 
 def main():
-    """Stop 결정은 hooks/handoff-check.py on_stop이 한다(한 Stop이 두 번 묻지 않게). 등록이 남아 있어도 아무것도 내지 않는다."""
+    """Stop 결정은 hooks/handoff-check.py on_stop이 한다(한 Stop이 두 번 묻지 않게). 직접 실행해도 아무것도 내지 않는다(옛 설치본 hooks.json 대비)."""
     return
 
 

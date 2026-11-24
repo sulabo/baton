@@ -17,10 +17,10 @@
 #   모델이 우리 템플릿으로 다시 쓰게 하지 않으려고(리뷰 11-23). HANDOFF.md가 없거나 baton 형식이면 자동 쓰기.
 #   문턱 3은 로컬 세션 94개 실측(2026-10-01): 1~2개 고친 세션은 인계서를 16% 썼고 3개 이상은 67% 썼다.
 #   맥락이 처음의 2배·3배(BATON_SPLIT_RATIOS)를 넘을 때도 같은 방식으로 한 번 쓰게 한다(소유자 결정 11-24, 측정·문장은
-#   hooks/split-notice.py). Stop 결정은 여기 한 곳 — 두 까닭이 한 Stop에 겹치면 한 번만 묻고, 이번 턴에 인계서를 이미 고쳤으면
-#   묻지 않고 알리기만 한다. 끄기: BATON_SPLIT_NOTICE=off(맥락 알림 전부), BATON_HANDOFF_AUTO=off(묻지 않고 알리기만).
+#   hooks/split-notice.py). Stop 결정은 여기 한 곳 — 두 까닭이 한 Stop에 겹치면 한 번만 묻고, 이번 턴에 인계서를 이미 고쳤고 그 뒤 파일을
+#   문턱만큼 더 고치지 않았으면 묻지 않고 알리기만 한다. 끄기: BATON_SPLIT_NOTICE=off(맥락 알림 전부), BATON_HANDOFF_AUTO=off(묻지 않고 알리기만).
 #
-# 끄기: BATON_HANDOFF_CHECK=off(검사) · BATON_HANDOFF_NUDGE=off(제안·자동 쓰기 둘 다) · BATON_HANDOFF_AUTO=off(자동 쓰기 대신 제안)
+# 끄기: BATON_HANDOFF_CHECK=off(검사) · BATON_HANDOFF_NUDGE=off(파일 수 까닭의 제안·자동 쓰기 — 맥락 까닭은 BATON_SPLIT_NOTICE) · BATON_HANDOFF_AUTO=off(자동 쓰기 대신 제안)
 #   문턱: BATON_HANDOFF_NUDGE_FILES=3. 환경변수 또는 설정 파일(lib/config.py, /baton-setup이 사용자 세션 분포로 문턱을 제안해 쓴다)에서 읽는다.
 # Codex의 편집 도구(apply_patch)는 file_path를 주지 않아 여기서 안 잡힌다 — 스킬이 쓴 뒤 검사기를 직접 부른다.
 # Codex의 Stop도 제안·자동 쓰기가 나가지 않는다: 세션 기록(~/.codex/sessions)에 Claude Code 모양의 "tool_use" 편집 줄이 없어
@@ -32,9 +32,12 @@ sys.path.insert(0, os.path.join(PLUGIN, "lib"))
 import config, handoff_check, i18n, rules, runlog
 import importlib.util
 
-_spec = importlib.util.spec_from_file_location("split_notice", os.path.join(PLUGIN, "hooks", "split-notice.py"))
-split = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(split)  # 맥락 재기·알림 문장(Stop 결정은 on_stop 한 곳)
+try:  # 맥락 재기·알림 문장(Stop 결정은 on_stop 한 곳). 못 불러도 저장 검사(비밀값 막기)는 살아야 한다 — 맥락 까닭만 끈다
+    _spec = importlib.util.spec_from_file_location("split_notice", os.path.join(PLUGIN, "hooks", "split-notice.py"))
+    split = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(split)
+except Exception:
+    split = None
 
 LIST_MAX = 10  # 자동 쓰기 요청에 이름을 적는 파일 수. 나머지는 개수만
 OUT_MAX = 9600  # 검사 결과(reason·additionalContext)의 상한 — 주입 훅과 같은 여유
@@ -257,12 +260,13 @@ def nudge_message(n, lang):
 
 def on_stop(data):
     """Stop 결정 한 곳 — 까닭 둘(파일 고침 F·맥락 문턱 S)을 함께 보고 한 Stop에 많아야 한 번 묻는다.
-    물을 수 있으면(BATON_HANDOFF_AUTO 켬, 이번 턴에 인계서를 안 고침, stop_hook_active 아님, HANDOFF.md가 없거나 baton 형식)
-    decision "block" 하나에 두 까닭을 같이 적는다. 못 물으면 사용자에게 systemMessage 하나로 알린다. 상태는 까닭마다 따로
+    물을 수 있으면(BATON_HANDOFF_AUTO 켬, 이번 턴에 인계서를 고친 뒤 그대로인 게 아님, HANDOFF.md가 없거나 baton 형식)
+    decision "block" 하나에 두 까닭을 같이 적는다. 못 물으면 사용자에게 systemMessage 하나로 알린다. 다른 Stop 훅이 턴을 잇는 중
+    (stop_hook_active)이면 묻지도 알리지도 않고 상태도 남기지 않는다 — 다음 턴 끝에 다시 본다. 상태는 까닭마다 따로
     (F: 세션에 한 번 handoff-nudge/<sid>, S: 문턱마다 한 번 split/<sid>.json)."""
     cwd = data["cwd"] if isinstance(data.get("cwd"), str) else None
     repo = repo_of(cwd)
-    nudge_on, split_on = not off("BATON_HANDOFF_NUDGE", repo), not off("BATON_SPLIT_NOTICE", repo)
+    nudge_on, split_on = not off("BATON_HANDOFF_NUDGE", repo), split is not None and not off("BATON_SPLIT_NOTICE", repo)
     if not (nudge_on or split_on):
         return
     auto = not off("BATON_HANDOFF_AUTO", repo)
@@ -295,25 +299,29 @@ def on_stop(data):
         written = turn_wrote_handoff(path)
     except Exception:
         written = False
+    # fresh: 이번 턴에 인계서를 고쳤고 그 뒤로 문턱만큼 고친 파일은 없다 — 맥락 까닭은 알리기만 한다.
+    # files가 있으면 마지막 인계서 쓰기 뒤에 고친 것이라(edited_since_handoff) 이번 턴에 썼어도 다시 낡았다 — 묻는다(리뷰 11-24)
+    fresh = written and not files
     active = data.get("stop_hook_active") is True
-    if auto and active and not written:
-        return  # 다른 Stop 훅 때문에 이미 이어서 일하는 중 — 막지 않는다. 상태를 남기지 않아 다음 턴 끝에 다시 본다
-    try:  # 한 번만 묻는다는 약속을 못 지키면 아예 말하지 않는다
+    if auto and active and not fresh:
+        return  # 다른 Stop 훅 때문에 이미 이어서 일하는 중 — 막지도 알리지도 않는다. 상태를 남기지 않아 다음 턴 끝에 다시 본다
+    try:  # 한 번만 묻는다는 약속을 못 지키면 아예 말하지 않는다. 맥락 상태를 먼저(깨진 상태 파일이 흔한 쪽).
+        # ponytail: 맥락 상태를 쓴 뒤 파일 상태 쓰기만 실패하면 그 문턱은 알리지 못하고 넘어간다(같은 캐시 폴더라 드묾)
+        if grown:
+            split.mark(sid, grown[0])
         if files:
             os.makedirs(os.path.dirname(state), mode=0o700, exist_ok=True)
             open(state, "w").close()
-        if grown:
-            split.mark(sid, grown[0])
-    except OSError:
+    except Exception:  # OSError, 깨진 상태 파일(sorted의 TypeError 등)
         return
     lang = i18n.lang(repo)
-    foreign = auto and not written and not ours_or_absent(cwd)
-    ask = auto and not written and not active and not foreign
+    foreign = auto and not fresh and not ours_or_absent(cwd)
+    ask = auto and not fresh and not foreign  # active는 위에서 돌아갔다(auto일 때)
     ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     if ask:
         print(json.dumps({"decision": "block", "reason": auto_reason(files, cwd, lang, grown)}, ensure_ascii=False))
     else:
-        msgs = ([split.notice(lang, grown[0], grown[1], grown[2], saved=written)] if grown else []) \
+        msgs = ([split.notice(lang, grown[0], grown[1], grown[2], saved=fresh)] if grown else []) \
             + ([nudge_message(len(files), lang)] if files else [])
         print(json.dumps({"systemMessage": "\n\n".join(msgs)}, ensure_ascii=False))
     if files:
@@ -323,7 +331,7 @@ def on_stop(data):
         runlog.append(rec)
     if grown:
         rec = {"ts": ts, "event": "split_notice", "session_id": sid, "first_ctx": grown[1], "last_ctx": grown[2],
-               "ratio": round(ratio, 2), "band": grown[0], "mode": "ask" if ask else "saved" if written else "notice"}
+               "ratio": round(ratio, 2), "band": grown[0], "mode": "ask" if ask else "saved" if fresh else "notice"}
         if foreign:
             rec["fallback"] = "foreign_handoff"
         runlog.append(rec)

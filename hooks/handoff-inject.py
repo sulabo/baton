@@ -12,8 +12,8 @@
 # characters" — 넘으면 세션 폴더의 파일로 저장하고 경로와 앞 2,000자 미리보기만 넘긴다. "this cap has no setting or environment
 # variable to raise it". 실측(루프 2)도 같다: 8,995자는 그대로 들어갔고, 20,826자는 파일로 빠져 에이전트가 그 파일을 다시 cat했다.
 # ponytail: 여유 400자. 문서의 "characters"가 UTF-16 단위인지는 확인 못 함 — 그렇다면 이모지처럼 BMP 밖 글자는 둘로 센다.
-# 인계서 본문 예산은 머리말·신선도 한 줄(최대 rules.FRESHNESS_MAX)·꼬리 안내 몫을 뺀 나머지다 — 최소 8,739자로
-# 검사기 상한 8,700자(PR #14)를 늘 넘는다. 영어는 머리말이 길어 신선도 상한이 rules.FRESHNESS_MAX_EN이고 최소 8,712자다.
+# 인계서 본문 예산은 머리말·신선도 한 줄(최대 rules.FRESHNESS_MAX)·꼬리 안내 몫을 뺀 나머지다 — 최소 8,724자로(11-24 머리말 문장 추가 뒤)
+# 검사기 상한 8,700자(PR #14)를 늘 넘는다. 영어는 머리말이 길어 신선도 상한이 rules.FRESHNESS_MAX_EN이고 최소 8,714자다.
 # hooks/test_handoff_inject.py HookOutputBudgetTest가 두 언어의 셈을 묶는다.
 # 넘치면 잘랐다는 것을 한 줄로 말한다 — 조용히 자르면 뒤쪽에 있는 다음 행동을 "없음"으로 읽는다.
 # 필독 줄: "관련 파일·심볼" 절에서 (필독)·(must read) 표시가 붙은 항목(최대 3개)을 신선도 줄 바로 뒤 한 줄로 올린다
@@ -70,7 +70,7 @@ HEAD = ("[baton] 아래는 이 저장소 HANDOFF.md의 전문이다(프롬프트
         "파일을 다시 열 필요 없다. 다만 인계서는 작성 시점의 기록이다 — 사실이 아니라 가설로 읽고, "
         "다음 행동이 기대는 주장 한두 개만 git·파일로 확인한 뒤 이어서 진행한다. "
         "'소유자 확인' 항목은 되돌릴 수 있으면 권장 기본값대로 진행하고, 되돌릴 수 없는 것만 묻는다.")
-# 마지막 문장(소유자 결정 11-24): compact 맞대기 실험에서 인계서 갈래 실패의 절반이 "사용자에게 확인할 것"을 묻고 멈춘 새 대화였다.
+# 마지막 문장(소유자 결정 11-24): compact 맞대기 실험에서 인계서 갈래 실패 3건이 모두 "사용자에게 확인할 것"을 묻고 멈춘 새 대화였다.
 # 영어판은 한국어보다 길어 신선도 한 줄 상한을 rules.FRESHNESS_MAX_EN으로 줄인다 — 두 언어 모두 머리말 + 신선도 상한 + 검사기 상한
 # + 꼬리 몫이 LIMIT_CHARS 안이다(HookOutputBudgetTest). 문장을 더하면서 영어 머리말을 줄여 썼다(docs/GUIDE.md 예시도 바꿔야 한다)
 HEAD_EN = ("[baton] Below is this repo's full HANDOFF.md, injected because the prompt asks about handoff or progress. "
