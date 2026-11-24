@@ -1,9 +1,16 @@
 # 변경 기록
 
 이 파일은 사용자가 알아야 할 변화만 적습니다. 왜 그렇게 정했는지는 `DECISIONS.md`, 실험 수치는 `docs/research/LOOP_PLAN.md`에 있습니다.
-버전은 [유의적 버전](https://semver.org/lang/ko/)을 따릅니다. `1.0.0` 정식판은 만든 사람 말고 다른 사람의 실사용 기록이 생긴 뒤에 냅니다.
+버전은 [유의적 버전](https://semver.org/lang/ko/)을 따릅니다. 2026-11-24 `1.0.0`부터 정식판입니다(`DECISIONS.md` 같은 날 항목).
 
 ## [Unreleased]
+
+## [1.0.0] — 2026-11-24
+
+정식판입니다. 기능은 `1.0.0-beta.5`와 같습니다.
+
+### 바뀜
+- 버전 표기 `1.0.0-beta.5` → `1.0.0`(매니페스트 셋). README·홈페이지에서 "베타" 표기를 뺐습니다. 숫자가 만든 사람 한 명의 기록에서 나왔다는 안내는 그대로 둡니다.
 
 ## [1.0.0-beta.5] — 2026-11-24
 
@@ -139,5 +146,6 @@ jq -s '[.[] | select(.ts <= "2026-11-20T20:10:10+0900")] as $r
 - Claude Code·Codex 매니페스트, 설치 사본 스크립트(`tools/stage-plugin.sh`).
 - 개인 자료를 정리하며 공개 저장소 이력을 이 커밋 하나로 새로 시작했습니다(`DECISIONS.md` 2026-10-01).
 
+[1.0.0]: https://github.com/sulabo/baton/compare/v1.0.0-beta.5...v1.0.0
 [1.0.0-beta.2]: https://github.com/sulabo/baton/compare/v1.0.0-beta.1...v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/sulabo/baton/releases/tag/v1.0.0-beta.1

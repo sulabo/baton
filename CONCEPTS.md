@@ -35,7 +35,7 @@
 
 - **정해진 것**: 범위는 `DECISIONS.md` 10-01 "beta v1.0 범위" — ① 1.0.0-beta 버전 표기. 스킬 이름에 대한 결정 기록은 없다.
 - **실제 동작**:
-  - 버전은 매니페스트 세 곳 모두 `1.0.0-beta.5`(2026-11-24 출시 준비, 전에는 `1.0.0-beta.4` — `.claude-plugin/plugin.json:3`, `.codex-plugin/plugin.json:3`, `.claude-plugin/marketplace.json:11`, `f770862`). 서로 일치. PR #9부터 `tools/check_versions.py`가 이 세 곳과 CHANGELOG 맨 위 버전이 같은지 CI에서 본다(2026-11-23 실행: `ok: all versions = 1.0.0-beta.4`).
+  - 버전은 매니페스트 세 곳 모두 `1.0.0`(2026-11-24 정식판, `DECISIONS.md` 같은 날 항목, 그 전 `1.0.0-beta.5`·`1.0.0-beta.4` — `.claude-plugin/plugin.json:3`, `.codex-plugin/plugin.json:3`, `.claude-plugin/marketplace.json:11`, `f770862`). 서로 일치. PR #9부터 `tools/check_versions.py`가 이 세 곳과 CHANGELOG 맨 위 버전이 같은지 CI에서 본다(2026-11-23 실행: `ok: all versions = 1.0.0-beta.4`).
   - 스킬 셋·명령 다섯·훅 스크립트 넷이 매니페스트와 `hooks/hooks.json`에 실제로 등록돼 있다(`hooks/hooks.json:4`, `hooks/hooks.json:18`, `hooks/hooks.json:28`, `hooks/hooks.json:49`). 2026-11-24(beta.5)부터 `split-notice.py`는 등록하지 않는다 — Stop은 `handoff-check.py` 하나다(개념 5). Claude Code 매니페스트는 PR #3부터 `hooks` 키 없이 기본 위치를 쓰고, Codex 매니페스트는 그대로 적는다(`.codex-plugin/plugin.json:11`).
   - 2026-11-22: 매니페스트 세 곳의 `description`을 새 소개 문구("새 대화마다 프로젝트를 다시 읽지 않게")로 바꿨다(`681afff`). 버전·스킬·명령·훅 등록은 그대로다(`tools/check_versions.py` ok, `claude plugin validate .` 통과).
   - 2026-11-23(beta.4): 스킬·명령 본문이 영어로 바뀌고 description은 영어·한국어 둘 다 적는다(트리거 말도 두 언어). 스킬 셋과 명령 넷(`drift`·`promote`·`baton-setup`·`baton-doctor`)은 frontmatter `allowed-tools`로 읽기 스크립트를 미리 허용하고, 경로는 중괄호 꼴 `${CLAUDE_PLUGIN_ROOT}`로 적는다(`skills/driftmap/SKILL.md:3`, `skills/baton/SKILL.md:4`, `4c4652a`). 플러그인 아이콘 `.claude-plugin/icon.png`가 더해졌다. `claude plugin validate .` 통과(2026-11-23 실행).
@@ -256,7 +256,7 @@
 
 - 테스트 570개 통과(2026-11-24, `b5f6ec7`에서 Python 3.14.6과 3.9.6 둘 다, 같은 방식. hooks 130·lib 363·tools 12·observer/research 65, 건너뜀 4 — 알림 문장을 다시 쓰며 세션 끊기 1·세션 시작 알림 2·인계서 훅 1개가 늘었다).
 - 테스트 566개 통과(2026-11-23, `067a23e`에서 Python 3.14.6과 3.9.6 둘 다, CI와 같은 `git ls-files … | xargs python -m unittest`, `XDG_CONFIG_HOME`을 빈 폴더로·`BATON_LANG` 없이 — 소유자 설정은 `BATON_LANG=ko`다. 네 묶음: hooks 126·lib 363·tools 12·observer/research 65, 건너뜀 4 — 인계서 없음 1·실험 스냅샷 없음 1·`observer/research/test_case_grade.py` 2). 이전 기록: 300개(2026-11-21, `6695701`, hooks 54·lib 173·tools 8·observer/research 65, 건너뜀 3, `compile_eval` 테스트 13개는 그 스크립트와 함께 뺐다). 그때 macOS 기본 bash 3.2로도 `lib/test_fresh.py`·`hooks/test_drift_notice.py`를 돌려 통과했다(이번에는 다시 돌리지 않았다).
-- 매니페스트 세 곳의 버전이 같다(`1.0.0-beta.5`, `tools/check_versions.py` ok, 2026-11-24).
+- 매니페스트 세 곳의 버전이 같다(`1.0.0`, `tools/check_versions.py` ok, 2026-11-24).
 - 가이드의 명령 표 다섯 줄(`docs/GUIDE.md:181`, `docs/GUIDE.ko.md:140`)은 `commands/` 파일 다섯 개와 맞는다. 훅 등록은 `hooks/hooks.json`에 스크립트 다섯 개다.
 - 인계서 템플릿의 8절(`skills/baton/SKILL.md` 템플릿 — 2026-11-23부터 영어판·한국어판 둘)과 검사기의 필수 절 목록(`lib/handoff_check.py:29`, 절마다 두 언어 이름)이 같다.
 - 루트 `HANDOFF.md`는 2026-11-21에 검사기를 통과했다(49줄, "문제 없음"). 2026-11-23 공개 저장소에서 그 파일을 지웠다(`82a7a07`, 10-01자 낡은 인계서) — 지금은 확인할 파일이 없다.
