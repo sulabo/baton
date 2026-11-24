@@ -183,24 +183,30 @@ below are kept as published on 2026-11-24.
   got its own arm's handoff, as designed, but that handoff started from one written inside the build. So
   game-repo H is not the same condition as baton-repo H either.
 - The baton-repo build ran under beta.3, which only suggests a handoff to the user. Its switch point has no
-  `HANDOFF.md`. Counting baton's handoff-injection header ("[baton] 아래는 …") in the next-task streams gives 1
-  in each of the 5 game-repo C runs and 0 in each of the 5 baton-repo C runs. In the baton repo both arms got
-  the same concept-map index.
+  `HANDOFF.md`. Baton's handoff-injection header ("[baton] 아래는 …") appears in 1 UserPromptSubmit
+  `hook_response` event in each of the 5 game-repo C next tasks, and in none of the 5 baton-repo C next tasks.
+  (A plain `grep -o … | wc -l` gives 2 per game-repo run, because the same text is in both the `output` and
+  the `stdout` field of that one event.) In the baton repo both arms got the same concept-map index.
 - Round 2 reused round 1's C rows (`compact_ab.py seed`), so its game-repo ratio (1.109) compares round-2 H
   with this same C arm.
 
-**How it was found, and why the runner missed it.** It was found on 2026-11-25 by counting that header in each
-next-task stream. The runner's `inject` flag is true when any `[baton]` text comes back from the prompt hook.
-The baton repo's concept-map index also starts with `[baton]`, so the flag was true in every next task of both
-rounds and could not tell a handoff injection from the index. Threat 2 below ("the automatic-handoff Stop block
-never fired in any run") holds for the graded runs, but the block did fire once in the game-repo build.
+**How it was found, and why the runner missed it.** It was found on 2026-11-25 by counting that header per
+prompt-hook event in each next-task stream. The runner's `inject` flag is true when any `[baton]` text comes
+back from the prompt hook. The baton repo's concept-map index also starts with `[baton]`, so the flag was true
+in every next task of both rounds and could not tell a handoff injection from the index. Threat 2 below ("the
+automatic-handoff Stop block never fired in any run") holds for the graded runs, but the block did fire once in
+the game-repo build.
 
 **What it affects.**
 - Both published verdicts. Round 1's correctness gap came from the baton repo alone (the game repo was 5/5 in
   both arms). Round 2's "compact better on cost" used the game-repo ratio 1.109 as one of its two repo ratios.
 - The game-repo C row in both tables, and every comparison against it.
 - The "1.1–1.7×" figure on the README, the guides and the homepage. It was the two round-2 repo ratios
-  (1.109 and 1.735).
+  (1.109 and 1.735). The 1.0.0 release notes keep their text, with a correction note above it.
+- The clause "writing it alone cost about 2–3× a compaction" was removed from the guides and the homepage.
+  It pooled the round-2 warm-normalized transition cost over both repos (about 2.0× game, 2.8× baton). In the
+  baton repo alone it is about 2.8× warm-normalized but about 0.75× on the reported cost, because four of the
+  five compactions ran after the prompt cache had expired.
 
 **What it does not affect.**
 - The baton-repo rows in both rounds, the grading, the cost accounting and the budget.
@@ -211,7 +217,7 @@ never fired in any run") holds for the graded runs, but the block did fire once 
 
 | | round 1 | round 2 |
 |---|---|---|
-| as published, both repos | compact better: k_C 10/10, k_H 7/10, r = 1.058 (per repo 0.766 and 1.35) | compact better: k_C 10/10, k_H 10/10, r = 1.422 (per repo 1.735 and 1.109) |
+| as published, both repos | compact better: k_C 10/10, k_H 7/10, r = 1.058 (per repo 0.766 and 1.35); raw-cost sensitivity r = 1.065 (per repo 0.787 and 1.344) | compact better: k_C 10/10, k_H 10/10, r = 1.422 (per repo 1.735 and 1.109); raw-cost sensitivity r = 1.478 (per repo 1.165 and 1.79) |
 | baton repo only, by the rule | inconclusive | inconclusive |
 | baton repo only, descriptive | C 5/5, H 2/5 correct. H/C median cost 0.766 warm-normalized ($1.18 vs $1.54), 0.787 raw ($1.88 vs $2.39) | C 5/5 (round 1), H 5/5 correct. H/C median cost 1.735 warm-normalized ($2.67 vs $1.54), 1.165 raw ($2.78 vs $2.39) |
 
