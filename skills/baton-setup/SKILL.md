@@ -1,6 +1,6 @@
 ---
 name: baton-setup
-description: 설치 후 한 번 돌리는 개인화. 이 사용자의 과거 세션 기록·git 이력·인계서를 읽어 baton 문턱(세션 끊기 알림·인계서 제안)과 인계 트리거 말, 인계서 검사가 막을 개인 자료 목록, 출력 언어를 그 사람 분포로 제안하고, 사용자가 고른 것만 설정 파일에 쓴다. "baton 설정해줘", "baton setup", "문턱 내 기록으로 맞춰줘", "개인 자료 목록 만들어줘"에도 발동. Also triggers on English requests such as "set up baton", "tune baton thresholds to my history", "build my private terms list", "set baton's language".
+description: 설치 후 한 번 돌리는 개인화. 이 사용자의 과거 세션 기록·git 이력·인계서를 읽어 baton 인계서 제안 문턱과 인계 트리거 말, 인계서 검사가 막을 개인 자료 목록, 출력 언어를 그 사람 분포로 제안하고, 사용자가 고른 것만 설정 파일에 쓴다. "baton 설정해줘", "baton setup", "문턱 내 기록으로 맞춰줘", "개인 자료 목록 만들어줘"에도 발동. Also triggers on English requests such as "set up baton", "tune baton thresholds to my history", "build my private terms list", "set baton's language".
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py), Bash(python3 ${CLAUDE_PLUGIN_ROOT}/lib/config.py)
 ---
 
@@ -12,12 +12,14 @@ config file.
 
 ## Purpose
 
-baton's thresholds were set on a few of the author's repos. The context-growth notice at 2× and 3× comes from 60
-sessions, where "85% of the cost was spent after the context passed 2× the first call". The handoff nudge at 3 files
-comes from 94 sessions, where "sessions that edited 1–2 files wrote a handoff 16% of the time, sessions with 3 or more
-67%". **Whether other people split at the same points is unknown.**
+baton's thresholds were set on a few of the author's repos. The context thresholds (250K and 450K tokens per call,
+`BATON_SPLIT_TOKENS`) come from the 2026-11-25 recount of 50 of the author's sessions that includes the cost of writing
+the handoff; it is an estimate from one person's sessions. The scanner shows that default and does not propose context
+thresholds from the user's history: the older ratio rule (multiples of the first call, `BATON_SPLIT_RATIOS`) lost money
+in that recount. The handoff nudge at 3 files comes from 94 sessions, where "sessions that edited 1–2 files wrote a
+handoff 16% of the time, sessions with 3 or more 67%". **Whether other people work the same way is unknown.**
 
-This skill runs the same methods on **this user's history** and proposes thresholds. It also picks out candidate words
+This skill runs the same method on **this user's history** and proposes the nudge threshold. It also picks out candidate words
 that belong only to this person and must not leak into a handoff (names, emails, other project names), so the handoff
 check blocks the ones the user picks. It also proposes the output language from the language of the user's prompts.
 
@@ -56,7 +58,7 @@ counted**.
 
 | Item | What | Config key |
 |---|---|---|
-| 1) Context-growth thresholds | Per session, largest context ÷ first-call context; for each candidate threshold, the sessions that reach it and the cost left after it | `BATON_SPLIT_RATIOS` |
+| 1) Context thresholds | The default (250K and 450K tokens per call), where it comes from (the 2026-11-25 recount, one person's sessions, an estimate) and the value in effect now. No proposal | `BATON_SPLIT_TOKENS` |
 | 2) Handoff nudge threshold | How often a handoff was written, by number of edited files | `BATON_HANDOFF_NUDGE_FILES` |
 | 3) Handoff names actually written | Whether names the injection hook doesn't read, such as `HANDOFF-x.md`, were used | none (report only) |
 | 4) Extra trigger phrases | Phrases that often appeared in the first prompt of sessions where the agent read the handoff but no current trigger matched | `BATON_HANDOFF_TRIGGERS_EXTRA` |
@@ -68,15 +70,20 @@ When you relay:
 
 - **Don't call 0 "none".** If no session logs were found, that is "could not count", not "0". The scanner prints that
   distinction; relay that line.
-- **With fewer than 10 sessions, recommend the default thresholds**, and say why (a few sessions can swing them by chance).
+- **With fewer than 10 sessions, recommend the default nudge threshold**, and say why (a few sessions can swing it by chance).
 - For trigger candidates, always show "also matches N other prompts". The hook checks **every prompt**, not only the
   first one of a session, as a substring, so the handoff also goes into that many prompts that have nothing to do with
   a handoff (injecting it into an unrelated task cost +11% tokens, loop 1). It is an upper bound: some of those may be
   correct injections.
 - When a threshold proposal is "no change", also say the value in effect now. It does not mean that a value already
   set should be removed.
-- The "recomputed saving" of the context-growth notice is a counterfactual upper-bound estimate. Don't present it as
-  a measurement.
+- Item 1 never proposes a value. If the scanner says the older ratio rule (`BATON_SPLIT_RATIOS`) applies now, tell the
+  user, and offer `apply --unset BATON_SPLIT_RATIOS` to go back to the token default. If they want to keep it, keep it.
+  If it says no session passed the first threshold and some were compacted before it, relay that line: the default
+  comes from sessions with a 1M-token context window, and with a smaller window the conversation is compacted first,
+  so the rule doesn't fire. Say that `BATON_SPLIT_TOKENS` can be lowered with a value the user picks, but whether that
+  is cheaper at that size wasn't measured (in the 1M-window sessions, 150K was usually a loss). Don't recommend
+  lowering it and don't suggest a number.
 - Codex sessions are not counted. When the scanner says so, relay it as is.
 - The language proposal counts prompts, not characters: a prompt that contains Korean counts as Korean, a prompt with
   letters but no Korean counts as another language, a prompt with no letters is not counted. More than half Korean
@@ -89,8 +96,10 @@ When you relay:
 Ask with `AskUserQuestion` on Claude Code, in plain text on Codex. **One thing at a time**, with the recommendation
 and its reason first.
 
-1. The two thresholds: the scanner's proposal / keep the default. If the proposal is "keep the default", skip the
-   question.
+1. The nudge threshold: the scanner's proposal / keep the default. If the proposal is "keep the default", skip the
+   question. Ask about the context threshold only when the older ratio rule applies (go back to the token default /
+   keep) or when the scanner says the sessions were compacted before the first threshold (set a lower value the user
+   gives / keep).
 2. Extra trigger phrases: pick from the candidates (several allowed) / add none.
 3. Private-words list: pick from the candidates (several allowed) / type your own / add none.
 4. Output language: the scanner's proposal / keep. If the proposal is "no change", skip the question.
@@ -103,7 +112,7 @@ and its reason first.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply \
-  --set BATON_SPLIT_RATIOS=2.5,3.5 --set BATON_HANDOFF_NUDGE_FILES=4 --trigger "지난번"
+  --set BATON_HANDOFF_NUDGE_FILES=4 --trigger "지난번"
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply --global --set BATON_LANG=en
 ```
 
@@ -116,8 +125,9 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/setup_scan.py apply --global --set BATON_LANG=
   it after apply: once committed, the words it was meant to block are public. Save the file as UTF-8 (a BOM is
   stripped when read).
 - To write to the global section, add `--global`. `BATON_OBSERVE` and `BATON_LOG` go only in the global section.
-- The keys are the existing environment variable names, and each value is checked per key: threshold ratios are
-  numbers of 1 or more separated by commas, the file count is a whole number of 1 or more, switches are on/off
+- The keys are the existing environment variable names, and each value is checked per key: `BATON_SPLIT_TOKENS` is
+  whole numbers of 1000 or more separated by commas, `BATON_SPLIT_RATIOS` (the older rule, still accepted) is numbers of
+  1 or more separated by commas, the file count is a whole number of 1 or more, switches are on/off
   (1/0, true/false, yes/no), `BATON_LANG` is ko, en or auto (auto follows the locale), trigger phrases and private
   words are at least two characters. A value that breaks a rule is not written, and apply stops.
 - If the config file is broken, apply stops without overwriting it. Tell the user, and have them fix or delete it.

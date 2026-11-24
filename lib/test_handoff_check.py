@@ -714,6 +714,37 @@ class PluginRootTest(unittest.TestCase):
                 self.assertTrue(any(cmd in pre for pre in prefixes), (rel, cmd))
 
 
+class SkillCostRulesTest(unittest.TestCase):
+    """인계서 쓰기 호출을 줄이는 스킬 규칙(11-25)과 그 리뷰 반영. 문장이 빠지면 모델이 예전처럼 다시 부른다.
+    줄바꿈 위치에 기대지 않게 공백을 하나로 모은 뒤 본다."""
+
+    def setUp(self):
+        with open(os.path.join(os.path.dirname(HERE), "skills", "baton", "SKILL.md"), encoding="utf-8") as f:
+            raw = f.read()
+        self.skill = " ".join(raw.split())
+        self.stop = " ".join(raw.split("## When the Stop hook asks", 1)[1].split("## Templates", 1)[0].split())
+
+    def test_commit_only_the_handoff_and_keep_the_one_line_output(self):
+        self.assertIn('git add HANDOFF.md && git commit -m "handoff: <topic>" -- HANDOFF.md', self.skill)  # 미리 스테이징된 파일 제외
+        self.assertNotIn("commit -q", self.skill)  # 한 줄 출력 [branch sha]이 증거다
+
+    def test_check_line_that_could_not_run_means_run_the_checker(self):
+        self.assertIn("part of the check couldn't run", self.skill)
+        self.assertIn("검사 일부를 돌리지 못했어요", self.skill)
+        self.assertIn("if it says part of the check couldn't run, run the checker", self.stop)
+
+    def test_confirmed_facts_have_limits(self):
+        self.assertIn("unless you edited a file that fact depends on after you saw it", self.skill)
+        self.assertIn("Anything known only from a compaction summary is `[?]`", self.skill)
+
+    def test_stop_hook_path_has_its_own_check_call(self):
+        self.assertIn("there is no step 1 call on this path", self.stop)
+        self.assertIn("1M-token context window", self.stop)
+        self.assertIn("`Agent`/`Task` call whose subagent edited or wrote files", self.stop)
+        self.assertIn("below 250K it makes no cost claim", self.stop)
+        self.assertIn("also under the ratio rule", self.stop)
+
+
 class InjectBudgetTest(unittest.TestCase):
     """검사를 통과한 인계서는 주입에서 잘리지 않는다 — 두 상한이 따로 박혀 있어 갈라지면 여기서 깨진다."""
 

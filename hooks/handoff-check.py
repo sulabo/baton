@@ -4,6 +4,10 @@
 # PostToolUse(Write|Edit|MultiEdit): 고친 파일이 HANDOFF.md면 lib/handoff_check.py로 검사하고,
 #   문제가 있으면 모델에게 돌려준다(decision: block — 쓰기는 이미 됐고, 이유를 보고 고치게 한다).
 #   경고만 있으면(확인 표시 [V]·[?] 빠짐·필독 3개 초과·마지막 커밋판에 있던 줄이 빠짐) 막지 않고 additionalContext로 알리기만 한다.
+#   둘 다 없으면 통과 한 줄("[baton] HANDOFF.md 검사 통과(N줄·M자).")을 additionalContext로 낸다 — 아무 말이 없으면 모델이 검사기를
+#   손으로 다시 돌렸다(2026-11-24 compact 맞대기 실험 2차, 인계서 쓰기 10번 중 10번). 스킬은 이 줄이 보이면 검사기를 다시 돌리지 않게 한다.
+#   경고 규칙·빠진 줄 검사 중 하나가 오류로 못 돌았으면 통과라고 하지 않고 "검사 일부를 돌리지 못했어요" 한 줄을 붙인다 — 스킬은 이 줄을
+#   "줄 없음"처럼 보고 검사기를 직접 돌린다(리뷰 11-25).
 #   빠진 줄은 git HEAD의 HANDOFF.md와 비교한다(lib/handoff_check.py drop_warnings). 미추적·이력 없음이면 아무 말도 안 한다.
 #   출력은 OUT_MAX자에서 자른다(Claude Code 훅 출력 상한 10,000자 — 넘으면 파일로 빠진다, hooks/handoff-inject.py 머리 주석).
 # Stop: 이 세션이 마지막으로 인계서(HANDOFF.md 또는 HANDOFF_*.md)를 쓴 뒤 다른 파일을 N개(기본 3) 이상 고쳤으면, 세션에 한 번
@@ -16,9 +20,14 @@
 #   저장소 루트의 HANDOFF.md가 baton 형식이 아니면(handoff_check.looks_ours) 자동 쓰기 대신 제안만 한다 — 남의 형식 파일을
 #   모델이 우리 템플릿으로 다시 쓰게 하지 않으려고(리뷰 11-23). HANDOFF.md가 없거나 baton 형식이면 자동 쓰기.
 #   문턱 3은 로컬 세션 94개 실측(2026-10-01): 1~2개 고친 세션은 인계서를 16% 썼고 3개 이상은 67% 썼다.
-#   맥락이 처음의 2배·3배(BATON_SPLIT_RATIOS)를 넘을 때도 같은 방식으로 한 번 쓰게 한다(소유자 결정 11-24, 측정·문장은
-#   hooks/split-notice.py). Stop 결정은 여기 한 곳 — 두 까닭이 한 Stop에 겹치면 한 번만 묻고, 이번 턴에 인계서를 이미 고쳤고 그 뒤 파일을
-#   문턱만큼 더 고치지 않았으면 묻지 않고 알리기만 한다. 끄기: BATON_SPLIT_NOTICE=off(맥락 알림 전부), BATON_HANDOFF_AUTO=off(묻지 않고 알리기만).
+#   호출 맥락이 25만·45만 토큰(BATON_SPLIT_TOKENS — 문턱과 그 근거·예전 배수 규칙 BATON_SPLIT_RATIOS는 hooks/split-notice.py)을 넘을 때도
+#   같은 방식으로 문턱마다 한 번 쓰게 한다(소유자 결정 11-24). 단 마지막 인계서 쓰기 뒤에 넘길 일(work_since_handoff: 편집 도구로 고친
+#   파일, 서브에이전트가 실제로 고친 Agent·Task 위임, 파일을 쓰는 Bash 명령)이 하나라도 있을 때만 — 없으면 묻지도 알리지도 않고 문턱도 남기지 않아, 나중에 일한
+#   Stop에서 한 번 묻는다(11-25 실사용: 질문만 한 턴 뒤에 인계서를 다시 쓰게 했다). 이번 턴에 인계서를 썼어도 그 뒤에 일했으면 낡았으니
+#   묻는다(리뷰 11-25 — 예전의 "이번 턴에 썼으면 알리기만"은 뺐다). Stop 결정은 여기 한 곳 — 두 까닭이 한 Stop에 겹치면 한 번만 묻는다.
+#   끄기: BATON_SPLIT_NOTICE=off(맥락 알림 전부), BATON_HANDOFF_AUTO=off(묻지 않고 알리기만).
+#   파일 수 까닭(F)은 예전 그대로 편집 도구의 파일만 센다 — 문턱 3과 /baton-setup 분포가 그 수로 재졌다. 다만 Bash로 쓴 인계서에서도
+#   처음부터 센다(리뷰 11-25). 넘길 일 세기는 WORK_BUDGET초 안에 — 넘기면 편집 도구만 센다(훅 시한 10초에 죽으면 두 까닭이 다 사라진다).
 #
 # 끄기: BATON_HANDOFF_CHECK=off(검사) · BATON_HANDOFF_NUDGE=off(파일 수 까닭의 제안·자동 쓰기 — 맥락 까닭은 BATON_SPLIT_NOTICE) · BATON_HANDOFF_AUTO=off(자동 쓰기 대신 제안)
 #   문턱: BATON_HANDOFF_NUDGE_FILES=3. 환경변수 또는 설정 파일(lib/config.py, /baton-setup이 사용자 세션 분포로 문턱을 제안해 쓴다)에서 읽는다.
@@ -94,10 +103,11 @@ def on_edit(data):
         problems = handoff_check.check_file(path, strict=False, text=text, lang=lang, terms=terms)
     except OSError:
         return
+    partial = False  # 경고 규칙·빠진 줄 검사가 오류로 못 돌았나 — 그러면 통과라고 하지 않는다
     try:
         warned = handoff_check.warnings(text, strict=False, lang=lang)
     except Exception:
-        warned = []  # 경고 규칙이 깨져도 막아야 할 문제는 그대로 돌려준다
+        warned, partial = [], True  # 경고 규칙이 깨져도 막아야 할 문제는 그대로 돌려준다
     try:  # 남은 시간만 쓴다. 깨져도 나머지는 그대로
         deadline = min(time.monotonic() + handoff_check.DROP_BUDGET, t0 + HOOK_DEADLINE)
         if deadline - time.monotonic() > 0.2:
@@ -107,19 +117,27 @@ def on_edit(data):
                             "warning: the dropped-lines check was skipped because the hook ran out of time — not zero "
                             "dropped lines, just not checked"))
     except Exception:
-        pass
+        partial = True
+    note = t("[baton] HANDOFF.md 검사 일부를 돌리지 못했어요 — 검사기를 직접 돌려 주세요.",
+             "[baton] Part of the HANDOFF.md check couldn't run — run the checker yourself.") if partial else ""
     runlog.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_check",
                    "session_id": data.get("session_id"), "problems": len(problems), "warnings": len(warned)})
     if problems:
         reason = (t("[baton] 방금 쓴 HANDOFF.md에 인계서 검사 문제가 있다. 고친 뒤 다시 저장한다:\n- ",
                     "[baton] The HANDOFF.md you just wrote has handoff-check problems. Fix them and save again:\n- ")
-                  + "\n- ".join(problems + warned))
+                  + "\n- ".join(problems + warned) + ("\n" + note if note else ""))
         print(json.dumps({"decision": "block", "reason": capped(reason, t)}, ensure_ascii=False))
     elif warned:  # 경고만이면 막지 않는다 — 맥락에 알리기만 한다(Codex도 이 JSON 모양만 받는다)
         ctx = t("[baton] 방금 쓴 HANDOFF.md 검사 경고(막지 않음):\n- ",
-                "[baton] Handoff-check warnings for the HANDOFF.md you just wrote (not blocking):\n- ") + "\n- ".join(warned)
+                "[baton] Handoff-check warnings for the HANDOFF.md you just wrote (not blocking):\n- ") + "\n- ".join(warned) \
+            + ("\n" + note if note else "")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": capped(ctx, t)}},
                          ensure_ascii=False))
+    else:  # 통과도 한 줄로 알린다(머리 주석). 못 돈 검사가 있으면 통과라고 하지 않는다
+        n = len(text.splitlines())
+        ctx = note or t(f"[baton] HANDOFF.md 검사 통과({n}줄·{len(text):,}자).",
+                        f"[baton] HANDOFF.md check passed ({n} lines, {len(text):,} chars).")
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ctx}}, ensure_ascii=False))
 
 
 def capped(text, t):
@@ -131,64 +149,222 @@ def capped(text, t):
     return text[:OUT_MAX - len(note)] + note
 
 
+def tool_blocks(d):
+    """기록 줄 하나(dict)의 tool_use (이름, 입력, id) — type이 "assistant"인 줄에서만. api-request-blob처럼 앞선 호출을 다시 담은
+    줄은 세지 않는다(리뷰 11-25: 인계서 뒤의 blob이 옛 Agent·Edit 호출을 다시 세어 질문만 한 턴을 막았다, 실제 세션 60개 중 1개)."""
+    m = d.get("message")
+    content = m.get("content") if d.get("type") == "assistant" and isinstance(m, dict) else None
+    for b in content if isinstance(content, list) else ():
+        if isinstance(b, dict) and b.get("type") == "tool_use":
+            yield b.get("name"), b.get("input") if isinstance(b.get("input"), dict) else {}, b.get("id")
+
+
+def transcript_events(path):
+    """세션 기록을 한 번 읽는다 — ("tool", 사이드체인인가, 이름, 입력, tool_use id) 또는 ("agent", tool_use id, agentId).
+    tool_use는 assistant 줄에서만, 결과(tool_result)는 user 줄에서만 본다. agentId는 Agent·Task 결과 줄의 toolUseResult에 있고,
+    그 서브에이전트 기록은 <세션>/subagents/agent-<agentId>.jsonl이다."""
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        for ln in f:
+            if '"tool_use"' not in ln and '"agentId"' not in ln:
+                continue
+            try:
+                d = json.loads(ln)
+            except ValueError:
+                continue
+            if not isinstance(d, dict) or not isinstance(d.get("message"), dict):
+                continue
+            for name, inp, tid in tool_blocks(d):
+                yield "tool", bool(d.get("isSidechain")), name, inp, tid
+            content, tur = d["message"].get("content"), d.get("toolUseResult")
+            if d.get("type") == "user" and isinstance(content, list) and isinstance(tur, dict) and isinstance(tur.get("agentId"), str):
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "tool_result":
+                        yield "agent", b.get("tool_use_id"), tur["agentId"]
+
+
+def tool_uses(path, sidechain=False):
+    """메인 스레드(sidechain=False) 또는 서브에이전트 줄(True)의 tool_use (이름, 입력), 순서대로. 모양이 다른 줄은 건너뛴다."""
+    for ev in transcript_events(path):
+        if ev[0] == "tool" and ev[1] == sidechain:
+            yield ev[2], ev[3]
+
+
 def edit_paths(path):
-    """이 세션의 메인 스레드가 편집한 파일 경로, 순서대로. 모양이 다른 줄은 건너뛴다. /baton-setup 스캐너도 쓴다."""
-    with open(path, encoding="utf-8", errors="ignore") as f:
-        for ln in f:
-            if '"tool_use"' not in ln:
-                continue
-            try:
-                d = json.loads(ln)
-            except ValueError:
-                continue
-            if not isinstance(d, dict) or d.get("isSidechain") or not isinstance(d.get("message"), dict):
-                continue  # 서브에이전트 편집은 세지 않는다(split-notice와 같은 기준)
-            content = d["message"].get("content")
-            if not isinstance(content, list):
-                continue
-            for b in content:
-                if not (isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in EDIT_TOOLS):
+    """이 세션의 메인 스레드가 편집 도구로 고친 파일 경로, 순서대로. /baton-setup 스캐너도 쓴다."""
+    for name, inp in tool_uses(path):
+        fp = inp.get("file_path") or inp.get("notebook_path")
+        if name in EDIT_TOOLS and isinstance(fp, str):
+            yield fp
+
+
+AGENT_TOOLS = {"Agent", "Task"}
+# 서브에이전트 기록을 못 찾을 때 일로 세지 않는 종류 — 읽기만 하는 것들(리뷰 11-25: 질문만 한 턴의 Explore가 막았다)
+READ_ONLY_AGENTS = {"explore", "plan", "claude-code-guide", "web-fetch"}
+READ_ONLY_WORDS = ("explore", "review", "verif", "critic", "architect", "analyst", "scientist", "document-specialist", "planner", "tracer")
+WORK_BUDGET = 4.0  # 넘길 일 세기의 시한(초). Stop 훅 시한은 10초 — 넘으면 편집 도구만 센다
+CMD_SCAN = 16384  # Bash 명령 하나에서 보는 글자 수. 넘으면 앞뒤 8KB만(붙여 넣은 긴 글·긴 heredoc)
+HEREDOC_OPEN = re.compile(r"(?<!<)<<(?!<)-?[ \t]*['\"]?(\w+)['\"]?")
+QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+PLAIN = re.compile(r"[\w./${}~+-]*")  # 따옴표 안이 경로처럼 생겼으면 남긴다("HANDOFF.md") — 아니면 지운다('$1>3')
+TESTS = re.compile(r"\(\([^()\n]*\)\)|\[\[[^\n]*?\]\]")  # (( a > b )) · [[ a > b ]]의 >는 리다이렉트가 아니다
+REDIR = re.compile(r"(\d*|&)(>>?\|?)(?!&)[ \t]*([^\s;|&<>()]*)")
+SEGMENT = re.compile(r"\|\||&&|[;|&\n()]")
+WRAPPERS = {"sudo", "env", "xargs", "time", "nice", "nohup", "command", "exec", "rtk", "proxy"}
+SCRATCH = ("/dev/", "/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/", "$TMPDIR", "${TMPDIR}")
+HANDOFF_FILE = re.compile(r"HANDOFF(?:[_-][^/]+)?\.md")
+
+
+def strip_heredocs(cmd):
+    """heredoc 본문 줄을 뺀다 — 여는 줄에서 끝말을 모아, 그 끝말과 같은 줄까지 건너뛴다(줄 단위 한 번, 정규식 되돌이 없음)."""
+    out, ends = [], []
+    for line in cmd.split("\n"):
+        if ends:
+            if line.strip() == ends[0]:
+                ends.pop(0)
+            continue
+        out.append(line)
+        ends = HEREDOC_OPEN.findall(line)
+    return "\n".join(out)
+
+
+def bash_writes(cmd):
+    """Bash 명령 하나가 (파일을 쓰는가, 인계서를 쓰는가). heredoc 본문을 빼고, 경로처럼 생기지 않은 따옴표 안과 (( ))·[[ ]]를 지우고 본다.
+    세는 것: 명령 자리의 sed -i·--in-place, tee 대상, cp·mv·git mv의 마지막 인자, 표준 출력 리다이렉트(>, >>, >|, 1>, &>)의 대상.
+    대상이 임시 폴더·/dev·$TMPDIR면 일로 안 센다. 대상 파일 이름이 HANDOFF.md·HANDOFF_*.md면 인계서 쓰기(다른 쓰기보다 앞선다).
+    ponytail: 셸을 다 읽지는 않는다 — python·node 같은 스크립트 안의 쓰기, 변수로 된 경로, rm·touch·patch·git apply·checkout,
+    붙은 숫자(a2>b의 2를 fd로 읽음), 16KB 넘는 명령의 가운데, 값을 받는 감싸개 옵션(sudo -u 이름 cp …, timeout 10 cp …의 값을
+    명령으로 읽음), git -C 폴더 mv(mv가 바로 뒤에 와야 한다)는 못 본다. 그런 일만 한 턴은 넘길 일이 없다고 본다."""
+    if len(cmd) > CMD_SCAN:
+        cmd = cmd[:CMD_SCAN // 2] + "\n" + cmd[-CMD_SCAN // 2:]
+    flat = TESTS.sub(" ", QUOTED.sub(lambda m: m.group(0)[1:-1] if PLAIN.fullmatch(m.group(0)[1:-1]) else "''",
+                                     strip_heredocs(cmd)))
+    hit = {"write": False, "handoff": False}
+
+    def target(t):
+        if t and not t.startswith(SCRATCH):
+            hit["handoff" if HANDOFF_FILE.fullmatch(os.path.basename(t)) else "write"] = True
+
+    for m in REDIR.finditer(flat):
+        if m.group(1) in ("", "1", "&"):  # 2> 같은 다른 fd는 오류 기록이라 세지 않는다
+            target(m.group(3))
+    for seg in SEGMENT.split(flat):
+        words = seg.split()
+        i = 0
+        while i < len(words) and (re.match(r"\w+=", words[i]) or words[i] in WRAPPERS or (i and words[i].startswith("-"))):
+            i += 1
+        if i >= len(words):
+            continue
+        cmd_word, args = os.path.basename(words[i]), [w for w in words[i + 1:] if not w.startswith("-")]
+        if cmd_word == "git" and args[:1] == ["mv"]:
+            cmd_word, args = "mv", args[1:]
+        if cmd_word == "sed" and any(re.match(r"-[A-Za-z]*i", w) or w.startswith("--in-place") for w in words[i + 1:]):
+            hit["write"] = True
+            for a in args:
+                if HANDOFF_FILE.fullmatch(os.path.basename(a)):
+                    target(a)
+        elif cmd_word == "tee":
+            for a in args:
+                target(a)
+        elif cmd_word in ("cp", "mv") and len(args) >= 2:
+            target(args[-1])
+    return hit["write"] or hit["handoff"], hit["handoff"]
+
+
+def call_kind(name, inp):
+    """도구 호출 하나 → (인계서 말고 파일을 고쳤나, 인계서를 썼나)."""
+    if name == "Bash" and isinstance(inp.get("command"), str):
+        writes, handoff = bash_writes(inp["command"])
+        return writes and not handoff, handoff
+    fp = inp.get("file_path") or inp.get("notebook_path")
+    if name in EDIT_TOOLS and isinstance(fp, str):
+        return not wrote_handoff(fp), wrote_handoff(fp)
+    return False, False
+
+
+def read_only_agent(kind):
+    """서브에이전트 종류가 읽기만 하는 쪽인가(Explore·Plan·…, 이름에 explore·review·verif 등)."""
+    k = (kind or "").lower()
+    return k.rsplit(":", 1)[-1] in READ_ONLY_AGENTS or any(w in k for w in READ_ONLY_WORDS)
+
+
+def subagent_writes(sub, deadline=None):
+    """서브에이전트 기록에 파일 쓰기가 있나: True·False, 시한을 넘기면 "late", 못 읽거나 읽히는 줄이 하나도 없으면(깨진 기록) None."""
+    readable = False
+    try:
+        with open(sub, encoding="utf-8", errors="ignore") as f:
+            for ln in f:
+                if deadline is not None and time.monotonic() > deadline:
+                    return "late"
+                try:
+                    d = json.loads(ln)
+                except ValueError:
                     continue
-                inp = b.get("input") if isinstance(b.get("input"), dict) else {}
-                fp = inp.get("file_path") or inp.get("notebook_path")
-                if isinstance(fp, str):
-                    yield fp
+                if not isinstance(d, dict):
+                    continue
+                readable = True
+                if any(any(call_kind(name, inp)) for name, inp, _ in tool_blocks(d)):
+                    return True
+    except OSError:
+        return None
+    return False if readable else None
 
 
-def turn_wrote_handoff(path):
-    """마지막 사람 프롬프트 뒤에 메인 스레드가 인계서를 썼나(이번 턴). 도구 결과·메타 줄은 사람 프롬프트가 아니다."""
-    wrote = False
-    with open(path, encoding="utf-8", errors="ignore") as f:
-        for ln in f:
-            if '"user"' not in ln and '"tool_use"' not in ln:
-                continue
-            try:
-                d = json.loads(ln)
-            except ValueError:
-                continue
-            if not isinstance(d, dict) or d.get("isSidechain") or not isinstance(d.get("message"), dict):
-                continue
-            c = d["message"].get("content")
-            if d.get("type") == "user" and not d.get("isMeta"):
-                if isinstance(c, str) or (isinstance(c, list) and any(isinstance(b, dict) and b.get("type") == "text" for b in c)):
-                    wrote = False
-            elif isinstance(c, list):
-                for b in c:
-                    if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in EDIT_TOOLS:
-                        inp = b.get("input") if isinstance(b.get("input"), dict) else {}
-                        if wrote_handoff(inp.get("file_path")):
-                            wrote = True
-    return wrote
+def subagent_file(path, agent_id):
+    """메인 기록 옆의 서브에이전트 기록 경로(없거나 id가 이상하면 None)."""
+    if not (isinstance(agent_id, str) and re.fullmatch(r"[\w-]{1,64}", agent_id)):
+        return None
+    p = os.path.join(os.path.splitext(path)[0], "subagents", f"agent-{agent_id}.jsonl")
+    return p if os.path.isfile(p) else None
 
 
-def edited_since_handoff(path):
-    """이 세션이 마지막으로 인계서(HANDOFF.md 또는 이름 붙은 인계서)를 쓴 뒤 고친 다른 파일들."""
+def work_since_handoff(path, deadline=None):
+    """맥락 까닭의 "넘길 일": 이 세션이 마지막으로 인계서를 쓴 뒤 고친 것(라벨 목록). deadline(monotonic)을 넘기면 None.
+    - 메인 스레드: 편집 도구로 고친 파일, 파일을 쓰는 Bash 명령(bash_writes). 인계서 쓰기(편집 도구·Bash)에서 처음부터 센다.
+    - Agent·Task 호출: 그 서브에이전트가 실제로 고쳤을 때만 — 기록(<세션>/subagents/agent-<id>.jsonl)에 편집이나 쓰기가 있나 본다.
+      ponytail: 기록을 못 찾거나 깨졌으면(결과가 아직 없음·옛 형식·읽히는 줄 0개) 메인 기록의 사이드체인 줄에 쓰기가 있으면 일로 세고, 없으면 종류로 가른다 —
+      읽기만 하는 종류(read_only_agent)는 안 세고 나머지는 센다. 서브에이전트가 또 맡긴 일은 따라가지 않는다."""
+    work, agents, side, ids = [], [], False, {}
+    for ev in transcript_events(path):
+        if deadline is not None and time.monotonic() > deadline:
+            return None
+        if ev[0] == "agent":
+            ids[ev[1]] = ev[2]
+            continue
+        _, sidechain, name, inp, tid = ev
+        writes, handoff = call_kind(name, inp)
+        if sidechain:
+            side = side or writes or handoff  # 옛 형식: 서브에이전트 줄이 메인 기록에 섞여 있다
+        elif handoff:
+            work, agents, side = [], [], False
+        elif writes:
+            work.append(inp.get("file_path") or inp.get("notebook_path") or "Bash")
+        elif name in AGENT_TOOLS:
+            agents.append((tid, inp.get("subagent_type")))
+    if work:
+        return work
+    for tid, kind in agents:
+        sub = subagent_file(path, ids.get(tid))
+        wrote = subagent_writes(sub, deadline) if sub else None
+        if wrote == "late":
+            return None
+        if wrote or (wrote is None and (side or not read_only_agent(kind))):
+            return [kind or "agent"]
+    return []
+
+
+def edited_since_handoff(path, bash=True):
+    """이 세션이 마지막으로 인계서(HANDOFF.md 또는 이름 붙은 인계서)를 쓴 뒤 편집 도구로 고친 다른 파일들(파일 수 까닭 F).
+    bash면 Bash로 인계서에 쓴 것도 인계서 쓰기로 보고 처음부터 센다(리뷰 11-25) — 세는 것은 그대로 편집 도구의 파일만."""
     files = set()
-    for fp in edit_paths(path):
-        if wrote_handoff(fp):
+    for name, inp in tool_uses(path):
+        fp = inp.get("file_path") or inp.get("notebook_path")
+        if name in EDIT_TOOLS and isinstance(fp, str):
+            if wrote_handoff(fp):
+                files.clear()
+            else:
+                files.add(os.path.normpath(fp))
+        elif bash and name == "Bash" and isinstance(inp.get("command"), str) and bash_writes(inp["command"])[1]:
             files.clear()
-        else:
-            files.add(os.path.normpath(fp))
     return files
 
 
@@ -207,7 +383,8 @@ def file_list(files, cwd, lang):
 
 
 def auto_reason(files, cwd, lang, grown=None):
-    """모델에게 돌려줄 자동 쓰기 요청. files: 인계서 뒤에 고친 파일(없으면 빈 목록), grown: 맥락이 넘은 문턱 (배수, 첫, 마지막) 또는 None.
+    """모델에게 돌려줄 자동 쓰기 요청. files: 인계서 뒤에 고친 파일(없으면 빈 목록),
+    grown: 맥락이 넘은 문턱 (문턱, 첫, 마지막, 배수 규칙인가 — split.crossed_band) 또는 None.
     두 까닭이 겹치면 한 요청에 같이 적는다. 스킬 경로는 플러그인 위치로 적는다.
     검사기를 돌리라고 하지 않는다 — Claude Code에서는 저장 훅이 같은 검사를 돌리고(자동 쓰기는 Claude Code에서만 나간다),
     따옴표 친 절대 경로 명령은 스킬의 allowed-tools와 맞지 않아 중간에 권한 확인이 뜬다(리뷰 11-23)."""
@@ -218,9 +395,12 @@ def auto_reason(files, cwd, lang, grown=None):
             why.append(f"이 세션에서 인계서(HANDOFF.md·HANDOFF_*.md)를 마지막으로 쓴 뒤 파일 {len(files)}개를 고쳤다: "
                        f"{file_list(files, cwd, lang)}.")
         if grown:
-            band, first, last = grown
-            why.append(f"이 대화의 맥락이 처음보다 {band:g}배 넘게 커졌다({split.man(first)} → {split.man(last)} 토큰).")
-        line = split.user_line(lang, grown[0]) if grown else "인계서를 고쳐 뒀어요. 이 기능을 끄려면 BATON_HANDOFF_AUTO=off로 설정하세요."
+            band, first, last, by_ratio = grown
+            why.append(f"이 대화의 맥락이 처음보다 {band:g}배 넘게 커졌다({split.man(first)} → {split.man(last)} 토큰)." if by_ratio else
+                       f"이 대화의 맥락이 {split.band_label(lang, band)}을 넘었다({split.man(first)} → {split.man(last)} 토큰)."
+                       + (" 만든 사람의 기록으로 계산하면, 이 크기부터는 이어 가는 것보다 인계서를 쓰고 새 대화로 넘기는 쪽이 대개 더 싸다."
+                          if split.claims_cheaper(band, by_ratio) else ""))
+        line = split.user_line(lang, grown[0], grown[3]) if grown else "인계서를 고쳐 뒀어요. 이 기능을 끄려면 BATON_HANDOFF_AUTO=off로 설정하세요."
         return ("[baton] " + " ".join(why) + " "
                 f"지금 baton 인계서 스킬({skill}의 'When the Stop hook asks' 절)대로 저장소 루트의 HANDOFF.md를 쓰거나 갱신한다 — "
                 f"기억으로 새로 쓰지 말고 지금 HANDOFF.md에서 시작해 아직 참인 줄은 그대로 옮긴다. "
@@ -232,10 +412,13 @@ def auto_reason(files, cwd, lang, grown=None):
         why.append(f"You edited {len(files)} files in this session since the handoff (HANDOFF.md or HANDOFF_*.md) was last "
                    f"written: {file_list(files, cwd, lang)}.")
     if grown:
-        band, first, last = grown
+        band, first, last, by_ratio = grown
         why.append(f"This conversation's context is now more than {band:g}× its size at the start "
-                   f"({first // 1000}K → {last // 1000}K tokens).")
-    line = split.user_line(lang, grown[0]) if grown else "I updated the handoff. To turn this off, set BATON_HANDOFF_AUTO=off."
+                   f"({first // 1000}K → {last // 1000}K tokens)." if by_ratio else
+                   f"This conversation's context passed {split.band_label(lang, band)} ({first // 1000}K → {last // 1000}K tokens)."
+                   + (" By a recount of the author's sessions, from this size on, writing a handoff and moving to a new "
+                      "conversation is usually cheaper than continuing." if split.claims_cheaper(band, by_ratio) else ""))
+    line = split.user_line(lang, grown[0], grown[3]) if grown else "I updated the handoff. To turn this off, set BATON_HANDOFF_AUTO=off."
     return ("[baton] " + " ".join(why) + " "
             f"Write or update HANDOFF.md at the repo root now, following the baton handoff skill ({skill}, "
             f"section 'When the Stop hook asks'). Start from the current HANDOFF.md and carry forward every line that is still "
@@ -260,10 +443,9 @@ def nudge_message(n, lang):
 
 def on_stop(data):
     """Stop 결정 한 곳 — 까닭 둘(파일 고침 F·맥락 문턱 S)을 함께 보고 한 Stop에 많아야 한 번 묻는다.
-    물을 수 있으면(BATON_HANDOFF_AUTO 켬, 이번 턴에 인계서를 고친 뒤 그대로인 게 아님, HANDOFF.md가 없거나 baton 형식)
-    decision "block" 하나에 두 까닭을 같이 적는다. 못 물으면 사용자에게 systemMessage 하나로 알린다. 다른 Stop 훅이 턴을 잇는 중
-    (stop_hook_active)이면 묻지도 알리지도 않고 상태도 남기지 않는다 — 다음 턴 끝에 다시 본다. 상태는 까닭마다 따로
-    (F: 세션에 한 번 handoff-nudge/<sid>, S: 문턱마다 한 번 split/<sid>.json)."""
+    물을 수 있으면(BATON_HANDOFF_AUTO 켬, HANDOFF.md가 없거나 baton 형식) decision "block" 하나에 두 까닭을 같이 적는다.
+    못 물으면 사용자에게 systemMessage 하나로 알린다. 다른 Stop 훅이 턴을 잇는 중(stop_hook_active)이면 묻지도 알리지도 않고 상태도 남기지 않는다 — 다음 턴 끝에 다시 본다. 상태는 까닭마다 따로
+    (F: 세션에 한 번 handoff-nudge/<sid>, S: 문턱마다 한 번 split/<sid>.json). S는 마지막 인계서 뒤에 넘길 일이 있을 때만 본다."""
     cwd = data["cwd"] if isinstance(data.get("cwd"), str) else None
     repo = repo_of(cwd)
     nudge_on, split_on = not off("BATON_HANDOFF_NUDGE", repo), split is not None and not off("BATON_SPLIT_NOTICE", repo)
@@ -287,23 +469,19 @@ def on_stop(data):
         files = files if len(files) >= need else []
     grown = None
     if split_on:
+        # 맥락 까닭은 마지막 인계서 쓰기 뒤에 넘길 일이 있을 때만 — 없으면 문턱도 남기지 않아(아래 mark를 건너뜀) 나중에 일한 Stop에서
+        # 그 문턱을 한 번 묻는다(11-25 실사용: 질문만 한 턴 뒤에 인계서를 다시 쓰게 해 소유자가 불편했다). 이번 턴에 인계서를 썼어도
+        # 그 뒤에 일했으면 묻는다 — 예전의 "이번 턴에 썼으면 알리기만"(fresh)은 뺐다(리뷰 11-25)
         try:
-            hit = split.crossed_band(path, repo, sid)
+            work = work_since_handoff(path, time.monotonic() + WORK_BUDGET)
+            if work is None:  # 시한을 넘겼다(아주 긴 기록) — 편집 도구만 센다. 훅이 시한에 죽으면 두 까닭이 다 사라진다
+                work = edited_since_handoff(path, bash=False)
+            grown = split.crossed_band(path, repo, sid) if work else None
         except Exception:
-            hit = None
-        if hit:
-            grown, ratio = hit[:3], hit[3]
+            grown = None
     if not files and not grown:
         return
-    try:
-        written = turn_wrote_handoff(path)
-    except Exception:
-        written = False
-    # fresh: 이번 턴에 인계서를 고쳤고 그 뒤로 문턱만큼 고친 파일은 없다 — 맥락 까닭은 알리기만 한다.
-    # files가 있으면 마지막 인계서 쓰기 뒤에 고친 것이라(edited_since_handoff) 이번 턴에 썼어도 다시 낡았다 — 묻는다(리뷰 11-24)
-    fresh = written and not files
-    active = data.get("stop_hook_active") is True
-    if auto and active and not fresh:
+    if auto and data.get("stop_hook_active") is True:
         return  # 다른 Stop 훅 때문에 이미 이어서 일하는 중 — 막지도 알리지도 않는다. 상태를 남기지 않아 다음 턴 끝에 다시 본다
     try:  # 한 번만 묻는다는 약속을 못 지키면 아예 말하지 않는다. 맥락 상태를 먼저(깨진 상태 파일이 흔한 쪽).
         # ponytail: 맥락 상태를 쓴 뒤 파일 상태 쓰기만 실패하면 그 문턱은 알리지 못하고 넘어간다(같은 캐시 폴더라 드묾)
@@ -315,13 +493,13 @@ def on_stop(data):
     except Exception:  # OSError, 깨진 상태 파일(sorted의 TypeError 등)
         return
     lang = i18n.lang(repo)
-    foreign = auto and not fresh and not ours_or_absent(cwd)
-    ask = auto and not fresh and not foreign  # active는 위에서 돌아갔다(auto일 때)
+    foreign = auto and not ours_or_absent(cwd)
+    ask = auto and not foreign  # active는 위에서 돌아갔다(auto일 때)
     ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     if ask:
         print(json.dumps({"decision": "block", "reason": auto_reason(files, cwd, lang, grown)}, ensure_ascii=False))
     else:
-        msgs = ([split.notice(lang, grown[0], grown[1], grown[2], saved=fresh)] if grown else []) \
+        msgs = ([split.notice(lang, *grown)] if grown else []) \
             + ([nudge_message(len(files), lang)] if files else [])
         print(json.dumps({"systemMessage": "\n\n".join(msgs)}, ensure_ascii=False))
     if files:
@@ -331,7 +509,7 @@ def on_stop(data):
         runlog.append(rec)
     if grown:
         rec = {"ts": ts, "event": "split_notice", "session_id": sid, "first_ctx": grown[1], "last_ctx": grown[2],
-               "ratio": round(ratio, 2), "band": grown[0], "mode": "ask" if ask else "saved" if fresh else "notice"}
+               "ratio": round(grown[2] / grown[1], 2), "band": grown[0], "mode": "ask" if ask else "notice"}
         if foreign:
             rec["fallback"] = "foreign_handoff"
         runlog.append(rec)

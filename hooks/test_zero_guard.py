@@ -133,6 +133,32 @@ class ZeroGuardTest(unittest.TestCase):
             with self.subTest(out=out):
                 self.assertIsNone(run("bash lib/promote.sh . 8", stdout=out))
 
+    def test_promote_brief_counted_zero_is_silent_uncounted_fires(self):
+        # promote.sh --brief(11-25)의 끝 줄은 " · " 옆에 검토 일수를 둔다 — 다 셌는데 0이면 다시 묻지 않는다(다시 부르는 호출을 줄이려고)
+        cmd = "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh --brief .; git status --short --branch"
+        for out in ("승격 검토(요약) · 검토 3일 · 반복 실패 0건 · 탈락 0건(결정 표지 0건) · 기각 목록 0개\n  올릴 것 없음 · 검토 3일 모두 셈",
+                    "Promotion review (brief) · 3 days reviewed · repeated failures: 0 · dropped: 0 (0 with a decision marker) · "
+                    "rejected list: 0\n  Nothing to promote · all 3 days counted"):
+            with self.subTest(out=out[-12:]):
+                self.assertIsNone(run(cmd, stdout=out))
+        self.assertIsNone(run(cmd, stdout="승격 검토(요약) · 검토 2일 · 반복 실패 0건 · 탈락 0건(결정 표지 0건) · 기각 목록 0개\n"
+                                           "  올릴 것 없음 · 검토 2일 — 3일이 안 돼 후보가 아직 나올 수 없다"))
+        self.assertIsNotNone(run(cmd, stdout="승격 검토(요약) · 검토 3일 · 반복 실패 0건 · 탈락 0건(결정 표지 0건) · 기각 목록 0개\n"
+                                              "  못 셈: 반복 실패 형식 불일치 판 3개 — 0건이 아니라 못 셈\n"
+                                              "  찾은 후보 없음 — 위의 못 센 판 때문에 '없음'이 아니다"))
+        self.assertIsNotNone(run(cmd, stdout="승격 검토(요약) · 검토 0일 · 반복 실패 0건 · 탈락 못 셈 · 기각 목록 0개\n"
+                                              "  못 셈: 최신판에 '확인된 사실과 결정' 절 없음 — 0건이 아니라 못 셈"))
+
+    def test_git_log_titles_in_the_same_call_do_not_fire(self):
+        # 스킬의 한 호출(promote --brief; git status; git log --oneline): 커밋 제목의 "없음"·"0건"·"못 셈"에는 울리지 않는다
+        cmd = "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh --brief .; git status --short --branch; git log --oneline -3"
+        out = ("승격 검토(요약) · 검토 3일 · 반복 실패 0건 · 탈락 0건(결정 표지 0건) · 기각 목록 0개\n  올릴 것 없음 · 검토 3일 모두 셈\n"
+               "## main...origin/main\n M lib/a.py\n"
+               "6abf18b handoff: 승격 후보 없음\n7ccabe6 fix: 0건 알림\n1388afd zero-guard: 0건이 아니라 못 셈 구분\n")
+        self.assertIsNone(run(cmd, stdout=out))
+        uncounted = out.replace("  올릴 것 없음 · 검토 3일 모두 셈\n", "  못 셈: 반복 실패 형식 불일치 판 3개 — 0건이 아니라 못 셈\n")
+        self.assertIsNotNone(run(cmd, stdout=uncounted))  # promote 자기 줄의 못 셈은 그대로 울린다
+
     def test_real_zero_result_still_fires(self):
         for out in ("2    0건과 못 셈의 구분   해소됨   신선\n요약: 재확인 0 · 신선 15 · 규칙 개념 0",
                     "2    zero vs none   resolved   fresh\nSummary: re-check 0 · fresh 15 · rule concepts 0",

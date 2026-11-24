@@ -10,11 +10,13 @@
 읽는 것: 이 저장소 최상위 폴더에서 연 Claude Code 세션 기록(~/.claude/projects/*/*.jsonl), git 이력, 추적 파일과
 무시되지 않은 미추적 파일(git grep --untracked), 다른 프로젝트 세션 기록의 cwd(프로젝트 이름 후보를 만들려고).
 세는 방법은 기존 측정 코드를 그대로 쓴다 — 저장소별 세션 파일은 observer/baton_init.py, 세션 고르기·첫 프롬프트·인계서 재독은
-observer/research/usage_week.py, 맥락 크기와 끊기 재계산은 observer/research/split_sim.py, 편집 파일은 hooks/handoff-check.py.
+observer/research/usage_week.py, 편집 파일은 hooks/handoff-check.py.
+맥락 문턱(BATON_SPLIT_TOKENS)은 이 사용자 기록으로 제안하지 않는다 — 기본값과 그 출처(2026-11-25 재계산)만 보인다.
+다만 대화가 첫 문턱에 한 번도 닿지 않고 그 전에 압축됐으면(맥락 창이 작다) 한 줄로 알린다(호출 맥락은 split_sim.call_contexts).
 프롬프트 원문은 관찰 로그(~/.cache/baton/runs.jsonl)에 쓰지 않는다. 다만 스캔 출력(트리거 후보 말·개인 자료 후보)과
 apply 명령줄은 스킬로 돌리면 에이전트 맥락과 Claude Code 세션 기록에 남는다 — 개인 자료는 --private-terms-file로 넘기거나 세션 밖 터미널에서 돌린다.
 """
-import argparse, collections, getpass, glob, importlib.util, json, os, re, statistics, subprocess, sys
+import argparse, collections, getpass, glob, importlib.util, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -28,9 +30,7 @@ _spec = importlib.util.spec_from_file_location("handoff_check_hook", os.path.joi
 hc = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(hc)
 
 MIN_SESSIONS = 10  # 이보다 적으면 문턱을 바꾸자고 하지 않는다 — 몇 세션의 우연에 문턱이 흔들린다
-DEFAULT_RATIOS = "2,3"
-RATIO_CANDIDATES = (1.5, 2.0, 2.5, 3.0, 4.0)
-COST_SHARE = 0.85
+DEFAULT_TOKENS = "250000,450000"  # 맥락 문턱 기본값(hooks/split-notice.py)
 DEFAULT_NUDGE = 3
 NUDGE_MARGIN = 0.10
 HANDOFF_NAME = re.compile(r"(?i)^handoff.*\.md$")
@@ -70,70 +70,20 @@ def load_sessions(root):
     return sessions, skipped, len(files)
 
 
-def quartiles(xs):
-    if len(xs) < 2:
-        return [xs[0]] * 3 if xs else []
-    q = statistics.quantiles(xs, n=4)
-    return [q[0], statistics.median(xs), q[2]]
-
-
-def cost_after(ctxs, ratio):
-    """맥락이 첫 호출의 ratio배에 처음 닿은 호출부터 끝까지의 비용(split_sim.weighted와 같은 가중)."""
-    i = next((k for k, c in enumerate(ctxs) if c >= ctxs[0] * ratio), None)
-    return 0.0 if i is None else split_sim.weighted(ctxs) - split_sim.weighted(ctxs[:i])
-
-
-def growth(sessions, lang=None):
-    """세션마다 최대 맥락 ÷ 첫 호출 맥락. 끊기 문턱 후보마다 닿는 세션 비율, 그 뒤에 남은 비용 몫, 재계산 절감(split_sim).
-    lang: 이유 문장의 언어(없으면 lib/i18n.py로 정한다). 아래 함수들도 같다."""
-    t = config.tr(lang=lang)
-    rows, bad = [], 0
-    for s in sessions:
-        ctxs = split_sim.call_contexts(s["file"])
-        if ctxs and ctxs[0] > 0:
-            rows.append(ctxs)
-        else:
-            bad += 1
-    out = {"counted": len(rows), "uncounted": bad,
-           "uncounted_reason": t("첫 호출 맥락 토큰이 기록에 없음", "no context tokens recorded for the first call"),
-           "recommend": None}
-    if not rows:
-        out["reason"] = t("센 세션이 없어 기본값 유지", "no sessions counted, so the default stays")
-        return out
-    g = sorted(max(c) / c[0] for c in rows)
-    base = sum(split_sim.weighted(c) for c in rows)
-    out["quartiles"] = [round(x, 2) for x in quartiles(g)]
-    out["candidates"] = [{"ratio": r, "reach": sum(x >= r for x in g) / len(g),
-                          "cost_after": sum(cost_after(c, r) for c in rows) / base,
-                          "saving": 1 - sum(split_sim.weighted(split_sim.simulate(c, r)[0]) for c in rows) / base}
-                         for r in RATIO_CANDIDATES]
-    # 기본값 2배의 근거와 같은 방법: "비용의 85%가 맥락이 첫 호출의 2배를 넘은 뒤에 나갔다"(세션 60개).
-    # 이 사용자에게서 비용의 85% 이상이 아직 뒤에 남아 있는 가장 높은 문턱을 고른다 — 늦게 알릴수록 알림이 덜 뜨고, 85%는 여전히 잡는다.
-    # ponytail: 문턱 후보는 RATIO_CANDIDATES 다섯 개뿐이고 둘째 알림은 첫째+1배로 둔다. 절감 재계산은 반사실 상한이라
-    # 낮은 문턱을 늘 유리하게 보이므로 고르는 데 쓰지 않고 보여 주기만 한다. 실사용 로그가 쌓이면 실제로 넘긴 비율로 바꾼다
-    ok = [c["ratio"] for c in out["candidates"] if c["cost_after"] >= COST_SHARE]
-    if len(rows) < MIN_SESSIONS:
-        out["reason"] = t(f"센 세션 {len(rows)}개 — {MIN_SESSIONS}개 미만이라 기본값 {DEFAULT_RATIOS} 유지",
-                          f"{num(len(rows), 'session', 'sessions')} counted, fewer than {MIN_SESSIONS}, "
-                          f"so the default {DEFAULT_RATIOS} stays")
-    elif not ok:
-        out["reason"] = t(f"어느 문턱에서도 비용의 {COST_SHARE:.0%}가 뒤에 남지 않는다(세션이 크게 불지 않는다) — "
-                          f"알림으로 아낄 몫이 작아 기본값 {DEFAULT_RATIOS} 유지",
-                          f"at no threshold does {COST_SHARE:.0%} of the cost come after it (sessions don't grow much), "
-                          f"so a notice would save little and the default {DEFAULT_RATIOS} stays")
-    elif max(ok) == 2.0:
-        out["reason"] = t(f"비용의 {COST_SHARE:.0%} 이상이 뒤에 남는 가장 높은 문턱이 기본값과 같은 2배 — 유지",
-                          f"the highest threshold with {COST_SHARE:.0%} or more of the cost after it is 2×, "
-                          f"the same as the default, so it stays")
-    else:
-        best = max(ok)
-        out["recommend"] = f"{best:g},{best + 1:g}"
-        share = next(c["cost_after"] for c in out["candidates"] if c["ratio"] == best)
-        out["reason"] = t(f"{best:g}배에 닿은 뒤에도 비용의 {share:.0%}가 남는다 — 비용의 {COST_SHARE:.0%} 이상이 남는 가장 높은 문턱"
-                          f"(기본값 2배를 정한 방법과 같다)",
-                          f"{share:.0%} of the cost still comes after the context reaches {best:g}×. It is the highest threshold "
-                          f"with {COST_SHARE:.0%} or more of the cost after it (the same method that set the default 2×)")
-    return out
+def window(sessions, root, lang=None):
+    """첫 맥락 문턱(토큰 규칙일 때)을 넘은 대화 수와, 넘지 못한 채 압축된 대화 수(맥락이 앞 호출의 60% 아래로 떨어짐 —
+    split_sim.until_compaction). 기본 문턱은 맥락 창 100만 토큰인 대화에서 나왔다 — 20만 창은 25만 전에 압축된다(리뷰 11-25).
+    배수 규칙이거나 훅 모듈을 못 불러왔으면 None."""
+    if hc.split is None:
+        return None
+    bs, by_ratio = hc.split.bands(root)
+    if by_ratio:
+        return None
+    rows = [c for c in (split_sim.call_contexts(x["file"]) for x in sessions) if c]
+    passed = [max(c) > bs[0] for c in rows]
+    return {"band": bs[0], "label": hc.split.band_label(lang or i18n.lang(root), bs[0]), "counted": len(rows),
+            "passed": sum(passed),
+            "compacted": sum(not p and len(split_sim.until_compaction(c)) < len(c) for c, p in zip(rows, passed))}
 
 
 def nudge(sessions, lang=None):
@@ -394,7 +344,10 @@ def scan(root):
                    "current": {k: v for k, v in current.items() if v is not None}},
         "sessions": {"files": nfiles, "usable": len(sessions), "excluded": skipped},
         "codex": t(CODEX_NOTE, CODEX_NOTE_EN),
-        "growth": growth(sessions, lang),
+        # 배수 규칙인지는 훅과 같은 함수로 정한다(못 쓰는 배수 값은 토큰 기본값 — split-notice.py bands)
+        "ratio_rule": (hc.split.bands(root)[1] if hc.split
+                       else current["BATON_SPLIT_RATIOS"] is not None and current["BATON_SPLIT_TOKENS"] is None),
+        "window": window(sessions, root, lang),
         "nudge": nudge(sessions, lang),
         "triggers": triggers(sessions, root),
         "private_terms": private_candidates(root, lang),
@@ -405,7 +358,7 @@ def scan(root):
 
 def render(r):
     t = config.tr(lang=r.get("lang"))
-    s, g, n, tg, p = r["sessions"], r["growth"], r["nudge"], r["triggers"], r["private_terms"]
+    s, n, tg, p = r["sessions"], r["nudge"], r["triggers"], r["private_terms"]
     ex = s["excluded"]
     cur = r["config"]["current"]
     now = lambda k, d: (t(f" (지금 적용 값 {cur[k]} — 설정 파일·환경변수에서. 그대로 둔다)",
@@ -430,20 +383,30 @@ def render(r):
         L.append(t(f"  표본 {s['usable']}개 — {r['min_sessions']}개 미만이라 문턱은 기본값을 권한다(몇 세션의 우연에 흔들린다)",
                    f"  Sample of {s['usable']}: fewer than {r['min_sessions']}, so the defaults are recommended for the thresholds "
                    f"(a few sessions can swing them by chance)"))
-    L += ["", t(f"1) 세션 끊기 알림 문턱 BATON_SPLIT_RATIOS (기본 {DEFAULT_RATIOS})",
-                f"1) Context-growth notice thresholds BATON_SPLIT_RATIOS (default {DEFAULT_RATIOS})"),
-          t(f"  센 세션 {g['counted']}개 / 못 센 {g['uncounted']}개({g['uncounted_reason']})",
-            f"  {num(g['counted'], 'session', 'sessions')} counted / {g['uncounted']} not counted ({g['uncounted_reason']})")]
-    if g.get("quartiles"):
-        q = g["quartiles"]
-        L.append(t(f"  최대 맥락 ÷ 첫 호출 맥락: 사분위 {q[0]:g} · 중앙 {q[1]:g} · {q[2]:g}배",
-                   f"  Largest context ÷ first-call context: quartile {q[0]:g} · median {q[1]:g} · {q[2]:g}×"))
-        L += [t(f"    {c['ratio']:g}배 — 닿는 세션 {pct(c['reach'])} · 닿은 뒤 남은 비용 {pct(c['cost_after'])} · "
-                f"재계산 절감(추정 상한) {pct(c['saving'])}",
-                f"    {c['ratio']:g}× — sessions that reach it {pct(c['reach'])} · cost left after reaching it {pct(c['cost_after'])} · "
-                f"recomputed saving (estimated upper bound) {pct(c['saving'])}") for c in g["candidates"]]
-    L.append(t(f"  제안: {g['recommend'] or '바꾸지 않음'} — {g['reason']}{now('BATON_SPLIT_RATIOS', DEFAULT_RATIOS)}",
-               f"  Proposal: {g['recommend'] or 'no change'} — {g['reason']}{now('BATON_SPLIT_RATIOS', DEFAULT_RATIOS)}"))
+    ratio_rule = r.get("ratio_rule")
+    L += ["", t(f"1) 맥락 문턱 BATON_SPLIT_TOKENS (기본 {DEFAULT_TOKENS} — 호출 맥락 토큰)",
+                f"1) Context thresholds BATON_SPLIT_TOKENS (default {DEFAULT_TOKENS}, context tokens per call)"),
+          t("  2026-11-25 재계산에서 정한 값이다 — 만든 사람 한 명의 대화 50개를 인계서 쓰는 비용까지 넣어 다시 센 추정. "
+            "이 사용자 기록으로 따로 제안하지 않는다",
+            "  Set by the 2026-11-25 recount: an estimate from one person's 50 sessions that includes the cost of writing the "
+            "handoff. No proposal is made from this user's history"),
+          t(f"  제안 없음{now('BATON_SPLIT_RATIOS' if ratio_rule else 'BATON_SPLIT_TOKENS', DEFAULT_TOKENS)}",
+            f"  No proposal{now('BATON_SPLIT_RATIOS' if ratio_rule else 'BATON_SPLIT_TOKENS', DEFAULT_TOKENS)}")]
+    w = r.get("window")
+    if w and w["counted"] and not w["passed"] and w["compacted"]:  # 숫자를 권하지는 않는다 — 뒷받침할 계산이 없다
+        L.append(t(f"  이 저장소 대화 {w['counted']}개 중 {w['label']}을 넘은 대화가 없고 {w['compacted']}개는 그 전에 압축됐다"
+                   f"(맥락이 40% 넘게 줄어듦) — 맥락 창이 작아(20만 토큰 등) 이 규칙이 울리지 않는 것으로 보인다. "
+                   f"apply --set BATON_SPLIT_TOKENS=<값>으로 낮출 수는 있지만, 그 크기에서 새로 시작하는 쪽이 더 싼지는 재지 않았다"
+                   f"(100만 토큰 창 기록에서 15만은 대개 손해였다)",
+                   f"  None of the {w['counted']} sessions in this repo passed {w['label']}, and {w['compacted']} were compacted "
+                   f"before that (context dropped by more than 40%), so with a small context window (such as 200K) this rule "
+                   f"doesn't fire. You can lower it with apply --set BATON_SPLIT_TOKENS=<value>, but whether starting fresh is "
+                   f"cheaper at that size wasn't measured (in the 1M-window sessions, 150K was usually a loss)"))
+    if ratio_rule:
+        L.append(t("  지금은 예전 배수 규칙(BATON_SPLIT_RATIOS, 첫 호출의 몇 배)이 적용된다. 토큰 기본값으로 돌아가려면 "
+                   "apply --unset BATON_SPLIT_RATIOS",
+                   "  The older ratio rule (BATON_SPLIT_RATIOS, multiples of the first call) applies now. To go back to the "
+                   "token default: apply --unset BATON_SPLIT_RATIOS"))
     L += ["", t(f"2) 인계서 제안 문턱 BATON_HANDOFF_NUDGE_FILES (기본 {DEFAULT_NUDGE})",
                 f"2) Handoff nudge threshold BATON_HANDOFF_NUDGE_FILES (default {DEFAULT_NUDGE})"),
           t(f"  센 세션 {n['counted']}개 / 제외 {n['excluded']}개({n['excluded_reason']})",
