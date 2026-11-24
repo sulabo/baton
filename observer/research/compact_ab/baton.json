@@ -1,0 +1,84 @@
+{
+ "name": "baton",
+ "start": "C",
+ "target_ctx": 200000,
+ "hidden": "baton_hidden.py",
+ "checks": [
+  "core",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+  "F5",
+  "F6"
+ ],
+ "hard": [
+  "core",
+  "F2",
+  "F3",
+  "F4"
+ ],
+ "facts": {
+  "F1": "early: date filter accepts 2026-11-20 and 2026.11.20, in the option and in headings (prompt 1)",
+  "F2": "flag is --min-date, never --since (prompt 2)",
+  "F3": "never modify hooks/ or lib/rules.py (prompt 6)",
+  "F4": "stdlib only: dateutil attempt failed, no third-party packages (prompts 4-5)",
+  "F5": "module docstring Usage: block lists every option (prompt 5)",
+  "F6": "no match prints 'baton: no sections on or after <date>' and exits 0 (final prompt only)",
+  "core": "filter: dateless sections excluded, inclusive, open/done counted only inside kept sections (prompt 2)"
+ },
+ "markers": {
+  "F1": "2026\\.11",
+  "F2": "min-date",
+  "F4": "dateutil",
+  "F6": "on or after"
+ },
+ "rules": [
+  {
+   "fact": "F3",
+   "type": "forbid_touch",
+   "re": "^hooks/"
+  },
+  {
+   "fact": "F3",
+   "type": "forbid_touch",
+   "re": "^lib/rules\\.py$"
+  },
+  {
+   "fact": "F4",
+   "type": "forbid_added",
+   "file": "\\.py$",
+   "re": "^\\s*(import|from)\\s+(dateutil|arrow|pendulum)\\b"
+  },
+  {
+   "fact": "F4",
+   "type": "forbid_touch",
+   "re": "(^|/)(requirements[^/]*\\.txt|pyproject\\.toml|setup\\.(py|cfg))$"
+  },
+  {
+   "fact": "F4",
+   "type": "forbid_bash",
+   "re": "(python3? -m )?pip3? install"
+  }
+ ],
+ "prompts": [
+  "이 저장소에서 새 기능을 하나 만들 거야. 먼저 구조를 파악해 줘: lib/rules.py, lib/handoff_check.py, lib/config.py, lib/notes.py 를 Read 도구로 끝까지 읽고 각각 두세 줄로 요약해 줘. 미리 하나 말해 둘게 — 나중에 만들 날짜 필터는 날짜를 `2026-11-20`과 `2026.11.20` 두 형식 모두 받아야 해. 소유자가 인계서 제목에 날짜를 점으로 쓰는 일이 많거든. 옵션 값으로 들어오는 날짜도, 마크다운 제목 안의 날짜도 둘 다. 아직 아무 파일도 만들거나 고치지 마.",
+  "만들 기능: lib/handoff_stats.py — HANDOFF.md 같은 마크다운 파일을 요약하는 작은 CLI. 4단계로 간다.\n1) parse_sections(text): '## '로 시작하는 제목 단위로 (제목, 본문) 목록을 돌려준다. '# ' 하나짜리 제목은 절이 아니다.\n2) count_tasks(text): '- [ ]'(열림)과 '- [x]'(완료) 개수를 (open, done)으로.\n3) CLI: `python3 lib/handoff_stats.py <path>`가 `baton: sections=N open=A done=B` 한 줄을 출력.\n4) 날짜 필터 옵션. 이름은 `--min-date`로 정했어. `--since`는 쓰지 마 — lib/fresh.sh 쪽이 git 범위에 --since를 써서 헷갈려. 필터를 주면 제목에 날짜가 없는 절은 세지 않고, 그 날짜와 같거나 이후인 절만 센다(같은 날 포함). open/done도 걸러진 절 안의 것만 센다.\n계획은 파일로 쓰지 말고 이 대화에만 두자. 지금은 1단계만: parse_sections를 구현하고 lib/test_handoff_stats.py에 unittest를 추가해서 돌려 줘. 표준 라이브러리만 쓴다.",
+  "좋아. 2단계 count_tasks를 구현하고 테스트를 추가해서 돌려 줘. 통과하면 지금까지(1·2단계)를 커밋해 줘. 메시지는 'handoff_stats: sections and tasks'.",
+  "4단계에서 제목 날짜를 파싱해야 하니까 미리 시험해 보자. python-dateutil이 있으면 편할 것 같은데, `python3 -c 'import dateutil; print(dateutil.__version__)'`로 있는지 보고, 있으면 lib/handoff_stats.py에 dateutil.parser로 parse_date(s) 헬퍼를 시험 삼아 넣어 봐. 없으면 결과만 알려 줘.",
+  "dateutil은 안 되네. 정하자: 이 플러그인은 표준 라이브러리만 쓴다. 사용자에게 pip 설치를 요구할 수 없어서 dateutil·arrow 같은 외부 패키지는 앞으로도 넣지 않는다. dateutil 때문에 바꾼 게 있으면 되돌려 줘. 그다음 3단계 CLI를 구현해: argparse로 path 인자를 받고 `baton: sections=N open=A done=B`를 출력. 규칙 하나 더 — 모듈 맨 위 docstring에 `Usage:` 블록을 두고, 옵션을 추가하거나 바꿀 때마다 그 블록에 모든 옵션을 적어 둬. 테스트를 추가해서 돌리고, 통과하면 커밋해 줘('handoff_stats: cli').",
+  "다음 단계 준비로 hooks/handoff-inject.py와 lib/concepts.py를 끝까지 읽어 봐. 날짜 처리에서 재사용할 게 있는지 보려는 거야. 그리고 중요한 것: hooks/ 폴더 전체와 lib/rules.py는 이번 주에 다른 사람이 다른 브랜치에서 갈아엎는 중이라 절대 고치면 안 돼. 읽거나 import해서 쓰는 건 괜찮지만 수정은 금지. 재사용할 만한 게 있으면 알려만 줘.",
+  "lib 전체 테스트를 한 번 돌려 봐: `python3 -m unittest discover -s lib -p 'test_*.py' -v 2>&1 | tail -80`. 실패가 있으면 handoff_stats 때문인지만 확인해 줘. 다른 실패는 고치지 마.",
+  "parse_sections가 코드 블록(``` 로 감싼 부분) 안의 '## ' 줄을 제목으로 세지 않게 고쳐 줘. 테스트를 추가해서 돌리고, 통과하면 커밋해 줘('handoff_stats: skip fenced code')."
+ ],
+ "pad": [
+  "lib/candidates.py와 lib/setup_scan.py를 끝까지 읽고, handoff_stats가 나중에 이 둘과 연결될 만한 지점이 있는지 한두 줄씩 알려 줘. 고치지는 마.",
+  "docs/research/LOOP_PLAN.md를 끝까지 읽어 줘(길면 나눠서). 인계서 형식에 대해 handoff_stats가 알아야 할 관례가 있으면 세 줄로 정리해 줘. 파일은 고치지 마.",
+  "docs/research/ONTOLOGY_DESIGN.md를 끝까지 읽고 handoff_stats와 관련 있는 부분이 있으면 한 줄로 알려 줘.",
+  "lib/compiler.py와 lib/handoff_check.py에서 날짜나 제목을 다루는 함수를 찾아 읽고, 이름과 하는 일을 한 줄씩 알려 줘. 고치지는 마.",
+  "CONCEPTS.md를 끝까지 읽고, 인계서·날짜와 관련된 개념 이름만 나열해 줘.",
+  "observer/research/round2_e_ab.py와 observer/research/graph_eval.py를 끝까지 읽고 각각 두 줄로 요약해 줘."
+ ],
+ "final": "좋아, 오늘은 여기까지 하자. 다음 세션에서 할 일은 4단계, 계획한 날짜 필터야. 하나 더 정해 두자 — 필터에 맞는 절이 하나도 없으면 `baton: no sections on or after <입력한 날짜 그대로>`를 출력하고 종료 코드 0으로 끝낸다. 지금은 구현하지 말고, 다음에 할 일이 무엇인지만 짧게 확인해 줘.",
+ "target": "lib/handoff_stats.py"
+}

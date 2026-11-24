@@ -375,7 +375,7 @@ No. The hooks read your git history and local files, and write only under `~/.ca
 In snapshot runs, yes, for progress questions. In real use it hasn't shown that yet; see [Measured so far](#measured-so-far).
 
 **How is this different from `/compact` or `/resume`?**
-They keep one conversation going, as a summary plus the messages after it. baton is for starting a new session: it gives the agent a short handoff that you can read and edit, and tells it how old that handoff is. You can use both.
+They keep one conversation going, as a summary plus the messages after it. baton is for starting a new session: it gives the agent a short handoff that you can read and edit, and tells it how old that handoff is. You can use both. In our test at a task boundary (scripted sessions, 2 repos, 5 runs each), both carried the work over correctly after the beta.5 fix, and `/compact` was cheaper: the handoff cost 1.1–1.7× as much, and writing it alone cost about 2–3× a compaction (medians). See [docs/research/compact-vs-handoff.md](research/compact-vs-handoff.md).
 
 **Can I use it in English?**
 Yes. Messages are in English unless your locale is Korean; set `BATON_LANG=en` to choose English. English requests start the skills, handoff loading answers phrases such as "where were we" or "pick up where we left off", and English handoffs and concept maps are read like Korean ones. Add more trigger words with `/baton-setup`. See [Language](#language).
