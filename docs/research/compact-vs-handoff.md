@@ -3,6 +3,10 @@
 > Published 2026-11-24 as one squashed commit. The step-by-step history, whose commit times show each
 > pre-registration came before the runs it covers, is kept on the author's local branch `exp-compact`
 > (31f4243 … 42b17d3); it names the private game repo, so it isn't pushed.
+>
+> **Corrected 2026-11-25.** In the game repo the `/compact` arm also received a handoff, so that repo is left out
+> and both verdicts become "inconclusive" under the pre-registered rule. See
+> [Correction (2026-11-25)](#correction-2026-11-25). The original text below is unchanged.
 
 **Question.** A long Claude Code session reaches a task boundary and work continues. Is it better to
 write a handoff (baton's `HANDOFF.md`) and start a **new** session, or to run `/compact` and keep going in the
@@ -157,6 +161,79 @@ median total cost C). Define a = max(1, round(N/15)) and b = ceil(0.2·N).
    ("use your judgment and proceed"), and is graded again on the cumulative diff. This gives "correct after at
    most one reply" and its extra cost.
 
+## Correction (2026-11-25)
+
+**In the game repo, the `/compact` arm also received a handoff. That repo is therefore left out. By the
+pre-registered rule, both rounds' verdicts change from "compact better" to inconclusive.** The results sections
+below are kept as published on 2026-11-24.
+
+**What happened.**
+- The snapshot step removed the game repo's own `HANDOFF.md`, as planned. During the long-session build,
+  baton 1.0.0-beta.4's automatic handoff update fired once. At build step 5 its Stop hook blocked the turn,
+  because the session had changed 4 files since a handoff was last written, and asked the agent to write
+  `HANDOFF.md`. The agent wrote it, and the next four build prompts, the final one included, edited it again.
+- After the build, the runner commits whatever the build left uncommitted. That commit put this `HANDOFF.md`
+  (51 lines, 3,520 characters) into the switch point, the commit every phase resets to (`B1` in the runner).
+  The file contains the markers of F1, F2, F4 and F6 (F3 and F5 have no marker).
+- Every game-repo C next task started from that commit with "이어서 해줘", which matches baton's injection
+  trigger. In each of the 5 runs, baton injected that file in full (4,487 characters with its header lines).
+  So the game-repo C arm measured "/compact plus the build's handoff", not /compact alone.
+- A second path, found in review the same day, carried the same file. Right after each game-repo compaction
+  (C1–C5), Claude Code re-attached recently read files to the compacted session as `file` attachments, and one
+  of them is this `HANDOFF.md`, byte-identical to the switch point's copy. The five baton-repo compacted
+  sessions hold only path references (`compact_file_reference`) and no file content.
+- The H arm was affected differently. In the game repo, every H transition (5 per round) updated the build's
+  `HANDOFF.md` instead of creating one; in the baton repo, all 10 created it. The game-repo next session still
+  got its own arm's handoff, as designed, but that handoff started from one written inside the build. So
+  game-repo H is not the same condition as baton-repo H either.
+- The baton-repo build ran under beta.3, which only suggests a handoff to the user. Its switch point has no
+  `HANDOFF.md`. Baton's handoff-injection header ("[baton] 아래는 …") appears in 1 UserPromptSubmit
+  `hook_response` event in each of the 5 game-repo C next tasks, and in none of the 5 baton-repo C next tasks.
+  (A plain `grep -o … | wc -l` gives 2 per game-repo run, because the same text is in both the `output` and
+  the `stdout` field of that one event.) In the baton repo both arms got the same concept-map index.
+- Round 2 reused round 1's C rows (`compact_ab.py seed`), so its game-repo ratio (1.109) compares round-2 H
+  with this same C arm.
+
+**How it was found, and why the runner missed it.** It was found on 2026-11-25 by counting that header per
+prompt-hook event in each next-task stream. The runner's `inject` flag is true when any `[baton]` text comes
+back from the prompt hook. The baton repo's concept-map index also starts with `[baton]`, so the flag was true
+in every next task of both rounds and could not tell a handoff injection from the index. Threat 2 below ("the
+automatic-handoff Stop block never fired in any run") holds for the graded runs, but the block did fire once in
+the game-repo build.
+
+**What it affects.**
+- Both published verdicts. Round 1's correctness gap came from the baton repo alone (the game repo was 5/5 in
+  both arms). Round 2's "compact better on cost" used the game-repo ratio 1.109 as one of its two repo ratios.
+- The game-repo C row in both tables, and every comparison against it.
+- The "1.1–1.7×" figure on the README, the guides and the homepage. It was the two round-2 repo ratios
+  (1.109 and 1.735). The 1.0.0 release notes keep their text, with a correction note above it.
+- The clause "writing it alone cost about 2–3× a compaction" was removed from the guides and the homepage.
+  It pooled the round-2 warm-normalized transition cost over both repos (about 2.0× game, 2.8× baton). In the
+  baton repo alone it is about 2.8× warm-normalized but about 0.75× on the reported cost, because four of the
+  five compactions ran after the prompt cache had expired.
+
+**What it does not affect.**
+- The baton-repo rows in both rounds, the grading, the cost accounting and the budget.
+- Round 1's failure analysis (three baton H runs stopped to ask), and round 2's finding that this behaviour did
+  not recur (baton H 2/5 → 5/5).
+
+**Recomputed** ($0, from the saved records with `compact_ab.py report`; `--repo baton` for the baton-only rows).
+
+| | round 1 | round 2 |
+|---|---|---|
+| as published, both repos | compact better: k_C 10/10, k_H 7/10, r = 1.058 (per repo 0.766 and 1.35); raw-cost sensitivity r = 1.065 (per repo 0.787 and 1.344) | compact better: k_C 10/10, k_H 10/10, r = 1.422 (per repo 1.735 and 1.109); raw-cost sensitivity r = 1.478 (per repo 1.165 and 1.79) |
+| baton repo only, by the rule | inconclusive | inconclusive |
+| baton repo only, descriptive | C 5/5, H 2/5 correct. H/C median cost 0.766 warm-normalized ($1.18 vs $1.54), 0.787 raw ($1.88 vs $2.39) | C 5/5 (round 1), H 5/5 correct. H/C median cost 1.735 warm-normalized ($2.67 vs $1.54), 1.165 raw ($2.78 vs $2.39) |
+
+In round 1, baton H looks cheaper only because its three failed runs stopped early (see "What the numbers
+say"). In round 2, the raw ratio is lower than the warm-normalized one because four of the five baton
+compactions ran after S's prompt cache had expired (Deviation 1), which raises C's raw cost.
+
+**What the rule says.** With the game repo left out, only the baton repo has ≥ 3 valid pairs, and a verdict
+needs ≥ 2 such repos. By the pre-registered rule, both rounds are **inconclusive**. No other rule is applied.
+The baton-repo numbers are descriptive only: n = 5 in one repo shows what happened in these runs, not a general
+cost ratio.
+
 ## Results (2026-11-24)
 
 **Verdict, computed by the pre-registered rule: compact better.** k_C = 10/10 correct, k_H = 7/10. The
@@ -282,6 +359,9 @@ rounds' tables are reported side by side, and round 1's verdict stands as the ro
 4. n = 5 per repo, as in round 1.
 
 ## Round 2 results (2026-11-24)
+
+> Corrected 2026-11-25: the game-repo C rows below are not a /compact-only arm, and without that repo the verdict
+> is inconclusive. See [Correction (2026-11-25)](#correction-2026-11-25).
 
 **Verdict, by the pre-registered rule: compact better, now on cost instead of correctness.** k_C = 10/10
 (round 1), k_H = 10/10 (round 2). Correctness is tied, and H cost more in both repos: r = median over repos of
