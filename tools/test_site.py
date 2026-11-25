@@ -92,7 +92,7 @@ class ContextRuleDocsTest(unittest.TestCase):
         self.assertIn("2026-11-25부터 호출 맥락 25만·45만 토큰", doc("docs", "NORTH_STAR.md"))
 
     def test_changelog_gives_denominators_not_most(self):
-        entry = doc("CHANGELOG.md").split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+        entry = doc("CHANGELOG.md").split("## [1.0.1]", 1)[1].split("\n## [", 1)[0]
         self.assertIn("그 크기에 닿은 대화 중 열에 여섯쯤", entry)
         self.assertNotIn("대부분의 대화에서", entry)
 
