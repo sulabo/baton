@@ -69,8 +69,18 @@ class HandoffCheckHookTest(unittest.TestCase):
         return self.run_hook({"hook_event_name": "PostToolUse", "tool_name": tool, "session_id": "s1",
                               "tool_input": {"file_path": path}, "cwd": self.root}, **kw)
 
-    def test_good_handoff_silent(self):
-        self.assertIsNone(self.post(self.handoff(GOOD)))
+    def passed(self, out):
+        """깨끗한 저장의 통과 한 줄(11-25). 이 줄이 없으면 모델이 검사기를 손으로 다시 돌렸다."""
+        self.assertEqual(set(out), {"hookSpecificOutput"})
+        self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "PostToolUse")
+        return out["hookSpecificOutput"]["additionalContext"]
+
+    def test_good_handoff_says_passed_in_one_line(self):
+        n, m = len(GOOD.splitlines()), len(GOOD)
+        self.assertEqual(self.passed(self.post(self.handoff(GOOD))), f"[baton] HANDOFF.md 검사 통과({n}줄·{m:,}자).")
+        self.assertEqual(self.passed(self.post(self.handoff(GOOD), extra_env={"BATON_LANG": "en"})),
+                         f"[baton] HANDOFF.md check passed ({n} lines, {m:,} chars).")
+        self.assertIsNone(self.post(self.handoff(GOOD), extra_env={"BATON_HANDOFF_CHECK": "off"}))  # 끄면 통과 줄도 없다
 
     def test_bad_handoff_returns_reason_to_model(self):
         out = self.post(self.handoff("# Session Handoff\n"))
@@ -108,16 +118,42 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIn("필수 절 없음", out["reason"])
         self.assertEqual(rd.call_count, 1)  # 파일은 한 번만 읽는다
 
+    def test_check_that_could_not_run_is_not_called_passed(self):
+        # 리뷰 11-25: 경고 규칙·빠진 줄 검사가 오류로 못 돌았는데 "검사 통과"라고 했다 — 대신 검사기를 직접 돌리라고 한다
+        import contextlib, importlib.util, io
+        spec = importlib.util.spec_from_file_location("handoff_check_hook", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        env = {"XDG_CACHE_HOME": os.path.join(self.root, "cache"), "BATON_LOG": self.log}
+        warn = GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "## 확인된 사실과 결정\n- 표시 없는 주장\n")
+        for lang, note in (("ko", "[baton] HANDOFF.md 검사 일부를 돌리지 못했어요 — 검사기를 직접 돌려 주세요."),
+                           ("en", "[baton] Part of the HANDOFF.md check couldn't run — run the checker yourself.")):
+            for broken, text in (("warnings", GOOD), ("drop_warnings", GOOD), ("drop_warnings", warn)):
+                with self.subTest(lang=lang, broken=broken, warned=text is warn):
+                    buf = io.StringIO()
+                    with mock.patch.dict(os.environ, dict(env, BATON_LANG=lang)), \
+                            mock.patch.object(hook.handoff_check, broken, side_effect=ValueError), contextlib.redirect_stdout(buf):
+                        hook.on_edit({"tool_input": {"file_path": self.handoff(text)}, "session_id": "s1"})
+                    ctx = self.passed(json.loads(buf.getvalue()))
+                    if text is GOOD:
+                        self.assertEqual(ctx, note)
+                    else:  # 경고는 그대로 내고, 못 돈 검사도 함께 알린다
+                        self.assertTrue(ctx.endswith("\n" + note), ctx)
+                        self.assertIn("[V]", ctx)
+                    self.assertNotIn("검사 통과", ctx)
+                    self.assertNotIn("check passed", ctx)
+
     def test_relative_path_resolved_against_cwd(self):
         self.handoff("# Session Handoff\n")
         self.assertEqual(self.post("HANDOFF.md", tool="Edit")["decision"], "block")
 
     def test_other_format_handoff_not_forced_into_template(self):
-        self.assertIsNone(self.post(self.handoff("# Handoff\n## Status\n- done\n")))
+        self.assertIn("검사 통과", self.passed(self.post(self.handoff("# Handoff\n## Status\n- done\n"))))  # 막지도 경고하지도 않는다
         for text in ("# Project notes\n## Goal\n- ship\n## Related files\n- a.py\n## Next steps\n- review\n",
                      "# 메모\n## 목표\n- 출시\n## 관련 파일\n- a.py\n## Risks\n- 없음\n"):
-            for lang in ("ko", "en"):
-                self.assertIsNone(self.post(self.handoff(text), extra_env={"BATON_LANG": lang}), (text, lang))  # 리뷰 11-23
+            for lang in ("ko", "en"):  # 리뷰 11-23
+                self.assertIn(("검사 통과", "check passed")[lang == "en"],
+                              self.passed(self.post(self.handoff(text), extra_env={"BATON_LANG": lang})), (text, lang))
         out = self.post(self.handoff("# Handoff\n- path /Users/someone/x\n"))
         self.assertIn("홈 절대경로", out["reason"])  # 형식이 달라도 비밀값·경로는 본다
 
@@ -250,16 +286,17 @@ class HandoffCheckHookTest(unittest.TestCase):
         text = GOOD_EN.replace("## Verified facts and decisions\n- None\n", "## Verified facts and decisions\n- no mark\n")
         ctx = self.post(self.handoff(text), extra_env=en)["hookSpecificOutput"]["additionalContext"]
         self.assertTrue(ctx.startswith("[baton] Handoff-check warnings for the HANDOFF.md you just wrote (not blocking):\n- warning: "), ctx)
-        self.assertIsNone(self.post(self.handoff(GOOD_EN), extra_env=en))  # 영어 템플릿은 조용히 통과
-        self.assertIsNone(self.post(self.handoff(GOOD_EN)))  # 메시지가 한국어여도 영어 파일을 읽는다
+        self.assertTrue(self.passed(self.post(self.handoff(GOOD_EN), extra_env=en)).startswith(
+            "[baton] HANDOFF.md check passed ("))  # 영어 템플릿은 통과 한 줄만
+        self.assertTrue(self.passed(self.post(self.handoff(GOOD_EN))).startswith("[baton] HANDOFF.md 검사 통과("))  # 메시지가 한국어여도 영어 파일을 읽는다
 
     def test_dropped_lines_warned_against_last_commit(self):
         sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
         from test_handoff_check import DropCheckTest, git_repo
         p = self.handoff(DropCheckTest.OLD)
-        self.assertIsNone(self.post(p))  # git 저장소가 아니면 비교할 판이 없다 — 조용하다
+        self.assertIn("검사 통과", self.passed(self.post(p)))  # git 저장소가 아니면 비교할 판이 없다 — 경고 없이 통과
         g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
-        self.assertIsNone(self.post(p))  # 커밋판과 같다
+        self.assertIn("검사 통과", self.passed(self.post(p)))  # 커밋판과 같다
         self.handoff(GOOD)
         ctx = self.post(p)["hookSpecificOutput"]["additionalContext"]
         self.assertTrue(ctx.startswith("[baton] 방금 쓴 HANDOFF.md 검사 경고(막지 않음):\n- 경고: 결정·제약으로 보이는 줄 1개"), ctx)
@@ -327,7 +364,9 @@ class HandoffCheckHookTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(self.root, "cache"), "BATON_LOG": self.log}), \
                 mock.patch.object(hook, "HOOK_DEADLINE", 0), contextlib.redirect_stdout(buf):
             hook.on_edit({"tool_input": {"file_path": self.handoff("# Notes\n## Status\n- ok\n")}, "session_id": "s1"})
-        self.assertEqual(buf.getvalue(), "")  # 다른 형식 파일에는 말하지 않는다
+        out = json.loads(buf.getvalue())  # 다른 형식 파일에는 건너뛴 검사를 말하지 않는다 — 빠진 줄은 baton 형식에서만 본다
+        self.assertIn(out["hookSpecificOutput"]["additionalContext"],  # 언어는 이 테스트 환경의 로캘을 따른다
+                      ("[baton] HANDOFF.md 검사 통과(3줄·23자).", "[baton] HANDOFF.md check passed (3 lines, 23 chars)."))
 
     def test_output_is_capped(self):
         import importlib.util
@@ -408,6 +447,64 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertIsNone(self.stop(sid="../x"))
         self.assertIsNone(self.run_hook(None, raw="not json"))
         self.assertIsNone(self.run_hook({"hook_event_name": "Stop", "transcript_path": "/없음", "session_id": "s1"}))
+
+
+class BashWritesTest(unittest.TestCase):
+    """넘길 일 세기의 Bash 판정과 시간 상한(리뷰 11-25). 프로세스 안에서 모듈을 불러 직접 본다."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_check_hook", HOOK)
+        cls.hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.hook)
+
+    def test_cases(self):
+        cases = {  # 명령 → (파일을 쓰는가, 인계서를 쓰는가)
+            "cat <<'EOF' > HANDOFF.md\n# x\nEOF": (True, True), "echo hi | tee HANDOFF.md": (True, True),
+            'echo hi > "HANDOFF.md"': (True, True), "mv draft.md HANDOFF.md": (True, True), "cp /tmp/h.md ./HANDOFF_track.md": (True, True),
+            "python3 x.py > out.txt": (True, False), "python3 x.py 1> out.txt": (True, False), "python3 x.py &> out.log": (True, False),
+            "python3 x.py >| out.txt": (True, False), "sed --in-place 's/a/b/' f": (True, False), "sed -Ei 's/a/b/' f": (True, False),
+            "rtk proxy git mv a b": (True, False), "echo x | tee -a log.txt": (True, False),
+            "cat <<A <<B\nbody a > x\nA\nbody b > y\nB\necho z > real.txt": (True, False),
+            "python3 x.py 2> err.log": (False, False), 'python3 x.py > "$TMPDIR/o.txt"': (False, False),
+            "python3 x.py > ${TMPDIR}/o.txt": (False, False), "python3 x.py > /tmp/o.txt": (False, False),
+            "cat tee.txt; echo cp mv": (False, False), "(( a > 3 )) && echo ok": (False, False), "[[ $a > b ]] && echo ok": (False, False),
+            "awk '$1>3' f.txt": (False, False), "python3 - <<'EOF'\nprint(1 > 2)\nEOF": (False, False), "ls 2>&1 | head": (False, False),
+            "sed -n '1,5p' f": (False, False), "cat HANDOFF.md": (False, False), "cat <<<'here > x'": (False, False),
+            # 문서에 적은 한계(docstring ponytail) — 바뀌면 문서도 고친다
+            "sudo -u bob cp a b": (False, False), "timeout 10 cp a b": (False, False), "git -C repo mv a b": (False, False),
+        }
+        for cmd, want in cases.items():
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.hook.bash_writes(cmd), want)
+
+    def test_pathological_command_is_fast(self):
+        # 리뷰 11-25: 정규식 heredoc 처리가 << 많은 99KB 명령에서 3.75초 — 줄 단위 한 번 + 명령당 16KB 상한
+        import time
+        for cmd in ("<<a\n" * 25000, "cat <<EOF\n" + "x << y > z\n" * 20000 + "EOF\n", "sed " * 30000 + "-n x"):
+            t = time.monotonic()
+            self.hook.bash_writes(cmd)
+            self.assertLess(time.monotonic() - t, 0.5, len(cmd))
+        t = time.monotonic()
+        self.hook.strip_heredocs("cat <<a <<b\n" + "line\n" * 200000)  # 상한 없이도 줄 수에 비례
+        self.assertLess(time.monotonic() - t, 1.0)
+
+    def test_work_counting_has_a_deadline_and_stop_falls_back_to_edits(self):
+        import contextlib, io, tempfile, time
+        with tempfile.TemporaryDirectory() as d:
+            tr = os.path.join(d, "s.jsonl")
+            usage = lambda c: json.dumps({"type": "assistant", "message": {"model": "m", "usage": {"input_tokens": c}}})
+            with open(tr, "w", encoding="utf-8") as f:
+                f.write("\n".join([usage(40000), edit("/r/a.py"), usage(260000)]) + "\n")
+            self.assertIsNone(self.hook.work_since_handoff(tr, deadline=time.monotonic() - 1))  # 시한을 넘기면 None
+            self.assertEqual(self.hook.work_since_handoff(tr), ["/r/a.py"])
+            env = {"XDG_CACHE_HOME": os.path.join(d, "cache"), "BATON_LOG": os.path.join(d, "runs.jsonl"), "BATON_LANG": "ko",
+                   "XDG_CONFIG_HOME": os.path.join(d, "cfg"), "BATON_HANDOFF_AUTO": "on"}
+            buf = io.StringIO()
+            with mock.patch.dict(os.environ, env), mock.patch.object(self.hook, "WORK_BUDGET", -1), contextlib.redirect_stdout(buf):
+                self.hook.on_stop({"transcript_path": tr, "session_id": "s1", "hook_event_name": "Stop", "cwd": d})
+            self.assertIn("25만 토큰을 넘었다", json.loads(buf.getvalue())["reason"])  # 시한을 넘겨도 편집 도구 세기로 묻는다
 
 
 if __name__ == "__main__":

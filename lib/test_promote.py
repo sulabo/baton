@@ -26,7 +26,9 @@ def handoff_en(facts, failed=(), rejected=()):
             + "### Rejected (do not raise again)\n" + "".join(f"- {x}\n" for x in rejected))
 
 
-class PromoteTest(unittest.TestCase):
+class PromoteFixture:
+    """저장소 만들기·스크립트 부르기. 테스트가 없는 섞어 쓰는 클래스 — 두 테스트 클래스가 서로의 테스트를 다시 돌리지 않게."""
+
     def repo(self, versions):
         """판마다 하루씩 다른 날짜로 HANDOFF.md를 커밋한 저장소."""
         tmp = tempfile.TemporaryDirectory()
@@ -43,13 +45,16 @@ class PromoteTest(unittest.TestCase):
             subprocess.run(git + ["commit", "-q", "-m", "x"], check=True, env=env)
         return r
 
-    def run_promote(self, r, lang="ko", code=0, **env):
+    def run_promote(self, r, lang="ko", code=0, brief=False, **env):
         e = {k: v for k, v in os.environ.items() if k not in ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")}
         e.update({"BATON_LANG": lang} if lang else {}, XDG_CONFIG_HOME=_CFG.name)
         e.update(env)
-        p = subprocess.run(["bash", PROMOTE, r], capture_output=True, text=True, check=False, env=e)
+        p = subprocess.run(["bash", PROMOTE] + (["--brief"] if brief else []) + [r], capture_output=True, text=True, check=False, env=e)
         self.assertEqual(p.returncode, code, p.stdout + p.stderr)
         return p.stdout
+
+
+class PromoteTest(PromoteFixture, unittest.TestCase):
 
     def test_mark_change_is_not_a_drop(self):
         # 리뷰(11-21) 재현 저장소와 같은 이력: [?]로 이틀 있던 사실이 최신판에서 [V]로 확인됐다
@@ -138,6 +143,101 @@ class PromoteTest(unittest.TestCase):
             self.assertIn("git does not track it", self.run_promote(d, "en", code=2))
             self.assertIn("git이 추적하지 않는다", self.run_promote(d, None, code=2, LANG="ko_KR.UTF-8"))
             self.assertIn("git does not track it", self.run_promote(d, None, code=2, LANG="C.UTF-8"))
+
+
+class PromoteBriefTest(PromoteFixture, unittest.TestCase):
+    """--brief: 인계서를 쓸 때 스킬이 부르는 요약. 8줄 안, 중요한 것 먼저, 비었으면 그렇다고 한 줄(2026-11-25).
+    전체 출력을 tail·head로 자르다 머리 줄이 잘려 다시 부르던 것(실험 2차 game 저장소 5번 중 4번)을 없애려고."""
+
+    def repo(self, versions):
+        """같은 내용이 이어지는 판도 커밋되게 판마다 다른 주석 한 줄을 붙인다(절 추출은 '- ' 줄만 본다)."""
+        return super().repo([v + f"<!-- {i} -->\n" for i, v in enumerate(versions)])
+
+    def lines(self, out):
+        ls = out.splitlines()
+        self.assertLessEqual(len(ls), 8, out)
+        return ls
+
+    def test_empty_says_nothing_to_promote_and_all_counted(self):
+        r = self.repo([handoff_en(["[V] One fact"], ["None"])] * 3)
+        self.assertEqual(self.lines(self.run_promote(r, brief=True)),
+                         ["승격 검토(요약) · 검토 3일 · 반복 실패 0건 · 탈락 0건(결정 표지 0건) · 기각 목록 0개",
+                          "  올릴 것 없음 · 검토 3일 모두 셈"])
+        self.assertEqual(self.lines(self.run_promote(r, "en", brief=True))[1], "  Nothing to promote · all 3 days counted")
+        # 3일이 안 되면 후보가 나올 수 없다 — "모두 셈"이라고 하지 않는다
+        two = self.repo([handoff_en(["[V] One fact"], ["None"])] * 2)
+        self.assertEqual(self.lines(self.run_promote(two, brief=True))[1], "  올릴 것 없음 · 검토 2일 — 3일이 안 돼 후보가 아직 나올 수 없다")
+        self.assertEqual(self.lines(self.run_promote(two, "en", brief=True))[1],
+                         "  Nothing to promote · 2 days reviewed, fewer than 3, so no candidate can show up yet")
+
+    def test_candidates_first_and_capped_at_8_lines(self):
+        fails = [f"Approach {i}: failed" for i in range(10)]
+        r = self.repo([handoff_en(["[V] Deploys are forbidden for now", "[V] Other"], fails),
+                       handoff_en(["[V] Deploys are forbidden for now", "[V] Other"], fails),
+                       handoff_en(["[V] Other"], fails, ["Retry loop / 2026-10-03 / owner said no"])])
+        ls = self.lines(self.run_promote(r, "en", brief=True))
+        self.assertEqual(ls[0], "Promotion review (brief) · 3 days reviewed · repeated failures: 10 · dropped: 1 "
+                                "(1 with a decision marker) · rejected list: 1")
+        self.assertTrue(ls[1].startswith("  [A] 3 days: - Approach "), ls)
+        self.assertEqual(ls[-1], "  … and 5 more. Run promote.sh without --brief for all of them")  # 후보 11건 중 6건만
+        self.assertEqual(len(ls), 8)
+        few = self.repo([handoff_en(["[V] Deploys are forbidden for now"], ["Caching: stale"]),
+                         handoff_en(["[V] Deploys are forbidden for now"], ["Caching: stale"]),
+                         handoff_en(["[V] Other"], ["Caching: stale"])])
+        self.assertEqual(self.lines(self.run_promote(few, "ko", brief=True))[1:],
+                         ["  [A] 3일: - Caching: stale", "  [B] - Deploys are forbidden for now"])
+
+    def test_uncounted_versions_are_said_not_zero(self):
+        other = "# Notes\n\n## Something else\n- x\n"
+        r = self.repo([other, other, handoff("[V] 사실")])
+        ls = self.lines(self.run_promote(r, brief=True))
+        self.assertEqual(ls[1], "  못 셈: 반복 실패 형식 불일치 판 3개 · 탈락 절 형식이 다른 판 2개 — 0건이 아니라 못 셈")
+        self.assertEqual(ls[2], "  찾은 후보 없음 — 위의 못 센 판 때문에 '없음'이 아니다")
+        ls = self.lines(self.run_promote(self.repo([other]), "en", brief=True))
+        self.assertIn("dropped: not counted", ls[0])
+        self.assertIn("the latest version has no 'Verified facts and decisions' section", ls[1])
+
+    def test_unmarked_drops_are_counted_not_promoted(self):
+        r = self.repo([handoff_en(["[V] A note"], ["None"]), handoff_en(["[V] A note"], ["None"]),
+                       handoff_en(["[V] Another fact"], ["None"])])
+        self.assertEqual(self.lines(self.run_promote(r, brief=True))[1],
+                         "  올릴 것 없음(결정 표지 붙은 후보 없음) · 표지 없는 탈락 1건은 대개 끝난 작업 메모 · 검토 3일 모두 셈")
+
+    def test_brief_anywhere_and_versions_must_be_a_number(self):
+        r = self.repo([handoff_en(["[V] One fact"], ["None"])] * 3)
+        e = dict(os.environ, BATON_LANG="en", XDG_CONFIG_HOME=_CFG.name)
+        run = lambda *a: subprocess.run(["bash", PROMOTE, *a], capture_output=True, text=True, env=e)
+        first = run("--brief", r, "8").stdout
+        self.assertEqual(run(r, "--brief", "8").stdout, first)  # 어느 자리에 와도 같다
+        self.assertEqual(run(r, "8", "--brief").stdout, first)
+        self.assertEqual(len(first.splitlines()), 2)
+        for k in ("x", "0", "-3", "2.5", "08"):  # 빈 값은 빠진 것과 같다(기본 8)
+            with self.subTest(k=k):
+                p = run("--brief", r, k)
+                self.assertEqual(p.returncode, 2, p.stdout)
+                self.assertTrue(p.stdout.startswith(f"The number of versions must be a whole number of 1 or more: {k}\n"
+                                                    "Usage: promote.sh [--brief]"), p.stdout)
+
+    def test_staged_but_never_committed_handoff_is_uncounted(self):
+        # 리뷰 11-25: 스테이징만 한 인계서(첫 커밋 전)에서 git이 fatal을 stderr에 내고 "검토 0일"로 이어 갔다
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], check=True)
+            with open(os.path.join(d, "HANDOFF.md"), "w", encoding="utf-8") as f:
+                f.write(handoff("[V] 사실"))
+            subprocess.run(["git", "-C", d, "add", "HANDOFF.md"], check=True)
+            e = dict(os.environ, XDG_CONFIG_HOME=_CFG.name)
+            for args, lang, want in ((["--brief", d], "ko", "HANDOFF.md의 커밋된 판이 없어 못 셈 — 0건이 아니라 못 셈."),
+                                     ([d], "en", "HANDOFF.md has no committed version, so nothing could be counted (not 0: uncounted).")):
+                p = subprocess.run(["bash", PROMOTE, *args], capture_output=True, text=True, env=dict(e, BATON_LANG=lang))
+                self.assertEqual(p.returncode, 2, p.stdout)
+                self.assertTrue(p.stdout.startswith(want), p.stdout)
+                self.assertEqual(p.stderr, "")  # fatal 줄을 숨긴다
+
+    def test_errors_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(self.run_promote(d, "en", code=2, brief=True).startswith(f"Not a git repository: {d}"))
+            subprocess.run(["git", "init", "-q", d], check=True)
+            self.assertTrue(self.run_promote(d, "en", code=2, brief=True).startswith("No HANDOFF.md:"))
 
 
 if __name__ == "__main__":

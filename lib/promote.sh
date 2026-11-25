@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # 승격 검토. HANDOFF.md 과거 판에서 DECISIONS.md로 올릴 것을 뽑는다.
-#   promote.sh [저장소 경로] [판수(기본 8)]
+#   promote.sh [--brief] [저장소 경로] [판수(기본 8)]
+#   --brief: 8줄 안의 요약만(중요한 것 먼저, 후보가 없으면 그렇다고 한 줄). 인계서를 쓸 때 스킬이 이것을 부른다 —
+#     전체 출력을 tail·head로 자르면 머리 줄·못 센 판 줄이 잘려 다시 부르게 된다(2026-11-24 실험 2차, game 저장소 5번 중 4번)
 # 종료코드: 0 = 돌았음, 2 = 못 돌림
 set -uo pipefail
 
-R="${1:-.}"
-K="${2:-8}"
+BRIEF=0; ARGS=()
+for a in "$@"; do   # --brief는 어느 자리에 와도 된다
+  if [ "$a" = --brief ]; then BRIEF=1; else ARGS+=("$a"); fi
+done
+R="${ARGS[0]:-.}"
+K="${ARGS[1]:-8}"
 THRESHOLD=3          # 서로 다른 N일 이상 살아남으면 승격 후보
 WIDTH=55             # 문구가 조금씩 다듬어진 같은 항목을 묶기 위한 절단 폭
 
@@ -28,9 +34,14 @@ if [ "$UI" != ko ] && [ "$UI" != en ]; then
 fi
 t() { if [ "$UI" = ko ]; then printf '%s' "$1"; else printf '%s' "$2"; fi; }   # $1=한국어 $2=영어
 
+case "$K" in   # 판수는 1 이상 정수 — 아니면 head가 오류를 내고 0건처럼 보인다
+  ''|*[!0-9]*|0|0*) die "$(t "판수는 1 이상 정수여야 한다: $K" "The number of versions must be a whole number of 1 or more: $K")" \
+                        "$(t "사용법: promote.sh [--brief] <저장소 경로> [판수]" "Usage: promote.sh [--brief] <repo path> [versions (default 8)]")" ;;
+esac
+
 git -C "$R" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   || die "$(t "git 저장소가 아니다: $R" "Not a git repository: $R")" \
-         "$(t "사용법: promote.sh <저장소 경로> [판수]" "Usage: promote.sh <repo path> [versions (default 8)]")"
+         "$(t "사용법: promote.sh [--brief] <저장소 경로> [판수]" "Usage: promote.sh [--brief] <repo path> [versions (default 8)]")"
 
 [ -f "$R/HANDOFF.md" ] || die \
   "$(t "HANDOFF.md가 없다: $R" "No HANDOFF.md: $R")" \
@@ -59,10 +70,15 @@ FAILED="실패한 접근법|[Ff]ailed approach"; AFTER_FAILED="검증|[Vv]erific
 FACTS="확인된 사실과 결정|[Vv]erified facts"; AFTER_FACTS="관련 파일|[Ff]iles and symbols|[Rr]elated files"
 
 # 같은 날 여러 번 커밋하면 절이 통째로 복붙돼 가짜 반복이 된다. 날짜당 최신 한 판만 쓴다.
-DAYS=$(git -C "$R" log --format="%ad %h" --date=short -- HANDOFF.md \
+DAYS=$(git -C "$R" log --format="%ad %h" --date=short -- HANDOFF.md 2>/dev/null \
          | awk '!seen[$1]++{print $2}' | head -"$K")
 NDAY=$(echo "$DAYS" | count)
-NCOMMIT=$(git -C "$R" log --format=%h -- HANDOFF.md | head -"$K" | count)
+NCOMMIT=$(git -C "$R" log --format=%h -- HANDOFF.md 2>/dev/null | head -"$K" | count)
+# 스테이징만 하고 커밋하지 않은 인계서(첫 커밋 전 저장소 포함): 볼 판이 없다 — 0건이 아니라 못 셈(git의 fatal 줄은 숨긴다)
+[ "$NDAY" -gt 0 ] || die "$(t "HANDOFF.md의 커밋된 판이 없어 못 셈 — 0건이 아니라 못 셈. 커밋한 뒤에 이 검토가 돈다." \
+                           "HANDOFF.md has no committed version, so nothing could be counted (not 0: uncounted). The review works once it is committed.")"
+# --brief면 아래 전체 출력은 버리고 맨 끝에서 요약만 낸다(셈은 같은 코드 그대로). 못 돌릴 때의 안내(위)는 그대로 나간다
+[ "$BRIEF" = 1 ] && exec 3>&1 1>/dev/null
 t "저장소: $(basename "$R")  ·  검토 ${NDAY}일 (커밋 수로는 ${NCOMMIT}판이지만 날짜당 1판만 센다)" \
   "Repo: $(basename "$R")  ·  reviewed ${NDAY} days (${NCOMMIT} versions by commit, but only one per day is counted)"; echo
 
@@ -86,6 +102,7 @@ echo
 t "[B] 탈락 — 상시 제약이 최신판에서 조용히 빠짐" "[B] Dropped — standing constraints that quietly left the latest version"; echo
 LATEST=$(echo "$DAYS" | head -1)
 NOW=$(section "$LATEST" "$FACTS" "$AFTER_FACTS" | sort -u)
+DROPPED=""; MARKED=""; BMISS=0
 if [ -z "$NOW" ]; then
   t "    최신판에 '확인된 사실과 결정' 절이 없다 — 이 신호는 못 센다 (0건이 아니라 못 셈)" \
     "    The latest version has no 'Verified facts and decisions' section — this signal cannot be counted (not 0: uncounted)"; echo
@@ -126,3 +143,40 @@ t "기각 목록을 먼저 확인한다: HANDOFF.md 의 '기각됨' 절" "Check 
 REJECTED=$(grep -E -A20 '기각됨|^#+ *[Rr]ejected' "$R/HANDOFF.md" 2>/dev/null | grep '^- ' | real | head -5)
 if [ -n "$REJECTED" ]; then echo "$REJECTED" | sed "s/^/    $(t "이미 기각: " "already rejected: ")/"
 else t "    (기각 목록 없음)" "    (no rejected list)"; echo; fi
+
+[ "$BRIEF" = 1 ] || exit 0
+# ── 요약(--brief): 많아야 8줄. 머리 줄 → 못 센 판 → 후보(반복 실패, 결정 표지 붙은 탈락) → 끝 줄.
+# 끝 줄은 " · " 옆에 0이 아닌 수(검토 N일)를 둔다 — 다 셌는데 0인 결과에서 0건 가드(hooks/zero-guard.sh)가 다시 묻지 않게
+exec 1>&3 3>&-
+NA=$(echo "$REPEATED" | count); NB=$(echo "$DROPPED" | count); NM=$(echo "$MARKED" | count)
+NR=$(grep -E -A20 '기각됨|^#+ *[Rr]ejected' "$R/HANDOFF.md" 2>/dev/null | grep '^- ' | real | count)
+if [ -n "$NOW" ]; then B=$(t "탈락 ${NB}건(결정 표지 ${NM}건)" "dropped: ${NB} (${NM} with a decision marker)")
+else B=$(t "탈락 못 셈" "dropped: not counted"); fi
+t "승격 검토(요약) · 검토 ${NDAY}일 · 반복 실패 ${NA}건 · ${B} · 기각 목록 ${NR}개" \
+  "Promotion review (brief) · ${NDAY} days reviewed · repeated failures: ${NA} · ${B} · rejected list: ${NR}"; echo
+USED=1; GAPS=""
+[ "$MISS" -gt 0 ] && GAPS="$(t "반복 실패 형식 불일치 판 ${MISS}개" "repeated failures: ${MISS} versions in another format")"
+[ -z "$NOW" ] && GAPS="${GAPS:+$GAPS · }$(t "최신판에 '확인된 사실과 결정' 절 없음" "the latest version has no 'Verified facts and decisions' section")"
+[ "$BMISS" -gt 0 ] && GAPS="${GAPS:+$GAPS · }$(t "탈락 절 형식이 다른 판 ${BMISS}개" "dropped: ${BMISS} versions with another section layout")"
+if [ -n "$GAPS" ]; then
+  t "  못 셈: ${GAPS} — 0건이 아니라 못 셈" "  Not counted: ${GAPS} (not 0: uncounted)"; echo; USED=2
+fi
+CANDS=$( { echo "$REPEATED" | awk -v u="$(t "일:" " days:")" 'NF{n=$1; $1=""; print "  [A] " n u $0}'
+           echo "$MARKED" | awk 'NF{print "  [B] " $0}'; } )
+NC=$(echo "$CANDS" | count); ROOM=$((8 - USED))
+if [ "$NC" -gt "$ROOM" ]; then
+  echo "$CANDS" | head -$((ROOM - 1))
+  t "  … 외 $((NC - ROOM + 1))건 — 전체는 --brief 없이 promote.sh" "  … and $((NC - ROOM + 1)) more. Run promote.sh without --brief for all of them"; echo
+elif [ "$NC" -gt 0 ]; then
+  echo "$CANDS"
+elif [ -n "$GAPS" ]; then
+  t "  찾은 후보 없음 — 위의 못 센 판 때문에 '없음'이 아니다" "  No candidates found, but because of the versions above that is not 'none'"; echo
+elif [ "$NB" -gt 0 ]; then
+  t "  올릴 것 없음(결정 표지 붙은 후보 없음) · 표지 없는 탈락 ${NB}건은 대개 끝난 작업 메모 · 검토 ${NDAY}일 모두 셈" \
+    "  Nothing to promote (no candidate with a decision marker) · ${NB} dropped without a marker, usually notes on finished work · all ${NDAY} days counted"; echo
+elif [ "$NDAY" -lt "$THRESHOLD" ]; then  # 반복 실패는 3일, 탈락은 앞선 2일이 있어야 나온다 — 판이 모자라면 "없음"이라고만 하지 않는다
+  t "  올릴 것 없음 · 검토 ${NDAY}일 — ${THRESHOLD}일이 안 돼 후보가 아직 나올 수 없다" \
+    "  Nothing to promote · ${NDAY} days reviewed, fewer than ${THRESHOLD}, so no candidate can show up yet"; echo
+else
+  t "  올릴 것 없음 · 검토 ${NDAY}일 모두 셈" "  Nothing to promote · all ${NDAY} days counted"; echo
+fi

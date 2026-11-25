@@ -15,7 +15,7 @@ sys.path.insert(0, HERE)
 import config
 import i18n
 
-KEYS = ("BATON_HANDOFF_NUDGE_FILES", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_TRIGGERS_EXTRA", "BATON_OBSERVE", "BATON_LOG",
+KEYS = ("BATON_HANDOFF_NUDGE_FILES", "BATON_SPLIT_RATIOS", "BATON_SPLIT_TOKENS", "BATON_HANDOFF_TRIGGERS_EXTRA", "BATON_OBSERVE", "BATON_LOG",
         "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_CHECK", "BATON_SPLIT_NOTICE", "BATON_HANDOFF_INJECT", "CLAUDE_PROJECT_DIR")
 
 
@@ -232,6 +232,8 @@ class EnglishConfigTest(ConfigFixture):
 
     def test_invalid_reasons_english(self):
         cases = {("BATON_SPLIT_RATIOS", "0"): "must be numbers of 1 or more, separated by commas (for example 2,3)",
+                 ("BATON_SPLIT_TOKENS", "999"): "must be whole numbers of 1000 or more, separated by commas "
+                                                "(for example 250000,450000)",
                  ("BATON_HANDOFF_NUDGE_FILES", "0"): "must be a whole number of 1 or more",
                  ("BATON_SPLIT_NOTICE", "of"): "must be one of on/off/1/0/true/false/yes/no",
                  ("BATON_LANG", "kr"): "must be one of ko, en, auto",
@@ -242,6 +244,13 @@ class EnglishConfigTest(ConfigFixture):
             self.assertEqual(config.invalid(k, v), want)
         self.assertEqual(config.invalid("BATON_LOG", "x", "ko"), "절대 경로여야 한다")
         self.assertIsNone(config.invalid("BATON_LANG", "EN", "ko"))
+
+    def test_split_tokens_validation(self):
+        for ok in ("250000,450000", "250000", " 250000 , 450000 ", "1000"):
+            self.assertIsNone(config.invalid("BATON_SPLIT_TOKENS", ok), ok)
+        for bad in ("", "0", "999", "250000,", "2.5e5", "250000,x", "-250000", "250000.0", "2\u00b2"):
+            self.assertEqual(config.invalid("BATON_SPLIT_TOKENS", bad, "ko"), "쉼표로 나눈 1000 이상 정수여야 한다(예: 250000,450000)", bad)
+        self.assertIn("BATON_SPLIT_TOKENS", config.SCALAR_KEYS)
 
     def test_write_errors_english(self):
         self.write("{broken")
@@ -272,8 +281,12 @@ class HooksReadConfigTest(unittest.TestCase):
         os.makedirs(self.repo)
         self.xdg = os.path.join(self.root, "xdg")
         self.transcript = os.path.join(self.root, "s.jsonl")
-        edits = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Edit", "input": {"file_path": f"/r/{n}.py"}}],
-                                                   "usage": {"input_tokens": t}, "model": "m"}} for n, t in (("a", 100), ("b", 450))]
+        self.calls(100, 450)
+
+    def calls(self, *ctxs):
+        """파일 하나씩 고친 호출들. 맥락 토큰은 ctxs 차례로."""
+        edits = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Edit", "input": {"file_path": f"/r/{i}.py"}}],
+                                                   "usage": {"input_tokens": t}, "model": "m"}} for i, t in enumerate(ctxs)]
         with open(self.transcript, "w", encoding="utf-8") as f:
             f.write("\n".join(json.dumps(x) for x in [{"type": "user", "message": {"content": "시작"}}] + edits) + "\n")
 
@@ -300,19 +313,30 @@ class HooksReadConfigTest(unittest.TestCase):
                                 "cwd": self.repo}, **env)
 
     def test_nudge_threshold_from_repo_section_and_env_wins(self):
-        # 이 기록은 맥락도 4.5배라 같은 Stop에 맥락 문턱 요청이 겹친다 — 파일 문턱만 보려고 맥락 알림을 끈다(11-24 Stop 결정 한 곳)
+        # 이 기록은 맥락이 4.5배라 배수 규칙이면 같은 Stop에 맥락 문턱 요청이 겹친다 — 파일 문턱만 보려고 맥락 알림을 끈다(11-24 Stop 결정 한 곳)
         self.assertIsNone(self.stop("handoff-check.py", "s1", BATON_SPLIT_NOTICE="off"))  # 기본 3 — 2개로는 안 뜬다
         self.config({"BATON_HANDOFF_NUDGE_FILES": "2"})
         self.assertIsNotNone(self.stop("handoff-check.py", "s2", BATON_SPLIT_NOTICE="off"))
         self.assertIsNone(self.stop("handoff-check.py", "s3", BATON_HANDOFF_NUDGE_FILES="5", BATON_SPLIT_NOTICE="off"))
 
     def test_split_ratio_and_switch_from_config(self):
+        self.calls(10000, 45000)  # 4.5배. 마지막 맥락이 첫 + 2만 4천을 넘어야 묻는다(split-notice.py MIN_GAIN)
         self.config({"BATON_SPLIT_RATIOS": "5"})
         self.assertIsNone(self.stop("handoff-check.py", "s1", BATON_HANDOFF_AUTO="off"))  # 4.5배 < 5
         self.config({"BATON_SPLIT_RATIOS": "4"})
         self.assertIn("대화가 처음보다 4배 넘게 길어졌어요", self.stop("handoff-check.py", "s2", BATON_HANDOFF_AUTO="off")["systemMessage"])
         self.config({"BATON_SPLIT_NOTICE": "off"})
         self.assertIsNone(self.stop("handoff-check.py", "s3", BATON_HANDOFF_AUTO="off"))
+
+    def test_split_tokens_default_and_from_config(self):
+        self.calls(76000, 260000)
+        self.assertIn("대화가 25만 토큰을 넘었어요", self.stop("handoff-check.py", "t1", BATON_HANDOFF_AUTO="off")["systemMessage"])
+        self.config({"BATON_SPLIT_TOKENS": "300000"})
+        self.assertIsNone(self.stop("handoff-check.py", "t2", BATON_HANDOFF_AUTO="off"))
+        self.config({"BATON_SPLIT_TOKENS": "200000,300000", "BATON_SPLIT_RATIOS": "2,3"})  # 둘 다 있으면 토큰
+        self.assertIn("대화가 20만 토큰을 넘었어요", self.stop("handoff-check.py", "t3", BATON_HANDOFF_AUTO="off")["systemMessage"])
+        self.config({"BATON_SPLIT_RATIOS": "2,3"})  # 배수만 직접 정한 사람은 예전 규칙(26만 ÷ 7만 6천 = 3.4배)
+        self.assertIn("대화가 처음보다 3배 넘게 길어졌어요", self.stop("handoff-check.py", "t4", BATON_HANDOFF_AUTO="off")["systemMessage"])
 
     def test_private_terms_block_without_echo(self):
         self.config({"private_terms": ["홍길동"]})
@@ -334,11 +358,12 @@ class HooksReadConfigTest(unittest.TestCase):
         p = os.path.join(self.repo, "HANDOFF.md")
         with open(p, "w", encoding="utf-8") as f:
             f.write("# Handoff\n- 경로 /Users/someone/x\n")
+        self.calls(100, 260000)  # 기본 문턱(25만 토큰)을 넘는 기록
         off = {"global": {"BATON_HANDOFF_INJECT": "off", "BATON_SPLIT_NOTICE": "off", "BATON_HANDOFF_CHECK": "off"}}
         for i, bad in enumerate(["{깨진", "[" * 200000, json.dumps(dict(off, pad="x" * (1024 * 1024)))]):
             self.config(bad)  # 깨진 JSON · 깊은 중첩(RecursionError) · 1MB 넘는 파일(안의 off는 무시돼야 한다)
             self.assertIn("[baton] 아래는", self.hook("handoff-inject.py", {"prompt": "이어서"})["hookSpecificOutput"]["additionalContext"])
-            self.assertIn("대화가 처음보다 3배 넘게 길어졌어요", self.stop("handoff-check.py", f"b{i}", BATON_HANDOFF_AUTO="off")["systemMessage"])  # 기본 문턱 2,3 그대로
+            self.assertIn("대화가 25만 토큰을 넘었어요", self.stop("handoff-check.py", f"b{i}", BATON_HANDOFF_AUTO="off")["systemMessage"])  # 기본 문턱 그대로
             out = self.hook("handoff-check.py", {"hook_event_name": "PostToolUse", "tool_input": {"file_path": p}, "cwd": self.repo})
             self.assertIn("홈 절대경로", out["reason"])
 

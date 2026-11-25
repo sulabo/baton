@@ -26,7 +26,19 @@ Past versions are not archived separately. **The git history is the archive.**
 
 ### 1. Promotion review (do this before writing)
 
-**The script does it. Do not put git commands together by hand.**
+**The script does it. Do not put git commands together by hand.** When you are about to write a handoff, run the short
+form and the status check **as one Bash call**, from the repo root:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/lib/promote.sh --brief .; git status --short --branch; git log --oneline -3
+```
+
+`--brief` prints at most 8 lines, the most important first, and says in one line when there is nothing to promote.
+**Do not pipe it through `head` or `tail`**: cut output is what made earlier runs call it a second time. Put anything
+else you need to check for the handoff into this same call (see "Facts already confirmed" in step 2).
+
+Run the full form only for a promotion review on its own, or when `--brief` says there are more candidates than it
+shows:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/lib/promote.sh [repo path] [versions (default 8)]
@@ -120,6 +132,15 @@ is left out. Put the next actions near the top.
 Honesty: write what is not verified as "unverified", and for partial completion say exactly which part is left. Base
 what you write on actual files and command results, not on summaries or memory.
 
+**Every line under "Verified facts and decisions" starts with `[V]` or `[?]`.** `[V]`: you saw it in a file or a
+command result. `[?]`: from memory, a summary or a guess. A line without a mark costs an extra edit after the check.
+
+**Facts already confirmed.** A fact you already saw in a command output or a file earlier in this conversation is
+written as `[V]`, with how it was checked, without running the command again — **unless you edited a file that fact
+depends on after you saw it**; then check it again or write `[?]`. Anything known only from a compaction summary is
+`[?]`, and so is anything you remember but did not see in this conversation. Put anything new you need to check into
+one Bash call before you write: in the normal flow, the step 1 call; when the Stop hook asks, a single call of its own.
+
 **A handoff is a hypothesis from the time it was written, not a fact.** The next session may read this file days
 later, in another folder, in a repository with commits piled up in between. When it injects the file, the hook adds
 the written date, how many days ago that was, and the number of commits since; the reader checks only the one or two
@@ -141,7 +162,11 @@ claims the next action depends on. The writer has three jobs.
   spending money). If there is nothing for the owner, write "None".
 - **Add how each verified fact was checked** (command, file, date), so the reader can check it again the same way.
 
-After writing, run the checker, fix what it reports, then commit.
+**After saving, look for a `[baton] HANDOFF.md` check line.** On Claude Code, saving with `Write`/`Edit` makes a hook
+run the checker and add one line to your context: "check passed (N lines, M chars)" (Korean: "검사 통과"), or the
+problems and warnings. If such a line appeared, **do not run the checker yourself**; fix only what it reported, then
+commit. If no such line appeared (for example on Codex), or the line says part of the check couldn't run (Korean: "검사
+일부를 돌리지 못했어요"), run the checker, fix what it reports, then commit:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py HANDOFF.md
@@ -150,21 +175,29 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py HANDOFF.md
 It checks the 8 required sections, 200 lines, 8,700 characters (including the must-read line, which goes in twice),
 code blocks over 20 lines, full diffs, secrets and absolute home paths. If a list item under "Verified facts and
 decisions" ("확인된 사실과 결정" in the Korean template) has no [V] or [?] mark, it warns without blocking. It also warns,
-without blocking, about lines dropped since the last committed version and about more than 3 must-read marks. On Claude Code, saving with `Write`/`Edit` makes a hook run the same
-check automatically and hand the problems back. Codex's `apply_patch` gives the hook no path, so run it yourself there.
+without blocking, about lines dropped since the last committed version and about more than 3 must-read marks.
+Codex's `apply_patch` gives the hook no path, so no check line appears there; run the checker yourself.
 
 ### 3. Commit
 
-Commit `HANDOFF.md`. Without a commit, the next version cannot see this one, and the promotion review does not work.
+Commit only `HANDOFF.md`, in one call:
+
+```bash
+git add HANDOFF.md && git commit -m "handoff: <topic>" -- HANDOFF.md
+```
+
+The `-- HANDOFF.md` keeps files the user had already staged out of this commit. Without a commit, the next version
+cannot see this one, and the promotion review does not work. **Do not run `git log` or `git show` afterwards to
+confirm**: the commit prints one line, `[branch sha] handoff: …`, and that line is the evidence.
 
 ### 4. Tell the user
 
-Tell the user in two lines.
+End with **exactly these two lines** and nothing else (no list of what you wrote):
 
 - "In a new session, start with 'read HANDOFF.md and continue'." (Korean: "새 세션에서 'HANDOFF.md 읽고 이어서 해줘'라고
   시작하세요.")
-- If there are promotion candidates: what, why, and which file they go to. **Make a draft only; do not write it
-  yourself.**
+- The promotion candidates in one line: what, why, and which file they go to (**a draft only; do not write it
+  yourself**), or "No promotion candidates." (Korean: "승격 후보 없음.")
 
 ## When the Stop hook asks
 
@@ -174,15 +207,27 @@ Then:
 
 - Do step 2 only: update `HANDOFF.md` starting from the current file (do not rewrite it from memory). Keep it short;
   the changes made and the next actions matter most. The save-time check runs by itself when you save (this request
-  only comes on Claude Code); fix what it reports, and restore each listed dropped line that is still true.
+  only comes on Claude Code): if it says the check passed, do not run the checker; if it says part of the check
+  couldn't run, run the checker; otherwise fix what it reports, and restore each listed dropped line that is still true.
+- If you need to check something for the handoff, do it in one Bash call before you write (there is no step 1 call
+  on this path).
 - Skip the promotion review and do not commit — the user did not ask for either.
 - End the turn with the one line to the user that the request gives you, word for word.
 
-The same hook also asks once when the conversation's context passes 2× and 3× its size at the start
-(`BATON_SPLIT_RATIOS`, `BATON_SPLIT_NOTICE`). Then the line tells the user the handoff was saved and that they can
-continue in a new conversation with "where were we". Never suggest `/compact`. One Stop asks at most once, for both
-reasons together, and only informs if the handoff was already updated in that turn and fewer than the
-threshold of files were edited after it.
+The same hook also asks once when the context of a model call passes 250K tokens and again at 450K
+(`BATON_SPLIT_TOKENS`, `BATON_SPLIT_NOTICE`), but only if there was work since the handoff was last written: a file
+edited with `Write`/`Edit`, an `Agent`/`Task` call whose subagent edited or wrote files (read-only kinds such as
+Explore don't count when its record can't be found), or a Bash command that clearly writes a file (`sed -i`, a
+`>`/`>>` redirect to a path outside temp folders, `tee`, `mv`, `cp`, `git mv`). A Bash command that writes
+`HANDOFF.md` counts as writing the handoff. With no work it waits for a later Stop. It also doesn't ask when the new
+conversation would start almost as large (the context is not yet 24K tokens past the first call; also under the ratio
+rule). Then the line tells the user the handoff was saved; from 250K up it adds that, by a recount of the author's
+sessions, a new conversation is usually cheaper from this size on (below 250K it makes no cost claim). The 250K and
+450K defaults come from sessions with a 1M-token context window; with a 200K window the conversation is compacted
+before 250K and the rule doesn't fire; `BATON_SPLIT_TOKENS` can be lowered, but whether that is cheaper at that size
+wasn't measured (in the 1M-window sessions, 150K was usually a loss). A user who set only `BATON_SPLIT_RATIOS` keeps
+the older rule (multiples of the first call's context) and its wording. Never suggest `/compact`. One Stop asks at
+most once, for both reasons together.
 
 ## Templates
 
@@ -196,7 +241,7 @@ English:
 - Done when:
 
 ## Verified facts and decisions
-<!-- Mark each line [V] (checked directly with a file or command) or [?] (from memory or a guess), and say how you checked it (command, file, date) -->
+<!-- Start every line with [V] (checked directly with a file or command) or [?] (from memory or a guess), and say how you checked it (command, file, date) -->
 -
 
 ## Files and symbols
@@ -236,7 +281,7 @@ Korean (한국어):
 - 완료 조건:
 
 ## 확인된 사실과 결정
-<!-- 줄마다 [V](파일·실행으로 직접 확인함) 또는 [?](기억·추정)를 붙이고, 어떻게 확인했는지(명령·파일·날짜)를 적는다 -->
+<!-- 모든 줄을 [V](파일·실행으로 직접 확인함) 또는 [?](기억·추정)로 시작하고, 어떻게 확인했는지(명령·파일·날짜)를 적는다 -->
 -
 
 ## 관련 파일·심볼
@@ -320,6 +365,8 @@ If yes, DECISIONS; if not, HANDOFF.
 - Keep growing a failure item that survived 3 or more versions instead of raising it as a promotion candidate
 - Raise a rejected candidate again in the next version (read the rejected list first)
 - Read past versions in full (`promote.sh` extracts only the sections)
+- Pipe `promote.sh --brief` through `head`/`tail`, or run it again because the output was cut
+- Run the checker by hand after a `[baton] HANDOFF.md` check line appeared, or `git log`/`git show` after committing
 - Report a 0 from the script as "none" (look at the format-mismatch line first)
 - Leave `HANDOFF.md` uncommitted (the next version cannot see this one)
 - Paste the full conversation or raw tool output into the handoff

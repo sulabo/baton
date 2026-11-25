@@ -99,7 +99,9 @@ ZERO = (r"(?<![0-9])0건|없음|재확인 0(?![0-9])"
         r"|(?i:\bno findings\b|re-check 0(?![0-9])|(?<![0-9])0 (?:commits?|found|dropped)\b|[:→] ?0(?![0-9.,])"
         r"|\(no rejected list\)|\b(?:new decisions|new decision rows|lines|gaps) 0(?![0-9]))")
 NONZERO = r"(?<![\w.])[1-9][0-9]*(?![0-9.])"
-lines = out.splitlines()
+# git log --oneline 줄(짧은 해시 + 제목)은 보지 않는다 — 스킬이 promote.sh --brief와 git status·log를 한 호출로 부르는데(11-25),
+# 커밋 제목의 "없음"·"0건"에 울리지 않게. ponytail: 해시처럼 보이는 낱말(a–f 7자 이상)로 시작하는 다른 줄도 건너뛴다(드묾)
+lines = [ln for ln in out.splitlines() if not re.match(r"[0-9a-f]{7,40} ", ln)]
 heads = [int(m.group(1)) for m in (re.match(HEAD, ln) for ln in lines) if m]
 def zero_line(ln):
     if not re.search(ZERO, ln):

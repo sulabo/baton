@@ -17,8 +17,8 @@ import copy, json, math, os, subprocess, sys, tempfile, unicodedata
 
 VERSION = 1
 LIST_KEYS = ("private_terms", "BATON_HANDOFF_TRIGGERS_EXTRA")
-SCALAR_KEYS = ("BATON_SPLIT_NOTICE", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_INJECT", "BATON_CONCEPT_INJECT",
-               "BATON_CONCEPT_INDEX",
+SCALAR_KEYS = ("BATON_SPLIT_NOTICE", "BATON_SPLIT_TOKENS", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_INJECT",
+               "BATON_CONCEPT_INJECT", "BATON_CONCEPT_INDEX",
                "BATON_HANDOFF_CHECK", "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_NUDGE_FILES", "BATON_OBSERVE", "BATON_LOG",
                "BATON_LANG", "BATON_HANDOFF_AUTO")
 GLOBAL_ONLY = ("BATON_OBSERVE", "BATON_LOG")  # 관찰 로그는 저장소를 모르는 자리에서도 쓰여 전역만 읽는다
@@ -94,6 +94,10 @@ def invalid(key, value, lang=None):
             xs = []
         if not xs or not all(math.isfinite(x) and x >= 1 for x in xs):
             why = ("쉼표로 나눈 1 이상 숫자여야 한다(예: 2,3)", "must be numbers of 1 or more, separated by commas (for example 2,3)")
+    elif key == "BATON_SPLIT_TOKENS":
+        if not all(x.strip().isdecimal() and int(x) >= 1000 for x in v.split(",")):
+            why = ("쉼표로 나눈 1000 이상 정수여야 한다(예: 250000,450000)",
+                   "must be whole numbers of 1000 or more, separated by commas (for example 250000,450000)")
     elif key == "BATON_HANDOFF_NUDGE_FILES":
         if not (v.isdigit() and int(v) >= 1):
             why = ("1 이상 정수여야 한다", "must be a whole number of 1 or more")

@@ -15,7 +15,7 @@ import config
 import setup_scan
 
 SCRIPT = os.path.join(HERE, "setup_scan.py")
-CLEAN = ("CLAUDE_PROJECT_DIR", "BATON_HANDOFF_TRIGGERS_EXTRA", "BATON_SPLIT_RATIOS", "BATON_HANDOFF_NUDGE_FILES")
+CLEAN = ("CLAUDE_PROJECT_DIR", "BATON_HANDOFF_TRIGGERS_EXTRA", "BATON_SPLIT_RATIOS", "BATON_SPLIT_TOKENS", "BATON_HANDOFF_NUDGE_FILES")
 LOCALE = ("BATON_LANG", "LC_ALL", "LC_MESSAGES", "LANG")
 HANGUL = re.compile("[\uac00-\ud7a3]")
 
@@ -80,31 +80,58 @@ class ScanTest(ScanFixture):
         for _ in range(5):
             self.add(session(self.repo, "작업", [100, 500, 900], edits=["a.py", "b.py", "c.py", "d.py"], handoff_after=4))
         r = self.scan()
-        self.assertEqual(r["growth"]["counted"], 5)
-        self.assertIsNone(r["growth"]["recommend"])
-        self.assertIn("10개 미만", r["growth"]["reason"])
         self.assertIsNone(r["nudge"]["recommend"])
         self.assertIn("10개 미만", r["nudge"]["reason"])
         self.assertIn("표본 5개", setup_scan.render(r))
 
-    def test_growth_recommends_higher_band_when_cost_stays_late(self):
-        # 모든 세션이 8배까지 크게 분다 — 4배에 닿은 뒤에도 비용 대부분이 남으므로 2배보다 높은 문턱을 권한다
+    def test_context_threshold_is_not_proposed_from_history(self):
+        # 배수 규칙은 11-25 재계산에서 손해 쪽이었다 — 이 사용자 기록이 크게 불어도 맥락 문턱은 제안하지 않고 기본값과 출처만 보인다
         for _ in range(12):
             self.add(session(self.repo, "작업", [100] + [800] * 30))
-        g = self.scan()["growth"]
-        self.assertEqual((g["counted"], g["uncounted"]), (12, 0))
-        self.assertEqual(g["quartiles"], [8.0, 8.0, 8.0])
-        self.assertEqual(g["recommend"], "4,5")
-        self.assertTrue(all(c["reach"] == 1.0 for c in g["candidates"]))
+        r = self.scan()
+        self.assertNotIn("growth", r)
+        out = setup_scan.render(r)
+        self.assertIn("1) 맥락 문턱 BATON_SPLIT_TOKENS (기본 250000,450000 — 호출 맥락 토큰)", out)
+        self.assertIn("2026-11-25 재계산에서 정한 값이다 — 만든 사람 한 명의 대화 50개", out)
+        self.assertIn("  제안 없음 (지금 적용 값 250000,450000 — 코드 기본값)", out)
+        for gone in ("재계산 절감", "사분위", "배 —", "예전 배수 규칙"):
+            self.assertNotIn(gone, out)
 
-    def test_growth_short_sessions_keep_default_and_missing_usage_uncounted(self):
-        for _ in range(11):
-            self.add(session(self.repo, "작업", [100, 110, 120]))
-        self.add(session(self.repo, "작업", [0, 100]))
-        g = self.scan()["growth"]
-        self.assertEqual((g["counted"], g["uncounted"]), (11, 1))
-        self.assertIsNone(g["recommend"])
-        self.assertIn("남지 않는다", g["reason"])
+    def test_small_window_compactions_are_pointed_out(self):
+        # 리뷰 11-25: 20만 창은 25만 전에 자동 압축된다 — 첫 문턱을 넘은 대화가 없고 그 전에 압축된 대화가 있으면 한 줄로 알린다
+        for _ in range(3):
+            self.add(session(self.repo, "작업", [100000, 150000, 190000, 60000, 120000]))
+        self.add(session(self.repo, "작업", [100000, 120000]))
+        r = self.scan()
+        self.assertEqual({k: r["window"][k] for k in ("band", "counted", "passed", "compacted")},
+                         {"band": 250000, "counted": 4, "passed": 0, "compacted": 3})
+        line = "  이 저장소 대화 4개 중 25만 토큰을 넘은 대화가 없고 3개는 그 전에 압축됐다(맥락이 40% 넘게 줄어듦)"
+        self.assertIn(line, setup_scan.render(r))
+        self.assertIn("apply --set BATON_SPLIT_TOKENS=<값>으로 낮출 수는 있지만, 그 크기에서 새로 시작하는 쪽이 더 싼지는 재지 않았다"
+                      "(100만 토큰 창 기록에서 15만은 대개 손해였다)", setup_scan.render(r))  # 낮추라고 권하지 않는다(리뷰 11-25)
+        with mock.patch.dict(os.environ, {"BATON_SPLIT_TOKENS": "150000"}):  # 이미 낮췄으면(첫 문턱을 넘은 대화가 있으면) 말하지 않는다
+            self.assertNotIn("압축됐다", setup_scan.render(self.scan()))
+        with mock.patch.dict(os.environ, {"BATON_SPLIT_RATIOS": "2,3"}):  # 배수 규칙이면 이 줄은 없다
+            self.assertIsNone(self.scan()["window"])
+        self.add(session(self.repo, "작업", [100000, 260000]))  # 한 번이라도 넘었으면 창이 작다고 하지 않는다
+        self.assertNotIn("압축됐다", setup_scan.render(self.scan()))
+
+    def test_split_value_in_effect_names_the_rule_that_applies(self):
+        # 기본은 토큰 문턱(11-25). 배수만 직접 정한 사람은 배수 값이, 둘 다 정했으면 토큰 값이 지금 적용 값이다
+        self.assertIn("(지금 적용 값 250000,450000 — 코드 기본값)", setup_scan.render(self.scan()))
+        with mock.patch.dict(os.environ, {"BATON_SPLIT_RATIOS": "2.5,3.5"}):
+            out = setup_scan.render(self.scan())
+            self.assertIn("(지금 적용 값 2.5,3.5 — 설정 파일·환경변수에서. 그대로 둔다)", out)
+            self.assertIn("예전 배수 규칙(BATON_SPLIT_RATIOS, 첫 호출의 몇 배)이 적용된다. 토큰 기본값으로 돌아가려면 "
+                          "apply --unset BATON_SPLIT_RATIOS", out)
+            with mock.patch.dict(os.environ, {"BATON_SPLIT_TOKENS": "300000"}):
+                out = setup_scan.render(self.scan())
+                self.assertIn("(지금 적용 값 300000 — 설정 파일·환경변수에서. 그대로 둔다)", out)
+                self.assertNotIn("예전 배수 규칙", out)
+        with mock.patch.dict(os.environ, {"BATON_SPLIT_RATIOS": "abc"}):  # 훅이 받지 않는 배수 값 — 훅처럼 토큰 기본값으로 본다(리뷰 11-25)
+            out = setup_scan.render(self.scan())
+            self.assertIn("  제안 없음 (지금 적용 값 250000,450000 — 코드 기본값)", out)
+            self.assertNotIn("예전 배수 규칙", out)
 
     def test_nudge_boundary_and_handoff_names(self):
         for _ in range(4):
@@ -201,7 +228,7 @@ class ScanTest(ScanFixture):
         before = snap()
         r = self.scan()
         setup_scan.render(r)
-        self.assertEqual((r["growth"]["counted"], r["nudge"]["counted"]), (3, 3))  # 세는 길을 실제로 탔다
+        self.assertEqual(r["nudge"]["counted"], 3)  # 세는 길을 실제로 탔다
         self.assertEqual(snap(), before)  # 설정·캐시·관찰 로그·저장소 어디에도 안 쓴다
 
 
@@ -436,10 +463,21 @@ class EnglishScanTest(ScanFixture):
         self.assertIn("Sample of 0: fewer than 10", out)
         self.assertIn("Session logs: 0 session files for this repo's folder → 0 usable sessions", out)
         self.assertIn("Not \"no candidates\" but too small a sample", out)
-        self.assertIn("Proposal: no change — no sessions counted, so the default stays (value in effect now: 2,3, the code default)", out)
+        self.assertIn("1) Context thresholds BATON_SPLIT_TOKENS (default 250000,450000, context tokens per call)\n"
+                      "  Set by the 2026-11-25 recount: an estimate from one person's 50 sessions", out)
+        self.assertIn("  No proposal (value in effect now: 250000,450000, the code default)", out)
         self.assertIn("not a git repo: the handoff promotion review (/promote)", out)
         self.assertIn("Output language: en (source: the BATON_LANG environment variable)", out)
         self.assertIn("Codex sessions are not counted", out)
+
+    def test_small_window_line_in_english(self):
+        for _ in range(2):
+            self.add(session(self.repo, "work", [100000, 190000, 60000]))
+        out = self.english(setup_scan.render(self.scan()))
+        self.assertIn("  None of the 2 sessions in this repo passed 250K tokens, and 2 were compacted before that (context "
+                      "dropped by more than 40%), so with a small context window (such as 200K) this rule doesn't fire. You can "
+                      "lower it with apply --set BATON_SPLIT_TOKENS=<value>, but whether starting fresh is cheaper at that size "
+                      "wasn't measured (in the 1M-window sessions, 150K was usually a loss)", out)
 
     def test_full_report(self):
         g = lambda *a: subprocess.run(["git", "-C", self.repo, *a], capture_output=True, text=True, check=True)
@@ -453,7 +491,8 @@ class EnglishScanTest(ScanFixture):
         self.add(session("/elsewhere/ProjX", "x", [1]), project="p2")
         r = self.scan()
         out = self.english(setup_scan.render(r))
-        self.assertIn("Proposal: 4,5 — ", out)
+        self.assertIn("  No proposal (value in effect now: 250000,450000, the code default)", out)  # 크게 부는 기록이어도
+        self.assertNotIn("recomputed saving", out)
         self.assertIn("files edited 5 or more: sessions 6 · wrote a handoff 0 (0%)", out)
         self.assertIn("HANDOFF.md: edits 6", out)
         self.assertIn("'yesterday' — first prompts of such sessions: 3 · other prompts it also matches: 9", out)
