@@ -494,9 +494,10 @@ class BashHandoffCheckTest(unittest.TestCase):
         with open(self.transcript, "w", encoding="utf-8") as f:
             f.write(stamp(prompt("시작"), start) + "\n")
 
-    def bash(self, command=PY_WRITE, sid="s1", **kw):
-        return self.run_hook({"hook_event_name": "PostToolUse", "tool_name": "Bash", "session_id": sid, "cwd": self.root,
-                              "tool_input": {"command": command}, "transcript_path": self.transcript}, **kw)
+    def bash(self, command=PY_WRITE, sid="s1", tool_use_id=None, event="PostToolUse", **kw):
+        payload = {"hook_event_name": event, "tool_name": "Bash", "session_id": sid, "cwd": self.root,
+                   "tool_input": {"command": command}, "transcript_path": self.transcript}
+        return self.run_hook(dict(payload, **({"tool_use_id": tool_use_id} if tool_use_id else {})), **kw)
 
     def at(self, path, t):
         os.utime(path, (t, t))
@@ -505,6 +506,17 @@ class BashHandoffCheckTest(unittest.TestCase):
     def memory(self, path, sid="s1"):
         with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(self.root, "cache")}):
             return load_hook().seen(sid, path)
+
+    def bash_ts(self, sid="s1"):
+        """sid 대화가 저장소 루트 HANDOFF.md를 Bash로 쓴 것을 검사한 시각(<해시>.bash_ts) 또는 None."""
+        with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(self.root, "cache"), "CLAUDE_PROJECT_DIR": self.root}):
+            return load_hook().bash_write_ts(sid, self.root)
+
+    def call(self, tid, t):
+        """세션 기록에 tid 도구 호출(Bash)을 시작한 assistant 줄을 t초 시각으로 붙인다 — 훅이 이 호출의 시작을 찾는 줄."""
+        line = json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tid, "name": "Bash", "input": {}}]}})
+        with open(self.transcript, "a", encoding="utf-8") as f:
+            f.write(stamp(line, t) + "\n")
 
     def test_bash_written_handoff_is_checked_like_an_edit(self):
         # 11-25 실사용: python heredoc 쓰기 약 74번이 저장 검사를 피했다(상한 넘은 인계서 커밋 9번, 필수 절 빠진 커밋 1번)
@@ -516,10 +528,10 @@ class BashHandoffCheckTest(unittest.TestCase):
         self.assertTrue(out["reason"].endswith(BASH_NOTE), out["reason"])  # 도구 이름은 쓰지 않는다(Codex는 apply_patch)
         self.assertIsNone(self.bash("cat HANDOFF.md"))  # 내용이 그대로면 다시 검사하지 않는다
         self.handoff(GOOD)
-        self.assertEqual(self.passed(self.bash("python3 fix_handoff.py")),
+        self.assertEqual(self.passed(self.bash()),
                          BASH_HEAD + f"검사 통과({len(GOOD.splitlines())}줄·{len(GOOD):,}자)." + BASH_NOTE)
         self.assertEqual([(e["event"], e.get("tool")) for e in self.events()], [("handoff_check", "Bash")] * 2)
-        self.assertLess(abs(self.memory(p)["bash_write_ts"] - time.time()), 60)  # Stop이 인계서 쓰기로 센다
+        self.assertLess(abs(self.bash_ts() - time.time()), 60)  # Stop이 인계서 쓰기로 센다
         en = self.bash(sid="e", extra_env={"BATON_LANG": "en"})  # 새 대화, 시작 뒤에 바뀐 파일
         self.assertEqual(en["hookSpecificOutput"]["additionalContext"],
                          f"[baton] HANDOFF.md had changed after this Bash call. Check passed ({len(GOOD.splitlines())} lines, "
@@ -539,11 +551,76 @@ class BashHandoffCheckTest(unittest.TestCase):
         for cmd in ("git checkout old", "git stash pop", "git pull --ff-only", "ls"):
             with self.subTest(cmd=cmd):
                 self.assertIsNone(self.bash(cmd))
-        self.assertIsNone(self.bash("cat HANDOFF.md"))  # 바뀐 내용은 이미 기억했다 — handoff를 말해도 다시 막지 않는다
+        self.assertIsNone(self.bash("cat HANDOFF.md"))  # 바뀐 내용은 이미 기억했다 — 인계서를 말해도 다시 막지 않는다
+        # 리뷰 11-26: 낱말 handoff만 봤더니 baton 저장소 Bash 명령의 37%가 걸렸다 — 인계서 파일 이름(…handoff….md)을 말할 때만 본다
+        self.handoff("# Session Handoff\n- 바뀜\n")
+        for cmd in ("python3 -m unittest hooks/test_handoff_check_hook.py", "git commit -m 'handoff: notes'", "python3 lib/handoff_check.py"):
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(self.bash(cmd))
         self.assertEqual(self.events(), [])
-        self.assertNotIn("bash_write_ts", self.memory(p))  # Stop도 인계서를 쓴 것으로 치지 않는다
-        self.handoff("# Session Handoff\n- 다른 창이 고침\n")  # handoff를 말한 호출 뒤에 바뀌어 있었으면 검사한다 — 그렇다고 그대로 말한다
-        self.assertTrue(self.bash("git add HANDOFF.md")["reason"].startswith(BASH_HEAD))
+        self.assertIsNone(self.bash_ts())  # Stop도 인계서를 쓴 것으로 치지 않는다
+        # 리뷰 11-26: 다른 창·사람이 고친 뒤 처음 인계서를 말한 호출(cat HANDOFF.md)이 막고 Bash 쓰기 시각을 남겼다 — 이 호출이 시작되기
+        # 전에 바뀐 파일(mtime < 이 호출의 assistant 줄 시각)이면 기억만 한다
+        self.at(self.handoff("# Session Handoff\n- 다른 창이 고침\n"), 3000)
+        self.call("toolu_after", 3005)
+        self.assertIsNone(self.bash("cat HANDOFF.md", tool_use_id="toolu_after"))
+        self.assertEqual(self.events(), [])
+        self.assertIsNone(self.bash_ts())
+        self.at(self.handoff("# Session Handoff\n- 이 호출이 씀\n"), 4010)  # 이 호출 중에 바뀌었다 — 검사하고, 그렇다고 그대로 말한다
+        self.call("toolu_during", 4000)
+        self.assertTrue(self.bash(tool_use_id="toolu_during")["reason"].startswith(BASH_HEAD))
+        self.assertIsNotNone(self.bash_ts())
+
+    def test_failed_bash_call_is_checked_too(self):
+        # 리뷰 11-26(sim5): 인계서를 쓰고 0이 아닌 코드로 끝난 Bash(쓴 뒤 python 예외, 실패한 && git commit, pre-commit 훅, 검사기의 1)는
+        # PostToolUseFailure로만 온다 — 다음 Bash의 빠른 길이 새 내용을 조용히 기억해 검사도 Bash 쓰기 시각도 없었다
+        import json as _json
+        with open(os.path.join(HERE, "hooks.json"), encoding="utf-8") as f:
+            reg = _json.load(f)["hooks"]["PostToolUseFailure"]
+        self.assertEqual([(m["matcher"], h["command"]) for m in reg for h in m["hooks"]],
+                         [("Bash", 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/handoff-check.py"')])
+        self.session(1000)
+        self.at(self.handoff("# Session Handoff\n"), 2000)
+        out = self.bash(PY_WRITE + " && git commit -m h -- HANDOFF.md", event="PostToolUseFailure")
+        self.assertEqual(out["decision"], "block")  # 문서의 결정 표: PostToolUseFailure도 top-level decision "block"·reason을 받는다
+        self.assertTrue(out["reason"].startswith(BASH_HEAD), out["reason"])
+        self.assertIsNotNone(self.bash_ts())
+        self.assertEqual(self.events()[-1].get("failed_call"), True)
+        self.handoff(GOOD.replace("- 없음\n", "- 표시 없는 주장\n", 1))
+        ctx = self.bash(event="PostToolUseFailure")["hookSpecificOutput"]  # 경고는 그 이벤트 이름의 additionalContext로
+        self.assertEqual(ctx["hookEventName"], "PostToolUseFailure")
+        self.assertIn("[V]", ctx["additionalContext"])
+        self.handoff("# Session Handoff\n- 또 바꿈\n")
+        self.assertIsNone(self.bash("ls", event="PostToolUseFailure"))  # 실패한 호출도 빠른 길은 같다 — 말하지 않았으면 기억만
+
+    def test_old_session_memories_are_pruned_at_stop(self):
+        # 리뷰 11-26: handoff-seen/<sid>/가 대화마다 하나씩 쌓였다 — 30일 넘게 안 건드린 대화 폴더는 Stop이 지운다
+        base = os.path.join(self.root, "cache", "baton", "handoff-seen")
+        old, new, odd = os.path.join(base, "old-sid"), os.path.join(base, "new-sid"), os.path.join(base, "not a sid")
+        for d in (old, new, odd):
+            os.makedirs(d)
+            with open(os.path.join(d, "x.json"), "w") as f:
+                f.write("{}")
+        stale = time.time() - 31 * 86400
+        for d in (old, odd):
+            os.utime(d, (stale, stale))
+        self.run_hook({"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript})
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(new))
+        self.assertTrue(os.path.exists(odd))  # 세션 id 모양이 아닌 것은 건드리지 않는다
+
+    def test_bash_write_time_survives_an_overlapping_remember(self):
+        # 리뷰 11-26: 기억 파일을 읽고-고쳐-쓰는 동안 겹친 Bash 훅(서브에이전트의 Bash)이 옛 내용으로 덮으면 bash_write_ts가 사라졌다
+        self.session(1000)
+        p = self.at(self.handoff("# Session Handoff\n"), 2000)
+        self.assertEqual(self.bash()["decision"], "block")
+        ts = self.bash_ts()
+        self.assertIsNotNone(ts)
+        hook = load_hook()
+        with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(self.root, "cache")}), \
+                mock.patch.object(hook, "seen", return_value={}):  # 겹친 훅이 읽어 둔 옛 기억(시각 없음)
+            hook.remember("s1", p, "# Session Handoff\n")
+        self.assertEqual(self.bash_ts(), ts)
 
     def test_bash_check_skips_what_was_already_seen(self):
         self.session(1000)
@@ -651,9 +728,9 @@ class BashHandoffCheckTest(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 hook.on_stop({"session_id": "s1", "hook_event_name": "Stop"})
             self.assertTrue(hook.block_once("s1"))
-            # 리뷰 11-26: 끊긴 턴은 Stop이 없다 — 사람 프롬프트(UserPromptSubmit)가 표지를 지운다. 작업 알림은 지우지 않는다
+            # 리뷰 11-26: 끊긴 턴은 Stop이 없다 — 프롬프트(UserPromptSubmit)가 표지를 지운다. 작업 알림이 연 턴도(다시 리뷰 11-26)
             inject = os.path.join(HERE, "handoff-inject.py")
-            for text, cleared in (("<task-notification>끝남</task-notification>", False), ("이것 좀 고쳐 줘", True)):
+            for text, cleared in (("<task-notification>끝남</task-notification>", True), ("이것 좀 고쳐 줘", True)):
                 with self.subTest(prompt=text):
                     self.assertFalse(hook.block_once("s1"))
                     r = subprocess.run([sys.executable, inject], input=json.dumps({"prompt": text, "session_id": "s1"}), text=True,
@@ -683,9 +760,10 @@ class StopSeesBashHandoffTest(unittest.TestCase):
                              extra_env=env)
 
     def mark(self, t, sid="s1"):
-        """sid 대화가 t초에 Bash로 쓴 인계서를 검사했다고 남긴다(check_handoff가 쓰는 그 함수로)."""
+        """sid 대화가 t초에 Bash로 쓴 인계서를 검사했다고 남긴다(check_handoff가 쓰는 그 파일로)."""
         with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(self.root, "cache")}):
-            self.assertTrue(load_hook().remember(sid, self.handoff(GOOD), GOOD, bash_write_ts=t))
+            hook, path = load_hook(), self.handoff(GOOD)
+            self.assertTrue(hook.write_state(hook.seen_file(sid, path, ".bash_ts"), repr(t)))
 
     def test_python_handoff_write_then_commit_is_not_asked_again(self):
         # 11-25 재돌림: python으로 쓰고 커밋한 그 턴 끝에 다시 "인계서 써라"가 나왔다(파일 수·맥락 둘 다)
@@ -780,15 +858,16 @@ class BashWritesTest(unittest.TestCase):
                      isMeta=True, hookText="[baton] 이 세션에서 인계서를 마지막으로 쓴 뒤 파일 3개를 고쳤다"),
                 user('Another Claude session sent a message:\n<agent-message from="a1">끝났어</agent-message>', isMeta=True,
                      origin={"kind": "peer"}),
-                user("<task-notification><task-id>b1</task-id></task-notification>", isMeta=True, origin={"kind": "task-notification"}),
-                user("사람이 다시", origin={"kind": "human"})]
+                user("<task-notification><task-id>b1</task-id><tool-use-id>toolu_9</tool-use-id></task-notification>", isMeta=True,
+                     origin={"kind": "task-notification"}),
+                user("사람이 다시 <tool-use-id>toolu_x</tool-use-id>", origin={"kind": "human"})]
         with tempfile.TemporaryDirectory() as d:
             tr = os.path.join(d, "s.jsonl")
             with open(tr, "w", encoding="utf-8") as f:
                 f.write("\n".join(rows) + "\n")
-            self.assertEqual(list(self.hook.transcript_events(tr)),
-                             [("prompt", False, None)] * 3 + [("prompt", True, 1000.0), ("prompt", True, None), ("prompt", True, None),
-                                                              ("prompt", False, None)])
+            self.assertEqual(list(self.hook.transcript_events(tr)),  # 기계가 보낸 프롬프트만 본문의 <tool-use-id>를 낸다
+                             [("prompt", (), None)] * 3 + [("prompt", (), 1000.0), ("prompt", (), None), ("prompt", ("toolu_9",), None),
+                                                           ("prompt", (), None)])
 
     def test_work_counting_has_a_deadline_and_stop_falls_back_to_edits(self):
         import contextlib, io, tempfile, time

@@ -11,12 +11,15 @@
 #   빠진 줄은 git HEAD의 HANDOFF.md와 비교한다(lib/handoff_check.py drop_warnings). 미추적·이력 없음이면 아무 말도 안 한다.
 #   출력은 OUT_MAX자에서 자른다(Claude Code 훅 출력 상한 10,000자 — 넘으면 파일로 빠진다, hooks/handoff-inject.py 머리 주석).
 #   상한(줄·글자)을 넘은 채 줄여 가는 편집은 막지 않는다: 이 대화의 직전 검사보다 짧아졌으면 크기 문제를 경고로 낮추고, 크기로 막는 것은
-#   턴에 한 번(Stop과 사람 프롬프트가 표지를 지운다). 11-25 실사용: 상한 넘은 동안 줄이는 편집 18번이 6묶음으로 막혔다(331→54자로 줄인 편집도).
-# PostToolUse(Bash): Bash(python heredoc 등)로 쓴 HANDOFF.md도 같은 검사를 받는다(11-25 실사용: 인계서 쓰기 약 74번이 Bash였고, 상한 넘은
-#   인계서가 9번 커밋됐다). 셸은 해석하지 않는다 — 명령이 handoff를 말했고, 저장소 루트 HANDOFF.md의 내용 해시가 이 대화에서 마지막으로
-#   검사한(또는 본) 것과 다를 때만 "이 Bash 호출 뒤 바뀌어 있었다"며 검사한다. 말하지 않은 호출 뒤의 변화(git checkout·pull·stash, 다른 창,
-#   사람의 편집)는 기억만 한다(리뷰 11-26). 그런 호출은 설정·검사 모듈을 불러오지 않는 빠른 길로 끝난다(quiet_bash). 실측(11-26, 이 기계,
-#   20번 중앙값): Bash 한 번에 67ms → 46ms, 빈 python3 실행이 30ms — 남은 몫은 이 스크립트 컴파일(약 6ms, 스크립트는 .pyc가 없다)과
+#   턴에 한 번(Stop과 모든 프롬프트가 표지를 지운다). 11-25 실사용: 상한 넘은 동안 줄이는 편집 18번이 6묶음으로 막혔다(331→54자로 줄인 편집도).
+# PostToolUse·PostToolUseFailure(Bash): Bash(python heredoc 등)로 쓴 HANDOFF.md도 같은 검사를 받는다(11-25 실사용: 인계서 쓰기 약 74번이
+#   Bash였고, 상한 넘은 인계서가 9번 커밋됐다). 0이 아닌 코드로 끝난 호출(쓴 뒤 실패한 커밋 등)은 PostToolUseFailure로만 온다 — 문서
+#   https://code.claude.com/docs/en/hooks(2026-11-26 확인)의 결정 표가 이 이벤트도 top-level decision "block"·reason을 받는다고 적어 같은 출력을
+#   쓴다(그 이벤트 절은 additionalContext만 적는다 — 경고·통과는 hookEventName "PostToolUseFailure"의 additionalContext). 셸은 해석하지 않는다 —
+#   명령이 인계서 파일 이름(MENTION)을 말했고, 저장소 루트 HANDOFF.md의 내용 해시가 이 대화에서 마지막으로 검사한(또는 본) 것과 다르고,
+#   그 변화가 이 호출 중에 생겼을 때만(call_start) "이 Bash 호출 뒤 바뀌어 있었다"며 검사한다. 말하지 않은 호출 뒤의 변화(git checkout·pull·
+#   stash)와 호출 전에 다른 창·사람이 고친 것은 기억만 한다(리뷰 11-26). 말하지 않은 호출은 설정·검사 모듈을 불러오지 않는 빠른 길로 끝난다(quiet_bash). 실측(11-26, 이 기계,
+#   20번 중앙값): Bash 한 번에 67ms → 43ms, 빈 python3 실행이 30ms — 남은 몫은 이 스크립트 컴파일(약 6ms, 스크립트는 .pyc가 없다)과
 #   hashlib import(약 4ms). 무거운 모듈을 안 부르는지는 hooks/test_handoff_check_hook.py test_bash_fast_path_skips_heavy_modules가 지킨다.
 #   스킬은 HANDOFF.md를 편집 도구로 고치게 한다 — Bash로 쓴 것은 쓴 뒤에야 검사된다.
 # Stop: 이 세션이 마지막으로 인계서(HANDOFF.md 또는 HANDOFF_*.md)를 쓴 뒤 다른 파일을 N개(기본 3) 이상 고쳤으면, 세션에 한 번
@@ -54,17 +57,20 @@ PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PLUGIN, "lib"))
 import runlog  # 가볍다(설정 모듈은 runlog.append 안에서 부른다) — 아래 Bash 빠른 길(quiet_bash)은 이것만 쓴다
 
-MENTION = re.compile(r"(?i)handoff")  # Bash 명령이 인계서를 말하나 — 말했을 때만 그 뒤 바뀐 HANDOFF.md를 검사한다(리뷰 11-26)
+# Bash 명령이 인계서 파일을 말하나(HANDOFF.md·HANDOFF_트랙.md·handoff-x.md) — 말했을 때만 그 뒤 바뀐 HANDOFF.md를 검사한다. 낱말 handoff만
+# 보던 것은 너무 넓었다(리뷰 11-26: baton 저장소 실제 Bash 명령의 37%가 handoff_check·테스트 이름으로 걸렸다)
+MENTION = re.compile(r"(?i)handoff[\w-]*\.md")
+BASH_EVENTS = ("PostToolUse", "PostToolUseFailure")  # 0이 아닌 코드로 끝난 Bash는 PostToolUseFailure로만 온다(리뷰 11-26: 쓰고 실패한 호출)
 
 
-def seen_file(sid, path):
-    """대화·파일별 저장 검사 기억 <캐시>/baton/handoff-seen/<sid>/<실제 경로 해시>.json — 마지막으로 검사하거나 본 내용의 해시·글자 수·
-    stat과, Bash로 쓴 것을 검사한 시각(bash_write_ts, Stop이 쓴다). 파일마다 따로라 다른 워크트리의 HANDOFF.md를 고쳐도 루트 것의
-    기억과 "직전 검사보다 짧아졌나"가 섞이지 않는다(리뷰 11-26). sid가 이상하면 None.
-    ponytail: 대화마다 작은 폴더가 남는다(split/<sid>.json·handoff-nudge/<sid>처럼 정리 안 함). 많아지면 오래된 것부터 지운다."""
+def seen_file(sid, path, ext=".json"):
+    """대화·파일별 저장 검사 기억 <캐시>/baton/handoff-seen/<sid>/<실제 경로 해시>.json — 마지막으로 검사하거나 본 내용의 해시·글자 수·stat.
+    ext=".bash_ts"는 Bash로 쓴 것을 검사한 시각(Stop이 쓴다) — 따로 둬서 겹친 Bash 훅의 읽고-고쳐-쓰기가 지우지 않게(리뷰 11-26).
+    파일마다 따로라 다른 워크트리의 HANDOFF.md를 고쳐도 루트 것의 기억과 "직전 검사보다 짧아졌나"가 섞이지 않는다. sid가 이상하면 None.
+    30일 넘게 안 건드린 대화 폴더는 Stop이 지운다(prune_seen)."""
     d = runlog.session_dir("handoff-seen", sid)
     real = os.path.realpath(path).encode("utf-8", "surrogateescape")
-    return os.path.join(d, hashlib.sha1(real).hexdigest()[:16] + ".json") if d else None
+    return os.path.join(d, hashlib.sha1(real).hexdigest()[:16] + ext) if d else None
 
 
 def seen(sid, path):
@@ -81,36 +87,41 @@ def text_sha(text):
     return hashlib.sha1(text.encode("utf-8", "surrogatepass")).hexdigest()[:16]
 
 
-def remember(sid, path, text, **extra):
-    """path의 지금 내용(text)을 이 대화가 마지막으로 본 것으로 남긴다. extra(bash_write_ts)는 더하고, 앞서 남긴 bash_write_ts는 그대로 둔다.
-    남겼으면 True. 못 남기면 False — Bash 경로는 그때 검사하지 않는다(기억 없이 검사하면 Bash마다 같은 내용을 다시 막는다, 리뷰 11-26)."""
-    p = seen_file(sid, path)
+def write_state(p, body):
+    """상태 파일 하나를 임시 파일에 쓴 뒤 바꿔치기한다(폴더 700·파일 600). 썼으면 True."""
     if not p:
         return False
     try:
-        st = os.stat(path)
-        rec = {k: v for k, v in seen(sid, path).items() if k == "bash_write_ts"}
-        rec.update(sha=text_sha(text), chars=len(text), stat=[st.st_size, st.st_mtime_ns], **extra)
         os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
         tmp = f"{p}.{os.getpid()}.tmp"
         with os.fdopen(os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
-            json.dump(rec, f)
+            f.write(body)
         os.replace(tmp, p)
         return True
     except OSError:
         return False
 
 
+def remember(sid, path, text):
+    """path의 지금 내용(text)을 이 대화가 마지막으로 본 것으로 남긴다. 남겼으면 True. 못 남기면 False — Bash 경로는 그때 검사하지 않는다
+    (기억 없이 검사하면 Bash마다 같은 내용을 다시 막는다, 리뷰 11-26)."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return write_state(seen_file(sid, path), json.dumps({"sha": text_sha(text), "chars": len(text), "stat": [st.st_size, st.st_mtime_ns]}))
+
+
 def quiet_bash(data):
-    """Bash 빠른 길 — 맡았으면 True. 명령이 handoff를 말하지 않으면 검사하지 않고, 저장소 루트 HANDOFF.md가 바뀌었으면 새 내용을 조용히
+    """Bash 빠른 길(PostToolUse·PostToolUseFailure) — 맡았으면 True. 명령이 인계서 파일을 말하지 않으면 검사하지 않고, 저장소 루트 HANDOFF.md가 바뀌었으면 새 내용을 조용히
     기억만 한다: git checkout·pull·stash, 다른 창, 사람이 고친 것을 "이 Bash 호출 뒤 바뀌었다"로 막지 않으려고(리뷰 11-26).
     stat이 기억과 같으면 파일도 읽지 않는다. 설정·검사 모듈을 불러오지 않는다(Bash 뒤마다 돈다 — 리뷰 11-26 실측은 머리말).
     저장소 루트는 CLAUDE_PROJECT_DIR만 본다 — 없으면(Codex) 느린 길(on_bash)이 git으로 찾는다.
-    ponytail: handoff를 말하지 않는 스크립트가 HANDOFF.md를 쓰면(python3 gen.py) 검사하지 않는다. BATON_HANDOFF_CHECK=off여도 기억은 남긴다."""
+    ponytail: 인계서 파일을 말하지 않는 스크립트가 HANDOFF.md를 쓰면(python3 gen.py) 검사하지 않는다. BATON_HANDOFF_CHECK=off여도 기억은 남긴다."""
     ti = data.get("tool_input")
     cmd = ti.get("command") if isinstance(ti, dict) else None
     root = os.environ.get("CLAUDE_PROJECT_DIR")
-    if data.get("hook_event_name") != "PostToolUse" or data.get("tool_name") != "Bash" or not isinstance(cmd, str) \
+    if data.get("hook_event_name") not in BASH_EVENTS or data.get("tool_name") != "Bash" or not isinstance(cmd, str) \
             or MENTION.search(cmd) or not root:
         return False
     sid, path = data.get("session_id"), os.path.join(root, "HANDOFF.md")
@@ -192,6 +203,23 @@ def blocked_file(sid):
     return os.path.join(d, "blocked") if d else None
 
 
+def prune_seen(days=30):
+    """days일 넘게 안 건드린 대화의 저장 검사 기억 폴더(handoff-seen/<sid>)를 지운다 — 대화마다 폴더가 하나씩 남는다(리뷰 11-26,
+    drift 캐시가 오래된 파일을 지우는 것과 같은 방식). Stop마다 돈다(폴더 목록 한 번). 실패는 넘긴다."""
+    import shutil  # Stop에서만 — Bash 빠른 길이 불러오지 않게
+    base, cut = os.path.join(runlog.cache_dir(), "handoff-seen"), time.time() - days * 86400
+    try:
+        entries = list(os.scandir(base))
+    except OSError:
+        return
+    for e in entries:
+        try:
+            if runlog.SID.fullmatch(e.name) and e.is_dir(follow_symlinks=False) and e.stat(follow_symlinks=False).st_mtime < cut:
+                shutil.rmtree(e.path, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def block_once(sid):
     """이번 턴에 크기 때문에 처음 막는가. 표지 파일을 O_EXCL로 만든 쪽만 참이다 — 동시에 저장한 편집 셋이 셋 다 막지 않게.
     sid가 이상하거나 캐시에 못 쓰면 참(예전처럼 막는다)."""
@@ -239,10 +267,40 @@ def session_start(path, lines=50):
     return None
 
 
+CALL_TAIL = 1 << 20  # 이 호출의 시작 시각을 찾을 때 읽는 세션 기록 끝(바이트)
+
+
+def call_start(path, tool_use_id):
+    """이 도구 호출이 시작된 때(초) — 세션 기록 끝 CALL_TAIL바이트에서 그 tool_use id를 담은 assistant 줄의 timestamp. 못 찾으면 None."""
+    if not isinstance(tool_use_id, str) or not tool_use_id:
+        return None
+    from candidates import when
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, os.fstat(f.fileno()).st_size - CALL_TAIL))
+            lines = f.read().split(b"\n")
+    except (OSError, TypeError):
+        return None
+    needle = tool_use_id.encode("utf-8", "surrogatepass")
+    for ln in reversed(lines):
+        if needle not in ln:
+            continue
+        try:
+            d = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and any(tid == tool_use_id for _, _, tid in tool_blocks(d)):
+            t = when(d.get("timestamp"))
+            return t.timestamp() if t else None
+    return None
+
+
 def on_bash(data):
-    """PostToolUse(Bash) 느린 길 — 명령이 handoff를 말했거나 CLAUDE_PROJECT_DIR가 없을 때(quiet_bash가 넘긴 것). 저장소 루트 HANDOFF.md의
-    내용이 이 대화에서 마지막으로 검사한(또는 본) 것과 다르면: 명령이 handoff를 말했으면 편집 도구와 같은 검사를 돌리고, 아니면 기억만 한다.
-    셸 명령은 해석하지 않는다. 이 대화에서 처음 보는 파일은 대화가 시작된 뒤에 바뀌었을 때만 검사한다.
+    """PostToolUse·PostToolUseFailure(Bash) 느린 길 — 명령이 인계서 파일을 말했거나 CLAUDE_PROJECT_DIR가 없을 때(quiet_bash가 넘긴 것).
+    저장소 루트 HANDOFF.md의 내용이 이 대화에서 마지막으로 검사한(또는 본) 것과 다르면: 명령이 인계서 파일을 말했고 그 변화가 이 호출 중에
+    생겼으면 편집 도구와 같은 검사를 돌리고, 아니면 기억만 한다. 이 호출 중인지는 파일 mtime과 이 호출의 시작(call_start)을 견준다 —
+    호출 전에 다른 창이나 사람이 고친 것을 "이 Bash 호출 뒤 바뀌었다"로 막지 않으려고(리뷰 11-26). 시작을 못 찾으면 명령이 말했는지만 본다.
+    처음 보는 파일은 그때 대화가 시작된 뒤에 바뀌었을 때만 검사한다. 셸 명령은 해석하지 않는다.
     ponytail: 저장소 루트의 HANDOFF.md만 본다. 같은 호출 안의 쓰기와 커밋(python … && git commit)은 커밋한 뒤에야 검사된다.
     대화 시작은 세션 기록 첫 줄들의 timestamp — 못 읽으면 처음 본 파일은 검사하지 않는다. 같은 대화의 Bash 둘이 동시에 끝나면 같은 내용을
     두 번 검사할 수 있다."""
@@ -262,8 +320,11 @@ def on_bash(data):
         return
     ti = data.get("tool_input")
     said = isinstance(ti, dict) and isinstance(ti.get("command"), str) and bool(MENTION.search(ti["command"]))
-    start = session_start(data.get("transcript_path")) if said and "sha" not in prev else None
-    if not said or ("sha" not in prev and (start is None or mtime < start)):  # 말하지 않았거나, 대화 전부터 그대로인 파일 — 기억만
+    start = call_start(data.get("transcript_path"), data.get("tool_use_id")) if said else None
+    if start is None and said and "sha" not in prev:
+        start = session_start(data.get("transcript_path"))
+        start = start if start is not None else float("inf")  # 대화 시작도 모르면 처음 본 파일은 기억만
+    if not said or (start is not None and mtime < start):  # 말하지 않았거나, 이 호출(또는 대화) 전에 바뀐 파일 — 기억만
         remember(sid, path, text)
         return
     check_handoff(path, data, t0, text=text, bash=True)
@@ -272,7 +333,7 @@ def on_bash(data):
 def check_handoff(path, data, t0, text=None, bash=False):
     """HANDOFF.md 하나를 검사해 모델에게 돌려준다(막기·경고·통과 한 줄). 편집 도구(on_edit)와 Bash(on_bash)가 같이 쓴다.
     검사한 내용은 이 대화·이 파일의 기억에 남긴다(remember). bash면 쓰기를 본 것이 아니라 호출 뒤에 바뀐 것을 본 것이라 그대로 말하고
-    (리뷰 11-26), 그 시각을 bash_write_ts로 남긴다(Stop이 인계서 쓰기로 센다). 그 기억을 못 남기면 아무 말도 하지 않는다 — 한 번만이라는
+    (리뷰 11-26), 그 시각을 <해시>.bash_ts로 남긴다(Stop이 인계서 쓰기로 센다). 그 기억을 못 남기면 아무 말도 하지 않는다 — 한 번만이라는
     약속을 못 지키면 말하지 않는다(split.mark·version_notice와 같은 규칙)."""
     repo = repo_of(os.path.dirname(path) or None)
     if off("BATON_HANDOFF_CHECK", repo):
@@ -287,8 +348,10 @@ def check_handoff(path, data, t0, text=None, bash=False):
         return
     sid = data.get("session_id")
     prev = seen(sid, path)
-    if not remember(sid, path, text, **({"bash_write_ts": time.time()} if bash else {})) and bash:
+    if not remember(sid, path, text) and bash:
         return
+    if bash:  # Stop이 인계서 쓰기로 센다(bash_write_ts). 못 남기면 그 시각만 빠진다
+        write_state(seen_file(sid, path, ".bash_ts"), repr(time.time()))
     # 상한을 넘은 채 줄여 가는 편집(머리 주석): 직전 검사보다 짧아졌거나 이번 턴에 이미 크기로 막았으면 크기 문제만 경고로 낮춘다.
     # 비밀값·필수 절 같은 다른 문제는 그대로 막는다
     size = handoff_check.size_problems(text, lang, terms)
@@ -332,21 +395,23 @@ def check_handoff(path, data, t0, text=None, bash=False):
                 t("[baton] 방금 쓴 HANDOFF.md 검사 경고(막지 않음):\n- ",
                   "[baton] Handoff-check warnings for the HANDOFF.md you just wrote (not blocking):\n- "),
                 t("[baton] HANDOFF.md 검사 통과({n}줄·{c}자).", "[baton] HANDOFF.md check passed ({n} lines, {c} chars)."))
+    event = data.get("hook_event_name") if data.get("hook_event_name") in BASH_EVENTS else "PostToolUse"  # 출력은 받은 이벤트 이름으로
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": "handoff_check",
            "session_id": data.get("session_id"), "problems": len(problems), "warnings": len(warned)}
-    rec.update({"tool": "Bash"} if bash else {}, **({"softened": len(soft)} if soft else {}))
+    rec.update({"tool": "Bash"} if bash else {}, **({"softened": len(soft)} if soft else {}),
+               **({"failed_call": True} if event == "PostToolUseFailure" else {}))
     runlog.append(rec)
     if problems:
         reason = lead[0] + "\n- ".join(problems + warned) + ("\n" + note if note else "")
         print(json.dumps({"decision": "block", "reason": capped(reason, t)}, ensure_ascii=False))
     elif warned:  # 경고만이면 막지 않는다 — 맥락에 알리기만 한다(Codex도 이 JSON 모양만 받는다)
         ctx = lead[1] + "\n- ".join(warned) + ("\n" + note if note else "")
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": capped(ctx, t)}},
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": capped(ctx, t)}},
                          ensure_ascii=False))
     else:  # 통과도 한 줄로 알린다(머리 주석). 못 돈 검사가 있으면 통과라고 하지 않는다
         ctx = lead[2].format(n=len(text.splitlines()), c=f"{len(text):,}") if not partial else ""
         ctx = "\n".join(x for x in (ctx, note) if x)
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ctx}}, ensure_ascii=False))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}, ensure_ascii=False))
 
 def capped(text, t):
     """OUT_MAX자를 넘으면 자르고 잘랐다고 한 줄 붙인다. 나머지는 검사기를 직접 돌려 본다."""
@@ -368,15 +433,17 @@ def tool_blocks(d):
 
 
 MACHINE_ORIGINS = ("peer", "task-notification")  # 기록 줄의 origin.kind — 다른 세션 메시지·작업 알림(isMeta여도 턴을 연다)
+TOOL_USE_ID = re.compile(r"<tool-use-id>\s*([\w-]+)\s*</tool-use-id>")  # 끝난 뒤 작업의 알림이 담는 그 작업의 tool_use id
 
 
 def transcript_events(path):
     """세션 기록을 한 번 읽는다 — ("tool", 사이드체인인가, 이름, 입력, tool_use id, 시각), ("agent", tool_use id, agentId, 시각),
-    ("prompt", 기계가 보낸 것인가, 시각). 시각은 그 줄의 timestamp(초) 또는 None. tool_use는 assistant 줄에서만, 결과(tool_result)는
+    ("prompt", 알림이 가리키는 tool_use id들, 시각). 시각은 그 줄의 timestamp(초) 또는 None. tool_use는 assistant 줄에서만, 결과(tool_result)는
     user 줄에서만 본다. agentId는 Agent·Task 결과 줄의 toolUseResult에 있고, 그 서브에이전트 기록은 <세션>/subagents/agent-<agentId>.jsonl이다.
     "prompt"는 메인 스레드에서 턴을 여는 줄이다(candidates.human_text와 같은 규칙: 글이거나 text 블록만, 압축 요약·사이드체인 줄은 아님).
     메타 줄(Stop 훅 피드백 등)은 턴을 열지 않는다 — 단 origin.kind가 다른 세션 메시지(peer)·작업 알림(task-notification)이면 연다.
-    그런 줄과 본문이 <task-notification>·<agent-message>로 시작하는 줄(rules.machine_prompt)은 기계가 보낸 것으로 표시한다."""
+    그런 줄과 본문이 <task-notification>·<agent-message>로 시작하는 줄(rules.machine_prompt)이면 본문의 <tool-use-id>를 함께 낸다
+    (사람이 친 프롬프트는 빈 묶음)."""
     from candidates import human_text, when
     with open(path, encoding="utf-8", errors="ignore") as f:
         for ln in f:
@@ -395,7 +462,8 @@ def transcript_events(path):
             text = human_text(content) if d.get("type") == "user" else None
             if text is not None and not (d.get("isSidechain") or d.get("isCompactSummary")) \
                     and (not d.get("isMeta") or origin in MACHINE_ORIGINS):
-                yield "prompt", origin in MACHINE_ORIGINS or rules.machine_prompt(text), ts
+                machine = origin in MACHINE_ORIGINS or rules.machine_prompt(text)
+                yield "prompt", tuple(TOOL_USE_ID.findall(text)) if machine else (), ts
                 continue
             for name, inp, tid in tool_blocks(d):
                 yield "tool", bool(d.get("isSidechain")), name, inp, tid, ts
@@ -566,19 +634,22 @@ def work_since_handoff(path, deadline=None, written=None):
     - Agent·Task 호출: 그 서브에이전트가 실제로 고쳤을 때만 — 기록(<세션>/subagents/agent-<id>.jsonl)에 편집이나 쓰기가 있나 본다.
       ponytail: 기록을 못 찾거나 깨졌으면(결과가 아직 없음·옛 형식·읽히는 줄 0개) 메인 기록의 사이드체인 줄에 쓰기가 있으면 일로 세고, 없으면 종류로 가른다 —
       읽기만 하는 종류(read_only_agent)는 안 세고 나머지는 센다. 서브에이전트가 또 맡긴 일은 따라가지 않는다.
-      뒤에서 도는 위임(run_in_background)은 작업 알림·다른 세션 메시지가 연 턴마다 다시 본다 — ponytail: 어느 알림이 어느 위임 것인지는
-      가리지 않아, 끝나 고친 위임은 그 뒤의 알림 턴에도 일로 센다(문턱마다 한 번이라 다시 묻지는 않는다)."""
+      뒤에서 도는 위임(run_in_background)은 그 위임의 tool_use id를 <tool-use-id>에 담은 작업 알림이 연 턴에서 한 번 다시 본다.
+      인계서를 쓰면 기다리던 위임도 넘긴 것으로 친다. ponytail: <tool-use-id>가 없는 알림 형식이면 뒤 위임의 일은 세지 못한다."""
     work, agents, side, ids, background = [], [], False, {}, {}
     for ev in with_handoff_mark(transcript_events(path), written):
         if deadline is not None and time.monotonic() > deadline:
             return None
         if ev[0] == "prompt":
-            # 턴이 바뀌었다. 작업 알림·다른 세션 메시지가 연 턴이면 뒤에서 돌던(run_in_background) 위임을 이 턴에 다시 본다 — 그 일이 끝났다고
-            # 알리는 턴이다(리뷰 11-26: 알림 턴에서 서브에이전트가 고친 것을 버렸다, 1.0.1은 셌다)
-            work, side, agents = [], False, list(background.items()) if ev[1] else []
+            # 턴이 바뀌었다. 작업 알림이 연 턴이면 그 알림의 <tool-use-id>가 가리키는 뒤 위임(run_in_background)만 이 턴에 다시 보고 기다림에서
+            # 뺀다 — 그 일이 끝났다고 알리는 턴이다(리뷰 11-26: 알림 턴에서 서브에이전트가 고친 것을 버렸다, 1.0.1은 셌다. 다른 알림·다른 세션
+            # 메시지는 위임을 다시 불러오지 않는다)
+            work, side = [], False
+            agents = [(t, background.pop(t)) for t in ev[1] if t in background]
             continue
         if ev[0] == "handoff":
             work, agents, side = [], [], False
+            background.clear()  # 인계서를 쓰면 그 앞의 위임은 넘긴 것으로 친다(리뷰 11-26)
             continue
         if ev[0] == "agent":
             ids[ev[1]] = ev[2]
@@ -589,6 +660,7 @@ def work_since_handoff(path, deadline=None, written=None):
             side = side or writes or handoff  # 옛 형식: 서브에이전트 줄이 메인 기록에 섞여 있다
         elif handoff:
             work, agents, side = [], [], False
+            background.clear()
         elif writes:
             work.append(inp.get("file_path") or inp.get("notebook_path") or "Bash")
         elif name in AGENT_TOOLS:
@@ -717,6 +789,7 @@ def on_stop(data):
             os.remove(p)
         except OSError:
             pass
+    prune_seen()
     cwd = data["cwd"] if isinstance(data.get("cwd"), str) else None
     repo = repo_of(cwd)
     split = split_mod() if not off("BATON_SPLIT_NOTICE", repo) else None
@@ -790,12 +863,12 @@ def on_stop(data):
 
 
 def bash_write_ts(sid, cwd):
-    """저장소 루트 HANDOFF.md를 Bash로 쓴 것을 저장 검사가 마지막으로 검사한 시각(초, check_handoff가 남긴다). 없으면 None."""
+    """저장소 루트 HANDOFF.md를 Bash로 쓴 것을 저장 검사가 마지막으로 검사한 시각(초, check_handoff가 <해시>.bash_ts에 남긴다). 없으면 None."""
     try:
-        t = seen(sid, os.path.join(rules.repo_root(cwd), "HANDOFF.md")).get("bash_write_ts")
-    except (OSError, TypeError):
+        with open(seen_file(sid, os.path.join(rules.repo_root(cwd), "HANDOFF.md"), ".bash_ts"), encoding="utf-8") as f:
+            return float(f.read())
+    except (OSError, TypeError, ValueError):
         return None
-    return t if isinstance(t, (int, float)) and not isinstance(t, bool) else None
 
 
 def ours_or_absent(cwd):
@@ -812,8 +885,10 @@ def main(data):
         return
     event = data.get("hook_event_name")
     try:
-        if event == "PostToolUse":
-            (on_bash if data.get("tool_name") == "Bash" else on_edit)(data)
+        if event in BASH_EVENTS and data.get("tool_name") == "Bash":
+            on_bash(data)
+        elif event == "PostToolUse":
+            on_edit(data)
         elif event == "Stop":
             on_stop(data)
     except Exception:
