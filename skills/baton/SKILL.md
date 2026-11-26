@@ -162,6 +162,9 @@ claims the next action depends on. The writer has three jobs.
   spending money). If there is nothing for the owner, write "None".
 - **Add how each verified fact was checked** (command, file, date), so the reader can check it again the same way.
 
+**Change `HANDOFF.md` with your file-editing tool — not through Bash** (a python heredoc, `cat >`, `sed -i`): a Bash
+write is checked only afterwards, by the hook that runs after a Bash call that names a handoff file.
+
 **After saving, look for a `[baton] HANDOFF.md` check line.** On Claude Code, saving with `Write`/`Edit` makes a hook
 run the checker and add one line to your context: "check passed (N lines, M chars)" (Korean: "검사 통과"), or the
 problems and warnings. If such a line appeared, **do not run the checker yourself**; fix only what it reported, then
@@ -173,7 +176,9 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py HANDOFF.md
 ```
 
 It checks the 8 required sections, 200 lines, 8,700 characters (including the must-read line, which goes in twice),
-code blocks over 20 lines, full diffs, secrets and absolute home paths. If a list item under "Verified facts and
+code blocks over 20 lines, full diffs, secrets and absolute home paths. Over 8,700 characters, it says how many to cut and
+names the two largest sections; while the file is over a limit, a save that makes it shorter than the last check only
+warns, and a size problem blocks at most once per turn. If a list item under "Verified facts and
 decisions" ("확인된 사실과 결정" in the Korean template) has no [V] or [?] mark, it warns without blocking. It also warns,
 without blocking, about lines dropped since the last committed version and about more than 3 must-read marks.
 Codex's `apply_patch` gives the hook no path, so no check line appears there; run the checker yourself.
@@ -215,11 +220,15 @@ Then:
 - End the turn with the one line to the user that the request gives you, word for word.
 
 The same hook also asks once when the context of a model call passes 250K tokens and again at 450K
-(`BATON_SPLIT_TOKENS`, `BATON_SPLIT_NOTICE`), but only if there was work since the handoff was last written: a file
+(`BATON_SPLIT_TOKENS`, `BATON_SPLIT_NOTICE`), but only at the end of a turn that did work after the handoff was last
+written (a turn that only asked or read is not stopped; the threshold waits for the next turn that does work): a file
 edited with `Write`/`Edit`, an `Agent`/`Task` call whose subagent edited or wrote files (read-only kinds such as
 Explore don't count when its record can't be found), or a Bash command that clearly writes a file (`sed -i`, a
 `>`/`>>` redirect to a path outside temp folders, `tee`, `mv`, `cp`, `git mv`). A Bash command that writes
-`HANDOFF.md` counts as writing the handoff. With no work it waits for a later Stop. It also doesn't ask when the new
+`HANDOFF.md` counts as writing the handoff, and so does a Bash call that names a handoff file and during which the repo-root
+`HANDOFF.md` changed (so a write inside a python heredoc counts too). A turn starts at a human prompt, a message from
+another session or a task notification (Stop hook feedback stays in the same turn); a background subagent's edits count
+once, in the turn opened by its completion notification (matched by `<tool-use-id>`). It also doesn't ask when the new
 conversation would start almost as large (the context is not yet 24K tokens past the first call; also under the ratio
 rule). Then the line tells the user the handoff was saved; from 250K up it adds that, by a recount of the author's
 sessions, a new conversation is usually cheaper from this size on (below 250K it makes no cost claim). The 250K and

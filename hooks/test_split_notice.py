@@ -153,7 +153,8 @@ class SplitNoticeTest(unittest.TestCase):
 
     def test_long_transcript_reads_tail_only(self):
         # 512KB 넘는 기록: 끝에서 잘린 한글 멀티바이트 줄을 버리고 마지막 호출을 읽는다
-        pad = json.dumps({"type": "user", "message": {"content": "가" * 3000}}, ensure_ascii=False)
+        # 채움 줄은 모델의 긴 답(사용량 없음) — 사람 프롬프트로 채우면 턴이 바뀌어 이번 턴에 한 일이 없어진다(1.0.2)
+        pad = json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "가" * 3000}]}}, ensure_ascii=False)
         self.write([call(40000), WORK] + [pad] * 300 + [call(260000)])
         self.assertGreater(os.path.getsize(self.transcript), 512 * 1024)
         self.assertIn("(4만 → 26만 토큰)", self.message(self.run_hook()))
@@ -164,6 +165,11 @@ class SplitNoticeTest(unittest.TestCase):
         self.assertIsNotNone(self.message(self.run_hook()))
         self.write([call(40000), WORK, call(260000), call(30000), call(270000)])
         self.assertIsNone(self.message(self.run_hook()))
+        # 한 번에 두 문턱을 넘어 높은 쪽(45만)만 알렸으면, 압축 뒤 25만~45만에서 낮은 문턱을 다시 묻지 않는다(11-25 노트)
+        self.write([call(40000), WORK, call(460000)])
+        self.assertIn("45만 토큰을 넘었어요", self.message(self.run_hook(sid="jump")))
+        self.write([call(40000), WORK, call(460000), call(30000), WORK, call(300000)])
+        self.assertIsNone(self.message(self.run_hook(sid="jump")))
 
     def test_unwritable_state_means_no_notice(self):
         # 한 번만 알린다는 약속을 못 지키면 알리지 않는다 — 상태 폴더 자리에 파일을 둬서 쓰기를 막는다
@@ -282,6 +288,108 @@ class AutoSplitTest(unittest.TestCase):
         self.assertIn("25만 토큰을 넘었다(7만 6천 → 26만 5천 토큰)", out["reason"])
         self.assertNotIn("파일 1개를 고쳤다", out["reason"])  # 파일 수 까닭(기본 3개)은 그대로
         self.assertEqual([e["mode"] for e in self.events()], ["ask"])
+
+    def background(self, tid, agent_id, edits):
+        """뒤에서 도는 위임(run_in_background) 한 번: 메인 기록의 Agent 호출 줄과 async_launched 결과 줄. 서브에이전트 기록에는 edits."""
+        call_line = json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tid, "name": "Agent", "input": {
+            "prompt": "x", "subagent_type": "oh-my-claudecode:executor", "run_in_background": True}}]}})
+        result = json.dumps({"type": "user", "toolUseResult": {"agentId": agent_id, "status": "async_launched"},
+                             "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "content": "launched"}]}})
+        d = os.path.join(os.path.splitext(self.transcript)[0], "subagents")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"agent-{agent_id}.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "isSidechain": True, "message": {"content": "task"}}) + "\n")
+            for name, inp in edits:
+                f.write(json.dumps({"type": "assistant", "isSidechain": True,
+                                    "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}) + "\n")
+        return [call_line, result]
+
+    def note(self, tid, plain=True):
+        """끝난 뒤 작업의 알림(완료 알림은 그 작업의 tool_use id를 <tool-use-id>에 담는다 — 리뷰 11-26, 실제 기록 표본 16개 전부)."""
+        text = f"<task-notification><task-id>x</task-id><tool-use-id>{tid}</tool-use-id><status>completed</status></task-notification>"
+        if plain:
+            return prompt(text)
+        return json.dumps({"type": "user", "isMeta": True, "origin": {"kind": "task-notification"}, "message": {"content": text}})
+
+    def test_background_subagent_work_counts_at_its_notification_turn(self):
+        # 리뷰 11-26(sim2): 작업 알림이 연 턴에서 뒤에서 돈 서브에이전트가 고친 것을 버렸다(1.0.1은 셌다) — 그 위임의 알림 턴에서 다시 본다
+        r = self.root
+        for i, plain in enumerate((True, False)):
+            with self.subTest(plain=plain):
+                launch = [call(40000), prompt("고쳐 줘(백그라운드로)")] + self.background("t1", "abc", [("Edit", {"file_path": f"{r}/a.py"})])
+                self.write(launch + [call(100000), prompt("그동안 이건 뭐야?"), call(120000), self.note("t1", plain), call(260000)])
+                out = self.run_auto(sid=f"bg{i}")
+                self.assertIsNotNone(out)
+                self.assertIn("25만 토큰을 넘었다", out["reason"])
+        reads = self.background("t2", "rd", [("Read", {"file_path": f"{r}/a.py"})])  # 읽기만 한 위임 — 알림 턴에도 일이 아니다
+        self.write([call(40000), prompt("찾아 줘(백그라운드로)")] + reads + [call(100000), self.note("t2"), call(260000)])
+        self.assertIsNone(self.run_auto(sid="bg-read"))
+        self.write([call(40000), prompt("고쳐 줘(백그라운드로)")] + self.background("t3", "bg3", [("Edit", {"file_path": f"{r}/a.py"})])
+                   + [call(100000), prompt("이건 뭐야?"), call(260000)])  # 사람이 연 질문 턴에는 세지 않는다(알림이 와야 센다)
+        self.assertIsNone(self.run_auto(sid="bg-human"))
+
+    def test_only_the_notified_delegation_is_rechecked_once(self):
+        # 리뷰 11-26(sim_old_bg): 끝난 뒤 위임을 잊지 않아, 인계서를 쓴 뒤의 다른 알림 턴(뒤 Bash 끝남, 일 없음, 26만)에서 다시 세어 막았다
+        r = self.root
+        bg = self.background("t1", "abc", [("Edit", {"file_path": f"{r}/a.py"})])
+        h = edit(os.path.join(r, "HANDOFF.md"))
+        bash_bg = json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t9", "name": "Bash", "input": {
+            "command": "python3 -m unittest", "run_in_background": True}}]}})
+        self.write([call(40000), prompt("뒤에서 고쳐 줘")] + bg + [self.note("t1"), call(100000), prompt("인계서 써 줘"), h, call(120000),
+                                                                prompt("테스트 뒤에서 돌려 줘"), bash_bg, call(130000), self.note("t9"),
+                                                                call(260000)])
+        self.assertIsNone(self.run_auto(sid="old-bg"))  # 1.0.2 초안은 여기서 막았다
+        self.assertEqual(self.events(), [])
+        # 다른 작업의 알림·다른 세션 메시지·Monitor 줄은 기다리던 위임을 다시 불러오지 않는다 — 그 위임의 알림 턴에서 한 번만
+        peer = json.dumps({"type": "user", "isMeta": True, "origin": {"kind": "peer"},
+                           "message": {"content": 'Another Claude session sent a message:\n<agent-message from="a1">끝</agent-message>'}})
+        monitor = prompt("<task-notification><event>log line</event></task-notification>")
+        head = [call(40000), prompt("뒤에서 고쳐 줘")] + bg + [call(100000)]
+        for k, other in enumerate((self.note("t9"), peer, monitor)):
+            with self.subTest(other=k):
+                self.write(head + [other, call(260000)])
+                self.assertIsNone(self.run_auto(sid=f"other{k}"))
+        self.write(head + [peer, call(200000), self.note("t1"), call(260000)])
+        self.assertIsNotNone(self.run_auto(sid="mine"))  # 그 위임의 알림이 연 턴에는 센다
+        self.write(head + [self.note("t1"), call(200000), self.note("t1"), call(260000)])
+        self.assertIsNone(self.run_auto(sid="twice"))  # 한 번 본 위임은 기다림에서 빠진다 — 같은 알림이 또 와도 다시 세지 않는다
+        self.write([call(40000), prompt("뒤에서 고쳐 줘")] + bg + [call(100000), prompt("인계서 써 줘"), h, call(120000), self.note("t1"),
+                                                                call(260000)])
+        self.assertIsNone(self.run_auto(sid="after-handoff"))  # 인계서를 쓰면 기다리던 위임도 넘긴 것으로 친다
+
+    def test_peer_message_starts_a_turn_and_stop_feedback_does_not(self):
+        # 리뷰 11-26: 다른 세션 메시지(isMeta, origin.kind peer)는 턴을 여는데 열지 않는 것으로 읽었다. Stop 훅 피드백 줄은 턴을 열지 않는다
+        peer = json.dumps({"type": "user", "isMeta": True, "origin": {"kind": "peer"},
+                           "message": {"content": 'Another Claude session sent a message:\n<agent-message from="a1">끝</agent-message>'}})
+        self.write([call(40000), WORK, call(100000), peer, call(260000)])
+        self.assertIsNone(self.run_auto(sid="peer"))  # 앞 턴에 한 일은 있지만 메시지에 답한 턴은 아무것도 안 했다
+        self.write([call(40000), WORK, call(100000), peer, call(260000), edit(f"{self.root}/b.py"), call(262000)])
+        self.assertIn("25만 토큰을 넘었다", self.run_auto(sid="peer")["reason"])
+        feedback = json.dumps({"type": "user", "isMeta": True, "hookText": "[baton] …",
+                               "message": {"role": "user", "content": [{"type": "text", "text": "Stop hook feedback:\n[baton] …"}]}})
+        self.write([call(40000), prompt("고쳐 줘"), WORK, call(100000), feedback, call(260000)])
+        self.assertIn("25만 토큰을 넘었다", self.run_auto(sid="fb")["reason"])  # 피드백은 같은 턴이다 — 고친 일이 그대로 남는다
+
+    def test_question_or_read_only_turn_waits_for_a_turn_that_works(self):
+        # 1.0.1 재돌림(대화 6개, Stop 155곳): 막힘 10번 중 5번이 질문·읽기만 한 턴 끝이었다(앞선 턴에 한 일이 있어서).
+        # 소유자 결정 11-26: 이번 턴에 일했을 때만 묻는다. 문턱은 남겨 뒀다가 다음에 일한 턴 끝에 한 번
+        r = self.root
+        tool = lambda name, **inp: json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}})
+        reads = [tool("Read", file_path=f"{r}/a.py"), tool("Bash", command="git log --oneline -3"), tool("Grep", pattern="x"),
+                 tool("Bash", command="python3 x.py > /tmp/o.txt")]
+        for i, turn in enumerate(([prompt("이건 뭐야?")], [prompt("어디 봐 줘")] + reads)):
+            with self.subTest(i=i):
+                self.write([call(40000), WORK, call(100000)] + turn + [call(260000)])
+                self.assertIsNone(self.run_auto(sid=f"q{i}"))
+                self.assertIsNone(self.run_auto(sid=f"n{i}", extra_env={"BATON_HANDOFF_AUTO": "off"}))  # 알림으로도 안 나온다
+        self.assertEqual(self.events(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.root, "cache", "baton", "split", "q0.json")))  # 문턱이 남지 않았다
+        self.write([call(40000), WORK, call(100000), prompt("이건 뭐야?"), call(260000), prompt("그럼 고쳐 줘"), edit(f"{r}/b.py"),
+                    call(262000)])
+        self.assertIn("25만 토큰을 넘었다(4만 → 26만 2천 토큰)", self.run_auto(sid="q0")["reason"])
+        self.assertIsNone(self.run_auto(sid="q0"))
+        self.write([call(40000), edit(f"{r}/a.py"), edit(f"{r}/b.py"), edit(f"{r}/c.py"), prompt("질문만"), call(50000)])
+        self.assertIn("파일 3개를 고쳤다", self.run_auto(sid="f", extra_env={"BATON_SPLIT_NOTICE": "off"})["reason"])  # 파일 수 까닭은 그대로
 
     def test_english_ask(self):
         self.write([call(76000), WORK, call(260000)])

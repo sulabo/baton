@@ -16,7 +16,8 @@ import config
 import i18n
 
 KEYS = ("BATON_HANDOFF_NUDGE_FILES", "BATON_SPLIT_RATIOS", "BATON_SPLIT_TOKENS", "BATON_HANDOFF_TRIGGERS_EXTRA", "BATON_OBSERVE", "BATON_LOG",
-        "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_CHECK", "BATON_SPLIT_NOTICE", "BATON_HANDOFF_INJECT", "CLAUDE_PROJECT_DIR")
+        "BATON_HANDOFF_NUDGE", "BATON_HANDOFF_CHECK", "BATON_SPLIT_NOTICE", "BATON_HANDOFF_INJECT", "BATON_DRIFT_NOTICE",
+        "CLAUDE_PROJECT_DIR")
 
 
 class ConfigFixture(unittest.TestCase):
@@ -236,12 +237,15 @@ class EnglishConfigTest(ConfigFixture):
                                                 "(for example 250000,450000)",
                  ("BATON_HANDOFF_NUDGE_FILES", "0"): "must be a whole number of 1 or more",
                  ("BATON_SPLIT_NOTICE", "of"): "must be one of on/off/1/0/true/false/yes/no",
+                 ("BATON_DRIFT_NOTICE", "of"): "must be one of on/off/1/0/true/false/yes/no",  # 1.0.2: 개념 지도 알림 끄기
                  ("BATON_LANG", "kr"): "must be one of ko, en, auto",
                  ("BATON_LOG", "x"): "must be an absolute path",
                  ("private_terms", "x"): "must be at least two characters long (a single character matches almost any text)",
                  ("BATON_NOPE", "1"): "unknown key"}
         for (k, v), want in cases.items():
             self.assertEqual(config.invalid(k, v), want)
+        self.assertIsNone(config.invalid("BATON_DRIFT_NOTICE", "off"))  # /baton-setup apply가 받는다(SCALAR_KEYS)
+        self.assertIn("BATON_DRIFT_NOTICE", config.SCALAR_KEYS)
         self.assertEqual(config.invalid("BATON_LOG", "x", "ko"), "절대 경로여야 한다")
         self.assertIsNone(config.invalid("BATON_LANG", "EN", "ko"))
 

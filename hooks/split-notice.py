@@ -155,14 +155,16 @@ def user_line(lang, band, by_ratio=False):
 
 def crossed_band(path, repo, sid):
     """(새로 넘은 문턱, 첫 맥락, 마지막 맥락, 배수 규칙인가) 또는 None. 토큰 문턱은 마지막 호출 맥락이 그 값을 넘을 때,
-    배수 문턱은 마지막 ÷ 첫 호출 맥락이 그 값 이상일 때. 마지막이 첫 + MIN_GAIN 이하이거나 이미 알린 문턱(상태 파일)이면 None.
+    배수 문턱은 마지막 ÷ 첫 호출 맥락이 그 값 이상일 때. 마지막이 첫 + MIN_GAIN 이하이거나 그 문턱 또는 더 높은 문턱을 이미 알렸으면
+    (상태 파일) None — 한 번에 25만·45만을 넘어 45만만 알렸으면 압축 뒤 25만~45만에서 25만을 다시 묻지 않는다(11-25 노트).
     상태는 쓰지 않는다 — 부르는 쪽(mark)."""
     first, last = first_and_last(path)
     if not first or not last or last <= first + MIN_GAIN:
         return None
     bs, by_ratio = bands(repo)
     crossed = [b for b in bs if (last / first >= b if by_ratio else last > b)]
-    if not crossed or crossed[-1] in done_bands(sid):
+    done = done_bands(sid)
+    if not crossed or any(b in done for b in bs if b >= crossed[-1]):
         return None
     return crossed[-1], first, last, by_ratio
 

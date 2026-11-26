@@ -91,23 +91,27 @@ else:
 #     ("Concepts: 3 · metadata lines: 0") 울린다
 #  2) 머리 결과 줄(fresh.sh 요약의 재확인 수, check.sh 지적 총수)이 있으면 그것만 본다 — 0이면 울리고, 모두 0이 아니면
 #     나머지 줄의 0(부분 수·표 안 이름 글자)은 세부라 울리지 않는다
-#  3) 머리 결과 줄이 없으면(promote.sh 등) 줄마다 본다. " · "로 나눈 여러 수 요약 줄에서 0이 아닌 수가 옆에 있는 0은 세지 않는다
+#  3) 머리 결과 줄이 없으면(promote.sh 등) 줄마다 본다. " · "로 나눈 여러 수 요약 줄에서 0이 아닌 수가 옆에 있는 0은 세지 않는다.
+#     같은 칸에서 0이 아닌 수 뒤에 오는 맨 "없음"("지적 1건: 정본 없음")도 세지 않는다(11-25)
 # ponytail: promote.sh 목록 줄의 인계서 원문에 "0건"이 있으면 3)에서 울릴 수 있다 — 원문 줄을 구조로 가리려면 promote 출력 형식을 읽어야 한다
 ALWAYS = r"메타 줄 0개|0건이 아니라 못 셌|0건이 아니라 못 셈|metadata lines: 0(?![0-9])|No metadata lines at all|\bnot 0\b"
 HEAD = r"^\s*(?:요약: 재확인|지적 총|Summary: re-check|Total findings:) ?([0-9]+)"
-ZERO = (r"(?<![0-9])0건|없음|재확인 0(?![0-9])"
+ZERO = (r"(?<![0-9])0건|재확인 0(?![0-9])"
         r"|(?i:\bno findings\b|re-check 0(?![0-9])|(?<![0-9])0 (?:commits?|found|dropped)\b|[:→] ?0(?![0-9.,])"
         r"|\(no rejected list\)|\b(?:new decisions|new decision rows|lines|gaps) 0(?![0-9]))")
+NONE = r"없음"  # 맨 "없음"은 칸 안에서 앞에 0이 아닌 수가 없을 때만 0으로 센다(zero_field)
 NONZERO = r"(?<![\w.])[1-9][0-9]*(?![0-9.])"
 # git log --oneline 줄(짧은 해시 + 제목)은 보지 않는다 — 스킬이 promote.sh --brief와 git status·log를 한 호출로 부르는데(11-25),
 # 커밋 제목의 "없음"·"0건"에 울리지 않게. ponytail: 해시처럼 보이는 낱말(a–f 7자 이상)로 시작하는 다른 줄도 건너뛴다(드묾)
 lines = [ln for ln in out.splitlines() if not re.match(r"[0-9a-f]{7,40} ", ln)]
 heads = [int(m.group(1)) for m in (re.match(HEAD, ln) for ln in lines) if m]
+def zero_field(f):
+    """칸 하나가 0을 말하나. "지적 1건: 정본 없음"은 1건을 찾았고 그 내용이 "없음"이다(11-25 실사용) — 앞에 0이 아닌 수가 있는
+    "없음"은 세지 않는다. "지적 없음 (7종 확인)"처럼 수가 뒤에 오면 그대로 0이다."""
+    return bool(re.search(ZERO, f)) or any(not re.search(NONZERO, f[:m.start()]) for m in re.finditer(NONE, f))
 def zero_line(ln):
-    if not re.search(ZERO, ln):
-        return False
     fields = ln.split(" · ")
-    return not any(re.search(ZERO, f) is None and re.search(NONZERO, f) for f in fields)
+    return any(zero_field(f) for f in fields) and not any(not zero_field(f) and re.search(NONZERO, f) for f in fields)
 if any(re.search(ALWAYS, ln) for ln in lines):
     pass
 elif heads:

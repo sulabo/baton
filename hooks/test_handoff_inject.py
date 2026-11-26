@@ -80,6 +80,23 @@ class HandoffInjectTest(unittest.TestCase):
             self.assertIn("다음 행동", r.stdout)  # 사람이 그 태그를 말한 것은 막지 않는다
             self.assertIsNone(self.last_acted(root)["handoff_skip"])
 
+    def test_unreadable_handoff_is_skipped_without_traceback(self):
+        # 11-25 실사용: macOS ~/Documents 접근이 잠깐 막혀 open이 PermissionError — traceback, exit 1이었다
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_inject_hook", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "HANDOFF.md", "다음 행동\n")
+            with mock.patch("builtins.open", side_effect=PermissionError("막힘")):  # root로 돌려도 막히게 프로세스 안에서
+                self.assertEqual(hook.inject_handoff(root, "이어서", {}), ("", None, "unreadable"))
+            p = os.path.join(root, "HANDOFF.md")
+            os.chmod(p, 0)
+            if not os.access(p, os.R_OK):  # 실제 훅 프로세스로도(root는 권한을 무시해 이 부분을 못 본다)
+                r = self.run_hook(root, "이어서 해줘", session_id="s1")
+                self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+                self.assertEqual(self.last_acted(root)["handoff_skip"], "unreadable")
+
     def test_same_session_gets_same_handoff_once(self):
         with tempfile.TemporaryDirectory() as root:
             self.write(root, "HANDOFF.md", "다음 행동\n")
@@ -754,6 +771,73 @@ class EnglishInjectTest(unittest.TestCase):
                 os.environ.pop(k, None)
             self.assertTrue(self.run_hook(root, "이어서", LANG="ko_KR.UTF-8").startswith("[baton] 아래는 이 저장소 HANDOFF.md의 전문이다"))
             self.assertTrue(self.run_hook(root, "이어서", LANG="C.UTF-8").startswith("[baton] Below is this repo's full HANDOFF.md"))
+
+
+class VersionNoticeTest(unittest.TestCase):
+    """1.0.2: 플러그인은 Claude Code를 시작할 때만 읽혀, 오래 연 창은 업데이트 뒤에도 옛 판 훅을 돌린다(11-25 실사용: 한 폴더 대화 30개 중
+    29개가 11-05부터 열린 창의 beta.1). 이 훅의 판이 설치 기록과 다르면 대화에 한 번 사용자에게 알린다. 기록이 없거나 모양이 다르면 조용하다.
+    실제 ~/.claude는 읽지 않는다 — 임시 폴더에 설정 폴더(CLAUDE_CONFIG_DIR)와 그 안의 설치본을 만든다."""
+
+    def setUp(self):
+        import shutil
+        self.tmp = tempfile.TemporaryDirectory()
+        self.claude = os.path.join(self.tmp.name, "claude")
+        self.plugin = os.path.join(self.claude, "plugins", "cache", "baton", "baton", "1.0.1")  # 이 창이 읽은 옛 판
+        os.makedirs(os.path.join(self.plugin, "hooks"))
+        os.makedirs(os.path.join(self.plugin, ".claude-plugin"))
+        shutil.copy(HOOK, os.path.join(self.plugin, "hooks"))
+        os.symlink(os.path.join(os.path.abspath(REPO), "lib"), os.path.join(self.plugin, "lib"))
+        with open(os.path.join(self.plugin, ".claude-plugin", "plugin.json"), "w", encoding="utf-8") as f:
+            json.dump({"name": "baton", "version": "1.0.1"}, f)
+        self.repo = os.path.join(self.tmp.name, "repo")
+        os.makedirs(self.repo)
+        new = os.path.join(self.claude, "plugins", "cache", "baton", "baton", "1.0.2")
+        self.record({"version": 2, "plugins": {"baton@baton": [{"scope": "user", "installPath": new, "version": "1.0.2"}],
+                                               "other@x": [{"version": "9.9.9"}]}})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def record(self, data):
+        with open(os.path.join(self.claude, "plugins", "installed_plugins.json"), "w", encoding="utf-8") as f:
+            f.write(data if isinstance(data, str) else json.dumps(data))
+
+    def hook(self, prompt="고쳐 줘", sid="s1", lang="ko", script=None):
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=self.claude, CLAUDE_PROJECT_DIR=self.repo, BATON_LANG=lang,
+                   XDG_CACHE_HOME=os.path.join(self.tmp.name, "cache"), BATON_LOG=os.path.join(self.tmp.name, "runs.jsonl"))
+        r = subprocess.run([sys.executable, script or os.path.join(self.plugin, "hooks", "handoff-inject.py")],
+                           input=json.dumps({"prompt": prompt, "session_id": sid}), text=True, capture_output=True, env=env)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        return json.loads(r.stdout) if r.stdout.strip() else None
+
+    def test_old_window_is_told_once_per_conversation(self):
+        self.assertEqual(self.hook(), {"systemMessage": "[baton] 이 창의 baton(1.0.1)이 설치된 버전(1.0.2)과 달라요. 설치된 버전을 쓰려면 "
+                                                        "Claude Code를 다시 시작하세요. 이 알림은 한 대화에 한 번만 나와요."})
+        self.assertIsNone(self.hook())  # 같은 대화에 다시 안 나온다
+        self.assertEqual(self.hook(sid="s2", lang="en")["systemMessage"],
+                         "[baton] The baton running in this window (1.0.1) differs from the installed version (1.0.2). Restart "
+                         "Claude Code to use the installed version. You'll see this notice only once per conversation.")
+        self.assertIsNone(self.hook("<task-notification>끝남</task-notification>", sid="s3"))  # 사람이 친 프롬프트에만
+        with open(os.path.join(self.repo, "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write("다음 행동\n")
+        both = self.hook("이어서", sid="s4")  # 인계서와 함께면 한 JSON에 둘 다
+        self.assertIn("다음 행동", both["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("이 창의 baton(1.0.1)", both["systemMessage"])
+        self.record({"plugins": {"baton@baton": {"version": "1.0.3"}}})  # 예전 모양(항목 하나)도 읽는다
+        self.assertIn("설치된 버전(1.0.3)", self.hook(sid="s5")["systemMessage"])
+
+    def test_same_version_missing_or_odd_record_is_silent(self):
+        for i, rec in enumerate(({"version": 2, "plugins": {"baton@baton": [{"version": "1.0.1", "installPath": "/x"}]}},
+                                 {"version": 2, "plugins": {"baton@baton": [{"version": "9", "installPath": self.plugin}]}},
+                                 "{깨진", {"plugins": []}, {"plugins": {"baton@baton": [{"ver": "1.0.2"}]}}, {"x": 1}, [])):
+            with self.subTest(rec=rec):
+                self.record(rec)
+                self.assertIsNone(self.hook(sid=f"q{i}"))
+        os.remove(os.path.join(self.claude, "plugins", "installed_plugins.json"))
+        self.assertIsNone(self.hook(sid="none"))
+        self.record({"version": 2, "plugins": {"baton@baton": [{"version": "1.0.2"}]}})
+        self.assertIsNone(self.hook(sid="dev", script=HOOK))  # plugins 폴더 밖(개발판·Codex)에서 돌면 비교하지 않는다
+        self.assertIsNotNone(self.hook(sid="dev"))
 
 
 if __name__ == "__main__":

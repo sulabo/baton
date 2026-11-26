@@ -74,14 +74,15 @@ def window(sessions, root, lang=None):
     """첫 맥락 문턱(토큰 규칙일 때)을 넘은 대화 수와, 넘지 못한 채 압축된 대화 수(맥락이 앞 호출의 60% 아래로 떨어짐 —
     split_sim.until_compaction). 기본 문턱은 맥락 창 100만 토큰인 대화에서 나왔다 — 20만 창은 25만 전에 압축된다(리뷰 11-25).
     배수 규칙이거나 훅 모듈을 못 불러왔으면 None."""
-    if hc.split is None:
+    split = hc.split_mod()
+    if split is None:
         return None
-    bs, by_ratio = hc.split.bands(root)
+    bs, by_ratio = split.bands(root)
     if by_ratio:
         return None
     rows = [c for c in (split_sim.call_contexts(x["file"]) for x in sessions) if c]
     passed = [max(c) > bs[0] for c in rows]
-    return {"band": bs[0], "label": hc.split.band_label(lang or i18n.lang(root), bs[0]), "counted": len(rows),
+    return {"band": bs[0], "label": split.band_label(lang or i18n.lang(root), bs[0]), "counted": len(rows),
             "passed": sum(passed),
             "compacted": sum(not p and len(split_sim.until_compaction(c)) < len(c) for c, p in zip(rows, passed))}
 
@@ -345,7 +346,7 @@ def scan(root):
         "sessions": {"files": nfiles, "usable": len(sessions), "excluded": skipped},
         "codex": t(CODEX_NOTE, CODEX_NOTE_EN),
         # 배수 규칙인지는 훅과 같은 함수로 정한다(못 쓰는 배수 값은 토큰 기본값 — split-notice.py bands)
-        "ratio_rule": (hc.split.bands(root)[1] if hc.split
+        "ratio_rule": (hc.split_mod().bands(root)[1] if hc.split_mod()
                        else current["BATON_SPLIT_RATIOS"] is not None and current["BATON_SPLIT_TOKENS"] is None),
         "window": window(sessions, root, lang),
         "nudge": nudge(sessions, lang),

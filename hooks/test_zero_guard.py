@@ -159,6 +159,15 @@ class ZeroGuardTest(unittest.TestCase):
         uncounted = out.replace("  올릴 것 없음 · 검토 3일 모두 셈\n", "  못 셈: 반복 실패 형식 불일치 판 3개 — 0건이 아니라 못 셈\n")
         self.assertIsNotNone(run(cmd, stdout=uncounted))  # promote 자기 줄의 못 셈은 그대로 울린다
 
+    def test_none_word_beside_a_nonzero_count_is_silent(self):
+        # 11-25 실사용: "지적 1건: 정본 없음"(1건을 찾았고, 그 내용이 "정본 없음")에 울렸다. 0이 아닌 수가 있는 칸의 맨 "없음"은 0이 아니다
+        for out in ("지적 1건: 정본 없음", "  지적 2건 — 근거 파일 없음 · 끊긴 참조 없음", "[3] 정본 없음"):
+            with self.subTest(out=out):
+                self.assertIsNone(run("bash lib/check.sh CONCEPTS.md", stdout=out))
+        for out in ("지적 0건: 정본 없음", "정본 없음", "  지적 없음 · 0건", "    지적 없음 (7종 확인)"):  # 0 신호, 앞에 수 없는 "없음"은 그대로
+            with self.subTest(out=out):
+                self.assertIsNotNone(run("bash lib/check.sh CONCEPTS.md", stdout=out))
+
     def test_real_zero_result_still_fires(self):
         for out in ("2    0건과 못 셈의 구분   해소됨   신선\n요약: 재확인 0 · 신선 15 · 규칙 개념 0",
                     "2    zero vs none   resolved   fresh\nSummary: re-check 0 · fresh 15 · rule concepts 0",

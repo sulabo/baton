@@ -380,8 +380,9 @@ class EnglishHandoffTest(unittest.TestCase):
                                f"line {n + 3}: looks like a password or key assignment — remove it or write it generically (~/, <key>)"])
         self.assertNotIn(token, "\n".join(out))
         over = GOOD_EN + "a" * (handoff_check.MAX_CHARS + 1 - len(GOOD_EN))
-        self.assertIn("8,701 chars — over the 8,700-char limit (the part past it will not be injected into the next session)",
-                      handoff_check.check(over))
+        self.assertIn("8,701 chars — over the 8,700-char limit (the part past it will not be injected into the next session). "
+                      "Cut 1 more char — largest sections: Promotion candidates (to DECISIONS.md) 8,355 chars, "
+                      "Verification evidence 57 chars", handoff_check.check(over))
         self.assertTrue(any(x.startswith("201 lines — over the 200-line limit")
                             for x in handoff_check.check(GOOD_EN + "-\n" * (201 - GOOD_EN.count("\n")))))
         self.assertTrue(any("the code block at line" in x and "has 25 lines" in x
@@ -675,11 +676,36 @@ class MustReadTest(unittest.TestCase):
         fits = marked + "가" * (handoff_check.MAX_CHARS - extra - len(marked))
         self.assertFalse(any("자 — 상한" in x for x in handoff_check.check(fits)))
         out = handoff_check.check(fits + "가")
-        self.assertTrue(any(x.endswith(f"— 필독 줄 {extra:,}자 포함") for x in out), out)
-        self.assertTrue(any(x.endswith(f"— including the {extra:,}-char must-read line") for x in handoff_check.check(fits + "a", lang="en")))
+        self.assertTrue(any(f"— 필독 줄 {extra:,}자 포함. 1자 더 줄인다 — 큰 절: " in x for x in out), out)
+        self.assertTrue(any(f"— including the {extra:,}-char must-read line. Cut 1 more char" in x
+                            for x in handoff_check.check(fits + "a", lang="en")))
         over = GOOD + "가" * (handoff_check.MAX_CHARS + 1 - len(GOOD))
-        self.assertIn(f"{handoff_check.MAX_CHARS + 1:,}자 — 상한 8,700자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)",
-                      handoff_check.check(over))  # 표시가 없으면 예전 문장 그대로
+        self.assertIn(f"{handoff_check.MAX_CHARS + 1:,}자 — 상한 8,700자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다). "
+                      f"1자 더 줄인다 — 큰 절: 승격 후보 (DECISIONS.md로 올릴 것) 8,472자, 관련 파일·심볼 38자",
+                      handoff_check.check(over))  # 표시가 없으면 필독 몫 없이
+
+    def test_over_limit_says_how_much_and_where(self):
+        # 11-25 실사용: 9,617자 인계서를 줄이는 편집이 막히기만 하고 얼마나·어디를 줄일지는 없었다 — 넘친 양과 큰 절 둘
+        text = GOOD.replace("## 이미 한 변경\n- 없음\n", "## 이미 한 변경\n" + ("- " + "바꿈" * 50 + "\n") * 100 + "\n")
+        line = handoff_check.size_problems(text, "ko")
+        self.assertEqual(line, [f"{len(text):,}자 — 상한 8,700자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다). "
+                                f"{len(text) - 8700:,}자 더 줄인다 — 큰 절: 이미 한 변경 {len('## 이미 한 변경') + 1 + 103 * 100 + 2:,}자, "
+                                f"관련 파일·심볼 38자"])
+        self.assertIn(line[0], handoff_check.check(text))  # check()가 같은 줄을 낸다(저장 훅은 이것으로 크기 문제를 가린다)
+        self.assertEqual(handoff_check.size_problems(GOOD, "ko"), [])
+        # 줄 상한도 얼마나·어디를(리뷰 11-26) — 큰 절은 줄 수로 센다
+        many = GOOD.replace("## 검증 증거\n- 명령: python3 -m unittest\n", "## 검증 증거\n" + "- 확인\n" * 230)
+        self.assertEqual(handoff_check.size_problems(many, "ko"),
+                         [f"{len(many.splitlines())}줄 — 상한 200줄을 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다). "
+                          f"{len(many.splitlines()) - 200}줄 더 줄인다 — 큰 절: 검증 증거 232줄, 목표와 완료 조건 3줄"])
+        self.assertTrue(handoff_check.size_problems(many, "en")[0].endswith(
+            f"Cut {len(many.splitlines()) - 200} more lines — largest sections: 검증 증거 232 lines, 목표와 완료 조건 3 lines"))
+        # 제목에 비밀값·개인 자료 단어가 있으면 이름 대신 줄 번호, 코드 블록 안 제목은 절이 아니다, 40자 넘는 제목은 자른다
+        odd = ("# Session Handoff\n## 홍길동 메모\n" + "가\n" * 3000 + "## /Users/bob 경로\n" + "나\n" * 2000
+               + "## " + "긴" * 50 + "\n```\n## 코드 안\n" + "다\n" * 1000 + "```\n")
+        names = [n for n, _ in handoff_check.biggest_sections(odd, ["홍길동"], "ko", n=3)]
+        self.assertEqual(names, ["2줄의 절", "3003줄의 절", "긴" * 39 + "…"])
+        self.assertNotIn("홍길동", " ".join(handoff_check.size_problems(odd, "ko", ["홍길동"])))
 
 
 class PluginRootTest(unittest.TestCase):
@@ -712,6 +738,27 @@ class PluginRootTest(unittest.TestCase):
                 self.assertIn(pre + " ", body, (rel, pre))  # 본문 명령이 같은 앞머리로 시작한다
             for cmd in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/lib/[\w.]+", body):  # 본문이 부르는 스크립트는 모두 미리 허용된다
                 self.assertTrue(any(cmd in pre for pre in prefixes), (rel, cmd))
+
+
+class DoctorSkillShadowTest(unittest.TestCase):
+    def test_doctor_lists_every_plugin_skill_name(self):
+        # 1.0.2: 같은 이름의 개인 스킬(~/.claude/skills/handoff·ontology)이 플러그인 스킬을 가렸다(11-25 실사용, 9월 사본) —
+        # /baton-doctor의 ls가 플러그인 스킬 이름(SKILL.md의 name:)을 빠짐없이 본다. 스킬 이름을 바꾸면 이 줄도 바꿔야 한다
+        import glob, re
+        root = os.path.dirname(HERE)
+        names = []
+        for p in glob.glob(os.path.join(root, "skills", "*", "SKILL.md")):
+            with open(p, encoding="utf-8") as f:
+                names.append(re.search(r"^name: (\S+)$", f.read(), re.M).group(1))
+        with open(os.path.join(root, "commands", "baton-doctor.md"), encoding="utf-8") as f:
+            doctor = f.read()
+        line = re.search(r'^ls -d "\$\{CLAUDE_CONFIG_DIR:-\$HOME/\.claude\}"/skills/\{([^}]*)\} 2>/dev/null', doctor, re.M)
+        self.assertTrue(line, "doctor has no personal-skill check")
+        self.assertEqual(sorted(line.group(1).split(",")), sorted(names))
+        self.assertIn("handoff", names)
+        self.assertIn("ontology", names)
+        for n in names:
+            self.assertIn(f"`{n}`", doctor.split(line.group(0), 1)[1])  # 경고 문장이 이름을 말한다
 
 
 class SkillCostRulesTest(unittest.TestCase):

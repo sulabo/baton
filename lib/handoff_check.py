@@ -167,23 +167,67 @@ def check(text, strict=True, private_terms=(), lang=None):
         i = 2 if names_lang(lines, heads, lang) == "ko" else 3
         out.insert(0, t("필수 절 없음: ", "missing required sections: ") + ", ".join(s[i] for s in missing))
 
-    if len(lines) > MAX_LINES:
-        out.append(t(f"{len(lines)}줄 — 상한 {MAX_LINES}줄을 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)",
-                     f"{len(lines)} lines — over the {MAX_LINES}-line limit (the part past it will not be injected into "
-                     f"the next session)"))
-    # 필독 줄은 주입 머리말에 한 번 더 들어간다 — 그 몫까지 상한에 센다(통과한 인계서는 늘 전부 들어간다는 약속, HookOutputBudgetTest)
-    extra = max(len(must_read_line(text, "ko")), len(must_read_line(text, "en")))
-    size = len(text) + (extra + 1 if extra else 0)
-    if size > MAX_CHARS:
-        out.append(t(f"{size:,}자 — 상한 {MAX_CHARS:,}자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)"
-                     + (f" — 필독 줄 {extra + 1:,}자 포함" if extra else ""),
-                     f"{size:,} chars — over the {MAX_CHARS:,}-char limit (the part past it will not be injected into "
-                     f"the next session)" + (f" — including the {extra + 1:,}-char must-read line" if extra else "")))
+    out += size_problems(text, lang, private_terms)
     if diff_lines:
         out.append(t(f"전체 diff로 보이는 줄 {len(diff_lines)}개(첫 줄 {diff_lines[0]}) — 바뀐 파일과 동작 변화만 적는다",
                      f"{len(diff_lines)} lines look like a full diff (first at line {diff_lines[0]}) — write only the "
                      f"changed files and the change in behavior"))
     return out
+
+
+def size_problems(text, lang=None, private_terms=()):
+    """길이 상한(MAX_LINES줄·MAX_CHARS자)을 넘은 문제 줄 — check()의 일부. 저장 훅은 상한을 넘은 채 줄여 가는 편집에서 이 줄만
+    막지 않고 경고로 낮춘다(hooks/handoff-check.py). 두 줄 다 얼마나 더 줄여야 하는지와 큰 절(최대 2개, 줄 상한은 줄 수로·글자 상한은
+    글자 수로)을 붙인다 — 11-25 실사용: 상한 넘은 인계서를 줄이는 편집이 18번 막혔는데 어디를 얼마나 줄일지는 적혀 있지 않았다."""
+    t = tr(lang)
+    lines, out = text.splitlines(), []
+    if len(lines) > MAX_LINES:
+        over = len(lines) - MAX_LINES
+        big = ", ".join(t(f"{name} {n:,}줄", f"{name} {n:,} lines") for name, n in biggest_sections(text, private_terms, lang, lines=True))
+        out.append(t(f"{len(lines)}줄 — 상한 {MAX_LINES}줄을 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다). {over:,}줄 더 줄인다"
+                     + (f" — 큰 절: {big}" if big else ""),
+                     f"{len(lines)} lines — over the {MAX_LINES}-line limit (the part past it will not be injected into "
+                     f"the next session). Cut {over:,} more line{'' if over == 1 else 's'}" + (f" — largest sections: {big}" if big else "")))
+    # 필독 줄은 주입 머리말에 한 번 더 들어간다 — 그 몫까지 상한에 센다(통과한 인계서는 늘 전부 들어간다는 약속, HookOutputBudgetTest)
+    extra = max(len(must_read_line(text, "ko")), len(must_read_line(text, "en")))
+    size = len(text) + (extra + 1 if extra else 0)
+    if size > MAX_CHARS:
+        big = ", ".join(t(f"{name} {n:,}자", f"{name} {n:,} chars") for name, n in biggest_sections(text, private_terms, lang))
+        out.append(t(f"{size:,}자 — 상한 {MAX_CHARS:,}자를 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다)"
+                     + (f" — 필독 줄 {extra + 1:,}자 포함" if extra else "")
+                     + f". {size - MAX_CHARS:,}자 더 줄인다" + (f" — 큰 절: {big}" if big else ""),
+                     f"{size:,} chars — over the {MAX_CHARS:,}-char limit (the part past it will not be injected into "
+                     f"the next session)" + (f" — including the {extra + 1:,}-char must-read line" if extra else "")
+                     + f". Cut {size - MAX_CHARS:,} more char{'' if size - MAX_CHARS == 1 else 's'}"
+                     + (f" — largest sections: {big}" if big else "")))
+    return out
+
+
+def biggest_sections(text, private_terms=(), lang=None, n=2, lines=False):
+    """큰 절 n개 [(이름, 글자 수 — lines면 줄 수)], 큰 순. 절은 ## 제목 줄부터 다음 ##·# 제목 앞까지(### 하위 절은 안에 센다, 코드 블록 안 제목은
+    절이 아니다). 이름은 제목 글 그대로(40자에서 자름) — 제목에 비밀값·개인 자료 단어가 있으면 이름 대신 "N줄의 절"."""
+    t, terms = tr(lang), term_pattern(private_terms)
+    secs, cur, fence = [], None, None
+    for i, ln in enumerate(text.splitlines(keepends=True), 1):
+        f, body = FENCE.match(ln.rstrip("\n")), ln.rstrip("\n")
+        if fence is None and f:
+            fence = (f.group(1)[0], len(f.group(1)))
+        elif fence is None and DEPTH.match(body) and len(DEPTH.match(body).group(1)) <= 2:
+            cur = None
+            h = HEADING.match(body)
+            if h and len(DEPTH.match(body).group(1)) == 2:
+                name = h.group(1).strip().strip("*").strip()
+                if any(pat.search(body) for _, pat in SECRETS) or (terms and terms.search(unicodedata.normalize("NFC", body))):
+                    name = t(f"{i}줄의 절", f"the section at line {i}")
+                cur = [name if len(name) <= 40 else name[:39] + "…", 0, 0]
+                secs.append(cur)
+        elif fence is not None and f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
+            fence = None
+        if cur is not None:
+            cur[1] += len(ln)
+            cur[2] += 1
+    k = 2 if lines else 1
+    return [(x[0], x[k]) for x in sorted(secs, key=lambda x: -x[k])[:n]]
 
 
 def is_ours(lines, heads, strict):
