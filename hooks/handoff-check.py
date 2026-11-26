@@ -14,8 +14,8 @@
 #   턴에 한 번(Stop과 모든 프롬프트가 표지를 지운다). 11-25 실사용: 상한 넘은 동안 줄이는 편집 18번이 6묶음으로 막혔다(331→54자로 줄인 편집도).
 # PostToolUse·PostToolUseFailure(Bash): Bash(python heredoc 등)로 쓴 HANDOFF.md도 같은 검사를 받는다(11-25 실사용: 인계서 쓰기 약 74번이
 #   Bash였고, 상한 넘은 인계서가 9번 커밋됐다). 0이 아닌 코드로 끝난 호출(쓴 뒤 실패한 커밋 등)은 PostToolUseFailure로만 온다 — 문서
-#   https://code.claude.com/docs/en/hooks(2026-11-26 확인)의 결정 표가 이 이벤트도 top-level decision "block"·reason을 받는다고 적어 같은 출력을
-#   쓴다(그 이벤트 절은 additionalContext만 적는다 — 경고·통과는 hookEventName "PostToolUseFailure"의 additionalContext). 셸은 해석하지 않는다 —
+#   https://code.claude.com/docs/en/hooks(2026-11-26 확인)의 결정 표와 그 이벤트 절이 엇갈려(표는 block, 절은 additionalContext만), 문제·경고·통과
+#   모두 두 곳에 다 있는 hookEventName "PostToolUseFailure"의 additionalContext로 낸다(호출은 이미 실패해 막아도 얻는 게 없다, 리뷰 11-26). 셸은 해석하지 않는다 —
 #   명령이 인계서 파일 이름(MENTION)을 말했고, 저장소 루트 HANDOFF.md의 내용 해시가 이 대화에서 마지막으로 검사한(또는 본) 것과 다르고,
 #   그 변화가 이 호출 중에 생겼을 때만(call_start) "이 Bash 호출 뒤 바뀌어 있었다"며 검사한다. 말하지 않은 호출 뒤의 변화(git checkout·pull·
 #   stash)와 호출 전에 다른 창·사람이 고친 것은 기억만 한다(리뷰 11-26). 말하지 않은 호출은 설정·검사 모듈을 불러오지 않는 빠른 길로 끝난다(quiet_bash). 실측(11-26, 이 기계,
@@ -401,7 +401,11 @@ def check_handoff(path, data, t0, text=None, bash=False):
     rec.update({"tool": "Bash"} if bash else {}, **({"softened": len(soft)} if soft else {}),
                **({"failed_call": True} if event == "PostToolUseFailure" else {}))
     runlog.append(rec)
-    if problems:
+    if problems and event == "PostToolUseFailure":  # 이미 실패한 호출이라 막아도 얻는 게 없고, 이 이벤트의 block은 문서가 엇갈린다
+        reason = lead[0] + "\n- ".join(problems + warned) + ("\n" + note if note else "")
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": capped(reason, t)}},
+                         ensure_ascii=False))
+    elif problems:
         reason = lead[0] + "\n- ".join(problems + warned) + ("\n" + note if note else "")
         print(json.dumps({"decision": "block", "reason": capped(reason, t)}, ensure_ascii=False))
     elif warned:  # 경고만이면 막지 않는다 — 맥락에 알리기만 한다(Codex도 이 JSON 모양만 받는다)

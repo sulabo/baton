@@ -582,8 +582,10 @@ class BashHandoffCheckTest(unittest.TestCase):
         self.session(1000)
         self.at(self.handoff("# Session Handoff\n"), 2000)
         out = self.bash(PY_WRITE + " && git commit -m h -- HANDOFF.md", event="PostToolUseFailure")
-        self.assertEqual(out["decision"], "block")  # 문서의 결정 표: PostToolUseFailure도 top-level decision "block"·reason을 받는다
-        self.assertTrue(out["reason"].startswith(BASH_HEAD), out["reason"])
+        ctx = out["hookSpecificOutput"]  # 이미 실패한 호출 — 문제도 막지 않고 그 이벤트의 additionalContext로 알린다(문서 두 곳에 다 있는 형식)
+        self.assertNotIn("decision", out)
+        self.assertEqual(ctx["hookEventName"], "PostToolUseFailure")
+        self.assertTrue(ctx["additionalContext"].startswith(BASH_HEAD), ctx["additionalContext"])
         self.assertIsNotNone(self.bash_ts())
         self.assertEqual(self.events()[-1].get("failed_call"), True)
         self.handoff(GOOD.replace("- 없음\n", "- 표시 없는 주장\n", 1))
