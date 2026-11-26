@@ -21,7 +21,7 @@ Past versions are not archived separately. **The git history is the archive.**
 
 ## Why a write takes so few calls (1.0.3)
 
-In 10 real handoff writes with 1.0.1 (Opus, about 230–250K tokens of context), a write always went: the skill, one
+In 10 real handoff writes with 1.0.1 (Opus, about 220–245K tokens of context), a write always went: the skill, one
 Bash call (`promote.sh --brief`, `git status`, `git log`), `Write` HANDOFF.md, one Bash call for the commit, and the
 final two lines. That is 5–6 assistant calls. Each call reads the whole context again from the prompt cache, about
 $0.05 at that size. The skill text was 24.7 KB (about 8K tokens) and was written to the cache on every write, about
