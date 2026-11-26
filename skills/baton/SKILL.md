@@ -6,237 +6,98 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/lib/promote.sh *) Bash(python3 ${CLAUD
 
 # Handoff — writing a session handoff and reviewing promotions
 
-Reply in the user's language. Write HANDOFF.md in the language of the existing file; if there is none, in the
-language the user writes in. Both templates are at the end of this file.
-
-## Purpose
-
-Instead of dragging a long conversation on, leave the work state in a short file and pick it up in a new session.
-Measured: cost -44.7% compared with a cold start, with accuracy equal or better (internal controlled experiment).
-The core value is the "Failed approaches" item — it keeps the next session from repeating the same dead ends.
-
-**Second purpose: promotion review.**
-The handoff is overwritten every time, so each version is short-lived. But **what repeats across versions** is not.
-If the same judgment was made three times over, it is not session state but a standing rule, and it belongs in
-`DECISIONS.md`, not `HANDOFF.md`. It means you are paying to make that judgment again every time.
-
-Past versions are not archived separately. **The git history is the archive.**
+Reply in the user's language. Write HANDOFF.md in the language of the existing file, or else the user's. Both
+templates are at the end. The why behind each rule is in `REFERENCE.md` in this skill's folder: read it only when you
+need it.
 
 ## Procedure
 
-### 1. Promotion review (do this before writing)
+### 1. Promotion review and repo state (filled in when this skill loads)
 
-**The script does it. Do not put git commands together by hand.** When you are about to write a handoff, run the short
-form and the status check **as one Bash call**, from the repo root:
+!`${CLAUDE_PLUGIN_ROOT}/lib/promote.sh --brief --status .`
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/lib/promote.sh --brief .; git status --short --branch; git log --oneline -3
-```
+Above: the short promotion review (at most 8 lines), then `git status --short --branch` and `git log --oneline -3` of
+the repo root. **Do not run them again or put git commands together by hand.** If the line above still shows a command
+instead of its output (Codex, or a permission rule), run it as one Bash call, adding anything else you need to check.
+Run the full form, `${CLAUDE_PLUGIN_ROOT}/lib/promote.sh [repo path] [versions (default 8)]`, only for a promotion
+review on its own or when the summary says there are more candidates than it shows. If HANDOFF.md is not tracked,
+report that with the advice to run `git add HANDOFF.md`.
 
-`--brief` prints at most 8 lines, the most important first, and says in one line when there is nothing to promote.
-**Do not pipe it through `head` or `tail`**: cut output is what made earlier runs call it a second time. Put anything
-else you need to check for the handoff into this same call (see "Facts already confirmed" in step 2).
+Signals: **repeated failure**, a "Failed approaches" item on 3 or more different days: raise it as a promotion
+candidate (on 2 days do not promote it but **shorten it to one line** in the handoff; on 1 day leave it). **Dropped**,
+a standing constraint from 2 or more earlier versions gone from the latest: marked ones come first, and a person
+decides which are finished work and which live constraints. **Reversal** is not detected: raise one only when the
+owner points it out.
 
-Run the full form only for a promotion review on its own, or when `--brief` says there are more candidates than it
-shows:
+**0 can mean "could not count", not "none"**: copy the script's format-mismatch line into your report. **Read the
+rejected list first.**
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/lib/promote.sh [repo path] [versions (default 8)]
-```
+### 2. Write and commit the handoff
 
-If HANDOFF.md is not tracked, the script says so and stops. Put that fact and the advice to run `git add HANDOFF.md`
-in your report. While it is untracked, this review can never work.
+Write `HANDOFF.md` at the repo root (with no repository, in the current folder), keeping only the latest copy.
+**Update, do not rewrite:** start from the existing file, not from memory — carry forward every line that is still
+true, move finished next actions to "Changes made", and delete only what you know is obsolete. Lines under "Failed
+approaches", "Promotion candidates" and "Rejected" are meant to survive across sessions.
 
-There are three signals, and **they are different in kind.**
+Fill in the 8 items of the template. Keep it short: no full conversation, repeated explanations or raw tool output.
+**Stay within 200 lines and 8,700 characters**, with no code block over 20 lines, full diff, secret or absolute home
+path. Put the next actions near the top. Put `(must read)` (Korean: `(필독)`) after the path of at most 3 "Files and
+symbols" entries the next session must read before acting. Write what is not verified as "unverified"; for partial
+completion say exactly which part is left. Base what you write on files and command results, not on summaries or
+memory.
 
-| Signal | What it looks at | Detected automatically |
-|---|---|---|
-| **Repeated failure** | The same "Failed approaches" item survives on **3 or more different days** | Yes |
-| **Dropped** | A standing constraint that was in 2 or more earlier versions is gone from the latest | Yes |
-| **Reversal** | A decision is turned around | **No.** Only when the owner points it out |
+- **Every line under "Verified facts and decisions" starts with `[V]`** (seen in a file or a command result) **or
+  `[?]`** (memory, a summary or a guess), with how it was checked (command, file, date).
+- **Facts already confirmed.** A fact you already saw in a command output or a file in this conversation is `[V]`
+  without running the command again — **unless you edited a file that fact depends on after you saw it**; then check
+  it again or write `[?]`. Anything known only from a compaction summary is `[?]`, as is anything you remember but did
+  not see in this conversation. Check anything new in one Bash call before you write.
+- **First line: the written date** (`written: YYYY-MM-DD`; `작성: YYYY-MM-DD` in Korean).
+- **Each next action is a pair, "current state (evidence) → what to do"**, that the next session can do without
+  asking. Do not write "confirm with the user". What truly needs the owner goes under **Owner decisions** (Korean:
+  **소유자 확인**) in "Risks and next actions": one item each, with a **recommended default** and whether it is reversible.
+  The next session takes the default when reversible and asks only when irreversible, destructive or outward-facing
+  (pushing, publishing, deleting, sending, spending money). Nothing for the owner: write "None".
 
-**Reversal was left out of automatic detection because we tried it and it did not work.** It is a comparison of
-meaning, so counting strings cannot catch it. Measurement showed instead that **dropped items are the more valuable
-signal**. In one repository, lines like these lived only in the handoff and had quietly dropped out:
-
-```
-- These figures are published only rounded (owner decision, date)
-- Never push directly to the upstream repository
-- Do not put personally identifying information in outputs
-```
-
-All three are **decisions the owner made** and belong in `DECISIONS.md`. Even a record of a reversal had dropped out
-that way.
-
-Dropped candidates that carry a decision marker (owner decision, final, forbidden, never, adopted, lifted, canonical,
-a decision ID; in Korean handoffs 소유자 결정·확정·금지·절대·채택·해제·정본) are listed first. Not all of them are worth
-promoting. **A person decides which are finished work and which are live constraints.**
-
-**Count days, not versions. This one choice decides almost the whole signal.**
-
-A handoff is committed several times a day, and each time the "Failed approaches" section is copied over whole.
-Measured 2026-09-15: of one repository's last 8 versions, **3 were identical to the version before.**
-Counted by commit, that copying shows up as "repetition".
-
-| Unit counted | Items that survived 3 or more times |
-|---|---|
-| 8 commits | 8 |
-| **8 different days** | **1** |
-
-(Measured 2026-09-15. As the handoff history grows, the window of the last 8 versions moves and the same numbers will
-not come back. The evidence is the mechanism, not the number: **counting by commit inflates same-day copies into
-repetition.**)
-
-**7 of the 8 were by-products of committing several times on the same day.** The remaining one is a real standing
-constraint: "do not change figures or attribution in the name of tone". In a game repository, too, 13 went down to 9.
-
-So the script uses **only the latest version of each day**. Surviving on different days means surviving across
-several work sessions, and that is the evidence of a standing rule.
-
-| Repeated | Action |
-|---|---|
-| 3 or more different days | Raise it as a promotion candidate |
-| 2 days | Do not promote it. **Shorten it to one line** in the handoff |
-| 1 day | Leave it |
-
-**0 can mean "could not count", not "none".** Handoff section headings differ between repositories. One version has
-`## E. 실패한 접근법`, another has no such section at all. The script counts the versions where extraction came back
-empty as "format mismatch", takes them out of the denominator, and prints that. **Copy that line into your report.**
-The script reads both the English and the Korean template headings.
-
-### 2. Write the handoff
-
-Write `HANDOFF.md` at the repo root (overwrite it if it exists — keep only the latest copy). If there is no
-repository, write it in the current working directory.
-
-**Update, do not rewrite.** If `HANDOFF.md` exists, start from that file, not from memory: carry forward every line
-that is still true, move finished next actions to "Changes made", and delete only what you know is obsolete. Lines
-under "Failed approaches", "Promotion candidates" and "Rejected" are meant to survive across sessions. When you save,
-the checker compares the file with its last committed version and lists the lines that are gone (a warning, not a
-block): lines in those three sections, and lines elsewhere that carry a decision or constraint marker.
-
-**Mark what must be read.** In "Files and symbols", put `(must read)` (Korean: `(필독)`) after the path of at most 3
-entries the next session has to read before acting. The injection hook repeats them in one line right after the
-freshness line, so they survive truncation. The checker warns when more than 3 are marked.
-
-Fill in the 8 items of the template below. Keep it short — no full conversation, no repeated explanations, no raw
-tool output. **Stay within 200 lines and 8,700 characters** (lines: owner decision 2026-09-22; characters: the checker
-limit, the amount that still goes in whole after the injection hook adds its header, the freshness line and the
-concept index. Hook output over the 10,000-character cap in the Claude Code docs is moved to a file, so the hook keeps
-everything, header and freshness line included, within 9,600 characters). When a handoff or status question comes in,
-the plugin hook puts this file into context up to 200 lines and 9,600 characters of hook output — anything past that
-is left out. Put the next actions near the top.
-**The -44.7% cost figure was measured on the 7-item version, before the promotion candidates section existed.** The
-8th item was added later.
-
-Honesty: write what is not verified as "unverified", and for partial completion say exactly which part is left. Base
-what you write on actual files and command results, not on summaries or memory.
-
-**Every line under "Verified facts and decisions" starts with `[V]` or `[?]`.** `[V]`: you saw it in a file or a
-command result. `[?]`: from memory, a summary or a guess. A line without a mark costs an extra edit after the check.
-
-**Facts already confirmed.** A fact you already saw in a command output or a file earlier in this conversation is
-written as `[V]`, with how it was checked, without running the command again — **unless you edited a file that fact
-depends on after you saw it**; then check it again or write `[?]`. Anything known only from a compaction summary is
-`[?]`, and so is anything you remember but did not see in this conversation. Put anything new you need to check into
-one Bash call before you write: in the normal flow, the step 1 call; when the Stop hook asks, a single call of its own.
-
-**A handoff is a hypothesis from the time it was written, not a fact.** The next session may read this file days
-later, in another folder, in a repository with commits piled up in between. When it injects the file, the hook adds
-the written date, how many days ago that was, and the number of commits since; the reader checks only the one or two
-claims the next action depends on. The writer has three jobs.
-
-- **Put the written date in the first line** (`written: YYYY-MM-DD`; `작성: YYYY-MM-DD` in a Korean handoff). The hook
-  counts the age from this date. Without it, the hook uses the last commit date of HANDOFF.md.
-- **Write each next action as a pair: "current state (evidence) → what to do".** A bare command gets run as it is even
-  after the state has changed. With the pair, the reader checks the state first and decides the action again if the
-  state is different.
-  Example: "`split-notice.py` is registered but has never fired in a real window (the installed copy is the 10-04
-  version) → reinstall, then check in a new window".
-- **The next session must be able to do each next action without asking.** Do not write "confirm with the user" as a
-  next action: in a 2026-11-24 experiment, every failed handoff run was a new session that stopped to ask the
-  questions its handoff told it to ask. Put what truly needs the owner in a separate sub-list, **Owner decisions**
-  (Korean: **소유자 확인**), inside "Risks and next actions": one item each, with a **recommended default** and whether
-  the action is reversible. The next session goes ahead with the recommended default when the action is reversible,
-  and asks only when it is irreversible, destructive, or outward-facing (pushing, publishing, deleting, sending,
-  spending money). If there is nothing for the owner, write "None".
-- **Add how each verified fact was checked** (command, file, date), so the reader can check it again the same way.
-
-**Change `HANDOFF.md` with your file-editing tool — not through Bash** (a python heredoc, `cat >`, `sed -i`): a Bash
-write is checked only afterwards, by the hook that runs after a Bash call that names a handoff file.
-
-**After saving, look for a `[baton] HANDOFF.md` check line.** On Claude Code, saving with `Write`/`Edit` makes a hook
-run the checker and add one line to your context: "check passed (N lines, M chars)" (Korean: "검사 통과"), or the
-problems and warnings. If such a line appeared, **do not run the checker yourself**; fix only what it reported, then
-commit. If no such line appeared (for example on Codex), or the line says part of the check couldn't run (Korean: "검사
-일부를 돌리지 못했어요"), run the checker, fix what it reports, then commit:
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py HANDOFF.md
-```
-
-It checks the 8 required sections, 200 lines, 8,700 characters (including the must-read line, which goes in twice),
-code blocks over 20 lines, full diffs, secrets and absolute home paths. Over 8,700 characters, it says how many to cut and
-names the two largest sections; while the file is over a limit, a save that makes it shorter than the last check only
-warns, and a size problem blocks at most once per turn. If a list item under "Verified facts and
-decisions" ("확인된 사실과 결정" in the Korean template) has no [V] or [?] mark, it warns without blocking. It also warns,
-without blocking, about lines dropped since the last committed version and about more than 3 must-read marks.
-Codex's `apply_patch` gives the hook no path, so no check line appears there; run the checker yourself.
-
-### 3. Commit
-
-Commit only `HANDOFF.md`, in one call:
+**Save and commit in one response.** If `HANDOFF.md` exists and you have not read it with the Read tool in this
+conversation (a hook-injected copy does not count), Read it first: Write and Edit refuse a file not read. Then call
+Write (or Edit) and, in the same response right after it, the commit:
 
 ```bash
 git add HANDOFF.md && git commit -m "handoff: <topic>" -- HANDOFF.md
 ```
 
-The `-- HANDOFF.md` keeps files the user had already staged out of this commit. Without a commit, the next version
-cannot see this one, and the promotion review does not work. **Do not run `git log` or `git show` afterwards to
-confirm**: the commit prints one line, `[branch sha] handoff: …`, and that line is the evidence.
+Never write `HANDOFF.md` through Bash (a python heredoc, `cat >`, `sed -i`): it is checked only afterwards. Do not run
+`git log` or `git show` after the commit: its one line, `[branch sha] handoff: …`, is the evidence.
 
-### 4. Tell the user
+**Then look for the `[baton] HANDOFF.md` check line** from the save hook. "check passed (N lines, M chars)" (Korean:
+"검사 통과"): **do not run the checker yourself**. Problems: fix only those and commit again; warnings alone need no
+second commit unless you fix something. No such line (Codex: `apply_patch` gives the hook no path), or a line saying
+part of the check couldn't run (Korean: "검사 일부를 돌리지 못했어요"): run
+`python3 ${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py HANDOFF.md`, fix what it reports, and commit again if you changed
+the file.
+
+### 3. Tell the user
 
 End with **exactly these two lines** and nothing else (no list of what you wrote):
 
-- "In a new session, start with 'read HANDOFF.md and continue'." (Korean: "새 세션에서 'HANDOFF.md 읽고 이어서 해줘'라고
-  시작하세요.")
+- "In a new session, start with 'read HANDOFF.md and continue'." (Korean: "새 세션에서 'HANDOFF.md 읽고 이어서 해줘'라고 시작하세요.")
 - The promotion candidates in one line: what, why, and which file they go to (**a draft only; do not write it
   yourself**), or "No promotion candidates." (Korean: "승격 후보 없음.")
 
 ## When the Stop hook asks
 
-When 3 or more files (`BATON_HANDOFF_NUDGE_FILES`) were edited since the last handoff, the baton Stop hook keeps your
-turn going once per session and asks you to write the handoff (`BATON_HANDOFF_AUTO`, on by default; not on Codex).
-Then:
+On Claude Code, the baton Stop hook may keep your turn going and ask you to write the handoff (after 3 or more file
+edits, or when the context has grown large; the rules are in `REFERENCE.md`). Then:
 
-- Do step 2 only: update `HANDOFF.md` starting from the current file (do not rewrite it from memory). Keep it short;
-  the changes made and the next actions matter most. The save-time check runs by itself when you save (this request
-  only comes on Claude Code): if it says the check passed, do not run the checker; if it says part of the check
-  couldn't run, run the checker; otherwise fix what it reports, and restore each listed dropped line that is still true.
-- If you need to check something for the handoff, do it in one Bash call before you write (there is no step 1 call
-  on this path).
-- Skip the promotion review and do not commit — the user did not ask for either.
+- Do step 2 without the commit: update `HANDOFF.md` starting from the current file (do not rewrite it from memory).
+  Keep it short; the changes made and the next actions matter most. If the save-time check says the check passed, do
+  not run the checker; if it says part of the check couldn't run, run the checker; otherwise fix what it reports, and
+  restore each listed dropped line that is still true.
+- Check anything you need in one Bash call before you write (there is no step 1 call on this path: if step 1 shows a
+  command instead of its output, do not run it).
+- Skip the promotion review and do not commit. Never suggest `/compact`.
 - End the turn with the one line to the user that the request gives you, word for word.
-
-The same hook also asks once when the context of a model call passes 250K tokens and again at 450K
-(`BATON_SPLIT_TOKENS`, `BATON_SPLIT_NOTICE`), but only at the end of a turn that did work after the handoff was last
-written (a turn that only asked or read is not stopped; the threshold waits for the next turn that does work): a file
-edited with `Write`/`Edit`, an `Agent`/`Task` call whose subagent edited or wrote files (read-only kinds such as
-Explore don't count when its record can't be found), or a Bash command that clearly writes a file (`sed -i`, a
-`>`/`>>` redirect to a path outside temp folders, `tee`, `mv`, `cp`, `git mv`). A Bash command that writes
-`HANDOFF.md` counts as writing the handoff, and so does a Bash call that names a handoff file and during which the repo-root
-`HANDOFF.md` changed (so a write inside a python heredoc counts too). A turn starts at a human prompt, a message from
-another session or a task notification (Stop hook feedback stays in the same turn); a background subagent's edits count
-once, in the turn opened by its completion notification (matched by `<tool-use-id>`). It also doesn't ask when the new
-conversation would start almost as large (the context is not yet 24K tokens past the first call; also under the ratio
-rule). Then the line tells the user the handoff was saved; from 250K up it adds that, by a recount of the author's
-sessions, a new conversation is usually cheaper from this size on (below 250K it makes no cost claim). The 250K and
-450K defaults come from sessions with a 1M-token context window; with a 200K window the conversation is compacted
-before 250K and the rule doesn't fire; `BATON_SPLIT_TOKENS` can be lowered, but whether that is cheaper at that size
-wasn't measured (in the 1M-window sessions, 150K was usually a loss). A user who set only `BATON_SPLIT_RATIOS` keeps
-the older rule (multiples of the first call's context) and its wording. Never suggest `/compact`. One Stop asks at
-most once, for both reasons together.
 
 ## Templates
 
@@ -320,84 +181,31 @@ Korean (한국어):
 - 없음, 또는: 무엇 / 기각일 / 사유
 ```
 
-**Read the rejected list first, in step 1.** Otherwise the same candidates come back in every version.
-In real history, one repository's count of failure items stayed the same for nine versions in a row. Once an item
-crosses the threshold, it stays put. If the same eight items come up every time, nobody reads that section any more —
-exactly the way the relationship-map document died.
-
 ## Promotion stops at a proposal
 
-**What is forbidden is not "writing it for the owner" but "filling it in by guessing".**
-
-The value of a decision record is not "what was decided" but **"why, and what was rejected"**.
-The rejected alternatives and the reasons exist only in the head of the person who decided; they cannot be worked out
-backwards from the handoff. Filled in by guessing, the most important line is false when someone reads it six months
-later.
-
-So the line is here. **When the owner tells you the reason and the rejected alternatives, record them with the
-`/decision` skill. If either is missing, do not write the entry.** This means the skill does not add entries on its
-own judgment; it does not stop you from writing down what the owner says.
-
-So raise promotion candidates like this.
-
-- **What** — a one-line draft of the decision
-- **Why promote** — in which versions and how many times it repeated, with hashes
-- **Blank fields** — leave "rejected alternatives" and "reason" blank for the owner to fill in
-
-When the owner writes the decision, suggest adding one `- 관련:` (related) line with it (other projects as `[[name]]`
-and direction / the concepts it changes / evidence paths, or `없음` (none) if there are none). That line is where the
-decision connects to the concept map — the `/ontology` skill reads it and works out which concepts need a re-check.
+What is forbidden is not "writing it for the owner" but **"filling it in by guessing"**. **When the owner tells you
+the reason and the rejected alternatives, record them with the `/decision` skill; if either is missing, do not write
+the entry.** Raise each candidate with **what** (a one-line draft), **why promote** (which versions, how many times,
+hashes) and **blank fields** ("rejected alternatives", "reason") for the owner. When the owner writes it, suggest one
+`- 관련:` (related) line (other projects as `[[name]]` and direction / concepts it changes / evidence paths, or `없음`)
+for the `/ontology` skill. Not sure it is the same judgment? Raise it; the owner can reject it. **Still true next
+week?** Then `DECISIONS.md` (the owner's); if not, `HANDOFF.md`.
 
 ## When to use it
 
-- When a piece of work is done / when the topic changes / when the context feels about 70% full.
-- The promotion review can be run on its own. For "review what to promote", do step 1 only and report.
-
-## Where HANDOFF ends and DECISIONS begins
-
-| | HANDOFF.md | DECISIONS.md |
-|---|---|---|
-| Lifetime | Useless once this piece of work is done | Still answers "why?" six months later |
-| Copies | Latest one only, overwritten | Accumulates, never deleted |
-| About | How far we got | Why we chose this path |
-| Written by | The agent | **The owner** |
-
-When in doubt, there is one test. **Will this sentence still be true next week?**
-If yes, DECISIONS; if not, HANDOFF.
+When a piece of work is done, when the topic changes, or when the context feels about 70% full. For "review what to
+promote" on its own, do step 1 only and report.
 
 ## Do not
 
-- Write "ask the user" or "confirm with the owner" as a next action (put it under Owner decisions with a
-  recommended default)
-- Write `DECISIONS.md` for the owner
-- Fill in rejected alternatives by guessing
-- Keep growing a failure item that survived 3 or more versions instead of raising it as a promotion candidate
-- Raise a rejected candidate again in the next version (read the rejected list first)
-- Read past versions in full (`promote.sh` extracts only the sections)
-- Pipe `promote.sh --brief` through `head`/`tail`, or run it again because the output was cut
-- Run the checker by hand after a `[baton] HANDOFF.md` check line appeared, or `git log`/`git show` after committing
-- Report a 0 from the script as "none" (look at the format-mismatch line first)
-- Leave `HANDOFF.md` uncommitted (the next version cannot see this one)
+- Write "ask the user" or "confirm with the owner" as a next action
+- Write `DECISIONS.md` for the owner, or fill in rejected alternatives by guessing
+- Keep growing a failure item that survived 3 or more days instead of raising it
+- Raise a rejected candidate again
+- Read past versions in full (`promote.sh` extracts the sections)
+- Pipe `promote.sh --brief` through `head`/`tail`, or run it again when step 1 shows its output
+- Run the checker after a `[baton] HANDOFF.md` check line appeared, or `git log`/`git show` after committing
+- Report a 0 from the script as "none"
+- Leave `HANDOFF.md` uncommitted
 - Paste the full conversation or raw tool output into the handoff
-- Rewrite an existing handoff from memory (start from the file; the checker lists what was dropped)
-
-## Limits (honestly)
-
-- The promotion review is implemented as `promote.sh` and was checked by running it on two repositories.
-  **On 2026-09-15 the counting unit changed from commits to days** — counting by commit mistook same-day copies for
-  repetition, and 7 of 8 items in the docs repository were false. Now it is 1 in the docs repository and 9 in the game
-  repository. **The judgment of "so what should be promoted" has never been run end to end, and it has never been
-  verified by calling it as a skill.**
-- **Automatic reversal detection failed.** We confirmed that string counting cannot catch it and took it out of the
-  signals. Raise one only when the owner points it out.
-- **The dropped signal works only when the handoff section headings stay the same across versions.** In the game
-  repository, 5 of the last 8 versions had a different section layout and could not be counted (the script prints
-  that). In repositories whose layout changes often, the denominator of this signal is small.
-- **The threshold of 3 versions was set from the distribution of one repository.** Whether other repositories split
-  at the same point is not known yet. If there are more than 15 candidates, consider raising the threshold.
-- In a repository where git does not track the handoff, the promotion review does not work at all. As checked on
-  2026-09-14, `HANDOFF.md` was untracked in one of the three target projects (the app repository) and in one other
-  repository. `git add` comes first.
-- Deciding "is this the same judgment" is a judgment of meaning, not string matching, so it can miss things.
-  What it misses shows up again in the next version, so this is not fatal, but if you are not sure, raise it as a
-  candidate and let the owner reject it. Leaving one out costs more.
+- Rewrite an existing handoff from memory

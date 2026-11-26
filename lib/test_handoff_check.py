@@ -762,14 +762,20 @@ class DoctorSkillShadowTest(unittest.TestCase):
 
 
 class SkillCostRulesTest(unittest.TestCase):
-    """인계서 쓰기 호출을 줄이는 스킬 규칙(11-25)과 그 리뷰 반영. 문장이 빠지면 모델이 예전처럼 다시 부른다.
-    줄바꿈 위치에 기대지 않게 공백을 하나로 모은 뒤 본다."""
+    """인계서 쓰기 호출을 줄이는 스킬 규칙(11-25, 1.0.3)과 그 리뷰 반영. 문장이 빠지면 모델이 예전처럼 다시 부른다.
+    줄바꿈 위치에 기대지 않게 공백을 하나로 모은 뒤 본다. 1.0.3부터 까닭·측정은 같은 폴더 REFERENCE.md에 있다."""
+
+    SKILL_DIR = os.path.join(os.path.dirname(HERE), "skills", "baton")
+    INJECT = "!`${CLAUDE_PLUGIN_ROOT}/lib/promote.sh --brief --status .`"
 
     def setUp(self):
-        with open(os.path.join(os.path.dirname(HERE), "skills", "baton", "SKILL.md"), encoding="utf-8") as f:
-            raw = f.read()
-        self.skill = " ".join(raw.split())
-        self.stop = " ".join(raw.split("## When the Stop hook asks", 1)[1].split("## Templates", 1)[0].split())
+        with open(os.path.join(self.SKILL_DIR, "SKILL.md"), encoding="utf-8") as f:
+            self.raw = f.read()
+        with open(os.path.join(self.SKILL_DIR, "REFERENCE.md"), encoding="utf-8") as f:
+            ref = f.read()
+        self.skill = " ".join(self.raw.split())
+        self.stop = " ".join(self.raw.split("## When the Stop hook asks", 1)[1].split("## Templates", 1)[0].split())
+        self.ref_stop = " ".join(ref.split("\n## Stop hook\n", 1)[1].split("\n## ", 1)[0].split())
 
     def test_commit_only_the_handoff_and_keep_the_one_line_output(self):
         self.assertIn('git add HANDOFF.md && git commit -m "handoff: <topic>" -- HANDOFF.md', self.skill)  # 미리 스테이징된 파일 제외
@@ -786,10 +792,50 @@ class SkillCostRulesTest(unittest.TestCase):
 
     def test_stop_hook_path_has_its_own_check_call(self):
         self.assertIn("there is no step 1 call on this path", self.stop)
-        self.assertIn("1M-token context window", self.stop)
-        self.assertIn("`Agent`/`Task` call whose subagent edited or wrote files", self.stop)
-        self.assertIn("below 250K it makes no cost claim", self.stop)
-        self.assertIn("also under the ratio rule", self.stop)
+        self.assertIn("if step 1 shows a command instead of its output, do not run it", self.stop)  # 읽어 온 원문이면 주입 명령이 그대로 보인다
+        self.assertIn("Do step 2 without the commit", self.stop)
+        # 맥락 문턱의 정확한 조건은 1.0.3부터 REFERENCE.md의 "Stop hook" 절에 있다(같은 문장 그대로)
+        self.assertIn("1M-token context window", self.ref_stop)
+        self.assertIn("`Agent`/`Task` call whose subagent edited or wrote files", self.ref_stop)
+        self.assertIn("below 250K it makes no cost claim", self.ref_stop)
+        self.assertIn("also under the ratio rule", self.ref_stop)
+        self.assertIn("the rules are in `REFERENCE.md`", self.stop)
+
+    def test_step_1_is_filled_in_when_the_skill_loads(self):
+        # 1.0.3: 쓰기 전 상태(승격 검토 요약·git status·git log)는 Claude Code가 스킬을 불러올 때 채운다(동적 주입) — 호출 0번.
+        # 주입 줄은 한 번, 제 줄에만 있다. 다른 곳의 "!" + 백틱은 Claude Code가 명령으로 돌릴 수 있어 두지 않는다
+        self.assertEqual(self.raw.splitlines().count(self.INJECT), 1)
+        self.assertEqual(self.raw.count("!`"), 1)
+        self.assertIn("still shows a command instead of its output (Codex, or a permission rule), run it as one Bash call", self.skill)
+        self.assertIn("Do not run them again", self.skill)
+        self.assertNotIn("git status --short --branch; git log", self.skill)  # 손으로 잇는 옛 한 호출은 없다
+
+    def test_write_and_commit_in_one_response(self):
+        self.assertIn("in the same response right after it, the commit", self.skill)
+        self.assertIn("you have not read it with the Read tool in this conversation (a hook-injected copy does not count), "
+                      "Read it first", self.skill)
+        self.assertIn("Problems: fix only those and commit again; warnings alone need no second commit unless you fix something",
+                      self.skill)
+        self.assertIn("Do not run `git log` or `git show` after the commit", self.skill)
+
+    def test_rules_the_model_acts_on_stay_in_the_skill(self):
+        # 1.0.3에 까닭을 REFERENCE.md로 옮기며 지시는 남겼다 — 한도·표시·소유자 확인·끝 두 줄·Codex 경로
+        for rule in ("**Stay within 200 lines and 8,700 characters**", "no code block over 20 lines", "at most 3",
+                     "starts with `[V]`", "**or `[?]`**", "Facts already confirmed", "**First line: the written date**",
+                     '"current state (evidence) → what to do"', "**Owner decisions** (Korean: **소유자 확인**)",
+                     "**recommended default**", "Never write `HANDOFF.md` through Bash", "Codex: `apply_patch` gives the hook no path",
+                     "End with **exactly these two lines**", "새 세션에서 'HANDOFF.md 읽고 이어서 해줘'라고 시작하세요.", "승격 후보 없음.",
+                     "**shorten it to one line**", "raise one only when the owner points it out", "copy the script's format-mismatch line",
+                     "record them with the `/decision` skill; if either is missing, do not write the entry", "Never suggest `/compact`",
+                     "End the turn with the one line to the user that the request gives you, word for word"):
+            self.assertIn(rule, self.skill)
+        dont = self.raw.split("## Do not\n", 1)[1]
+        self.assertEqual(sum(1 for ln in dont.splitlines() if ln.startswith("- ")), 11)
+
+    def test_skill_stays_small_and_points_to_its_reference(self):
+        # 1.0.3: 스킬 본문은 쓰기마다 캐시에 다시 쓰인다(1.0.1 실측 24.7KB, 약 $0.06). 까닭·측정은 REFERENCE.md로
+        self.assertLessEqual(len(self.raw.encode("utf-8")), 12000)
+        self.assertIn("`REFERENCE.md` in this skill's folder: read it only when you need it", self.skill)
 
 
 class InjectBudgetTest(unittest.TestCase):
