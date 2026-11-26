@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/sulabo/baton#readme
+    about: Install steps, what each hook and command does, and how to turn them off.
+  - name: Contributing guide
+    url: https://github.com/sulabo/baton/blob/main/CONTRIBUTING.md
+    about: Development setup, running tests, and trying a local build.
+  - name: Report a security vulnerability
+    url: https://github.com/sulabo/baton/security/advisories/new
+    about: Please report security problems privately, not as a public issue.

@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in baton does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please remove secrets, personal data, and private project names from anything you paste.
+        Security problems go through [private reporting](https://github.com/sulabo/baton/security/advisories/new), not here.
+        한국어로 써도 됩니다.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        I typed "continue" after /clear. I expected HANDOFF.md to be injected, but the agent searched for the file again.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest steps that show the problem. A minimal repository layout helps.
+      placeholder: |
+        1. git init in an empty folder, add a HANDOFF.md with ...
+        2. Start a session and type ...
+        3. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Where does it happen?
+      options:
+        - Claude Code
+        - Codex
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: baton-version
+    attributes:
+      label: baton version
+      description: The `version` in the installed plugin's `plugin.json`, or the commit you installed from.
+      placeholder: 1.0.0-beta.1
+    validations:
+      required: true
+  - type: input
+    id: claude-code-version
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`. Leave empty if you only use Codex.
+      placeholder: 2.1.327 (Claude Code)
+  - type: input
+    id: codex-version
+    attributes:
+      label: Codex version
+      description: Output of `codex --version`. Leave empty if you only use Claude Code.
+      placeholder: codex-cli 0.164.0
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: OS and version, plus Python version (`python3 --version`).
+      placeholder: macOS 15.5, Python 3.12.4
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: /baton-doctor output
+      description: |
+        In Claude Code, run `/baton-doctor` in the affected repository and paste the result.
+        In Codex there is no slash command — run the checks listed in `commands/baton-doctor.md` and paste their output.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Hook output or logs (optional)
+      description: |
+        Relevant hook messages, or matching lines from `~/.cache/baton/runs.jsonl`.
+        The log does not contain prompt text, but it does contain repository paths — redact them if needed.
+      render: text
