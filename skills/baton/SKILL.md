@@ -16,8 +16,8 @@ need it.
 
 !`${CLAUDE_PLUGIN_ROOT}/lib/promote.sh --brief --status .`
 
-Above: the short promotion review (at most 8 lines), then `git status --short --branch` and `git log --oneline -3` of
-the repo root. **Do not run them again or put git commands together by hand.** If the line above still shows a command
+Above: `git status --short --branch` and `git log --oneline -3` of the repo root, then the short promotion review (at
+most 8 lines). **Do not run them again or put git commands together by hand.** If the line above still shows a command
 instead of its output (Codex, or a permission rule), run it as one Bash call, adding anything else you need to check.
 Run the full form, `${CLAUDE_PLUGIN_ROOT}/lib/promote.sh [repo path] [versions (default 8)]`, only for a promotion
 review on its own or when the summary says there are more candidates than it shows. If HANDOFF.md is not tracked,

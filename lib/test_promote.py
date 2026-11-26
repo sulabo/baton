@@ -249,8 +249,9 @@ class PromoteBriefTest(PromoteFixture, unittest.TestCase):
 
 
 class PromoteStatusTest(PromoteFixture, unittest.TestCase):
-    """--brief --status: 스킬이 불러올 때 돌리는 쓰기 전 상태(1.0.3). 요약 뒤에 git status --short --branch 와
-    git log --oneline -3. 어느 길로 못 돌려도 0으로 끝나야 한다 — 0이 아니면 Claude Code가 스킬을 못 띄워 인계서를 못 쓴다."""
+    """--brief --status: 스킬이 불러올 때 돌리는 쓰기 전 상태(1.0.3). git status --short --branch 와 git log --oneline -3 을
+    요약 앞에 먼저 낸다 — 시한에 끊겨도 상태는 남게(리뷰 11-26). 어느 길로 못 돌려도 0으로 끝나야 한다 — 0이 아니면 Claude Code가
+    스킬을 못 띄워 인계서를 못 쓴다."""
 
     def repo(self, versions):
         """PromoteBriefTest.repo와 같다 — 같은 내용이 이어지는 판도 커밋되게 판마다 다른 주석 한 줄."""
@@ -275,32 +276,32 @@ class PromoteStatusTest(PromoteFixture, unittest.TestCase):
         os.chmod(os.path.join(d, "git"), 0o755)
         return d + os.pathsep + os.environ.get("PATH", "")
 
-    def test_brief_then_status_then_log(self):
+    def test_status_then_log_then_brief(self):
         r = self.repo([handoff_en(["[V] One fact"], ["None"])] * 3)
         with open(os.path.join(r, "a.txt"), "w") as f:
             f.write("x")
         ls = self.run_promote(r, "en", brief=True, status=True).splitlines()
-        self.assertEqual(ls[:2], ["Promotion review (brief) · 3 days reviewed · repeated failures: 0 · dropped: 0 (0 with a decision marker) "
-                                  "· rejected list: 0", "  Nothing to promote · all 3 days counted"])
-        self.assertTrue(ls[2].startswith("## "), ls)  # git status --short --branch
-        self.assertEqual(ls[3], "?? a.txt")
+        self.assertTrue(ls[0].startswith("## "), ls)  # git status --short --branch
+        self.assertEqual(ls[1], "?? a.txt")
         self.assertEqual(len(ls), 7, ls)  # 커밋 3개
-        self.assertTrue(all(len(x.split(" ", 1)[0]) >= 7 and x.endswith(" x") for x in ls[4:]), ls)
+        self.assertTrue(all(len(x.split(" ", 1)[0]) >= 7 and x.endswith(" x") for x in ls[2:5]), ls)
+        self.assertEqual(ls[5:], ["Promotion review (brief) · 3 days reviewed · repeated failures: 0 · dropped: 0 (0 with a decision marker) "
+                                  "· rejected list: 0", "  Nothing to promote · all 3 days counted"])
         brief = self.run_promote(r, "en", brief=True)
-        self.assertEqual(brief.splitlines(), ls[:2])  # --status 없이는 그대로
-        full = self.run_promote(r, "en", status=True).splitlines()  # 전체 형식에도 붙는다
-        self.assertEqual(full[-5:-3], ["## " + ls[2][3:], "?? a.txt"])
+        self.assertEqual(brief.splitlines(), ls[5:])  # --status 없이는 그대로
+        full = self.run_promote(r, "en", status=True).splitlines()  # 전체 형식에도 앞에 붙는다
+        self.assertEqual(full[:2], ["## " + ls[0][3:], "?? a.txt"])
 
     def test_every_failure_path_exits_0_with_a_reason(self):
         d = self.tmp("not a repo")
         os.mkdir(d)
         out = self.run_promote(d, "en", brief=True, status=True)
-        self.assertEqual(out, f"Not a git repository: {d}\nUsage: promote.sh [--brief] <repo path> [versions (default 8)]\n")  # git 줄 없이
+        self.assertEqual(out, f"Not a git repository: {d}\n")  # git 줄도, 주입 출력에 섞일 사용법 줄도 없이(리뷰 11-26)
         self.git(d, "init", "-q")
         out = self.run_promote(d, "en", brief=True, status=True, LC_ALL="C")
-        self.assertTrue(out.startswith("No HANDOFF.md:"), out)
-        self.assertIn("\n## ", out)
-        self.assertTrue(out.splitlines()[-1].startswith("fatal: "), out)  # 첫 커밋 전 git log의 fatal 줄도 그대로(종료코드는 보지 않는다)
+        self.assertTrue(out.startswith("## "), out)
+        self.assertTrue(out.splitlines()[1].startswith("fatal: "), out)  # 첫 커밋 전 git log의 fatal 줄도 그대로(종료코드는 보지 않는다)
+        self.assertIn("\nNo HANDOFF.md:", out)
         with open(os.path.join(d, "HANDOFF.md"), "w", encoding="utf-8") as f:
             f.write(handoff("[V] 사실"))
         out = self.run_promote(d, "ko", brief=True, status=True)
@@ -308,10 +309,11 @@ class PromoteStatusTest(PromoteFixture, unittest.TestCase):
         self.assertIn("\n?? HANDOFF.md\n", out)
         self.git(d, "add", "HANDOFF.md")
         out = self.run_promote(d, "en", brief=True, status=True)
-        self.assertTrue(out.startswith("HANDOFF.md has no committed version"), out)
+        self.assertIn("\nHANDOFF.md has no committed version", out)
         self.assertIn("\nA  HANDOFF.md\n", out)
         self.git(d, "commit", "-q", "-m", "h")
-        self.assertTrue(self.run_promote(d, "en", brief=True, status=True).startswith("Promotion review (brief) · 1 days reviewed"))
+        out = self.run_promote(d, "en", brief=True, status=True)
+        self.assertIn("\nPromotion review (brief) · 1 days reviewed", out)
 
     def test_cwd_with_spaces_and_subfolder(self):
         r = self.repo([handoff_en(["[V] One fact"], ["None"])] * 2)
@@ -325,15 +327,15 @@ class PromoteStatusTest(PromoteFixture, unittest.TestCase):
         for cwd in (spaced, sub):  # 스킬은 대화 폴더에서 "."로 부른다 — 하위 폴더여도 루트의 HANDOFF.md를 본다
             with self.subTest(cwd=os.path.basename(cwd)):
                 ls = self.run_promote(".", "en", brief=True, status=True, cwd=cwd).splitlines()
-                self.assertEqual(ls[1], "  Nothing to promote · 2 days reviewed, fewer than 3, so no candidate can show up yet")
-                self.assertTrue(ls[2].startswith("## "), ls)
-                self.assertEqual(ls[3], '?? "sub dir/"')  # 상태도 루트 기준 경로
+                self.assertEqual(ls[-1], "  Nothing to promote · 2 days reviewed, fewer than 3, so no candidate can show up yet")
+                self.assertTrue(ls[0].startswith("## "), ls)
+                self.assertEqual(ls[1], '?? "sub dir/"')  # 상태도 루트 기준 경로
 
     def test_unreadable_handoff_says_so(self):
         r = self.repo([handoff_en(["[V] One fact"], ["None"], ["Retry loop / 2026-10-01 / no"])] * 3)
         os.chmod(os.path.join(r, "HANDOFF.md"), 0)
         self.addCleanup(os.chmod, os.path.join(r, "HANDOFF.md"), 0o644)
-        head = self.run_promote(r, "en", brief=True, status=True).splitlines()[0]
+        head = self.run_promote(r, "en", brief=True).splitlines()[0]
         if os.access(os.path.join(r, "HANDOFF.md"), os.R_OK):  # root는 권한 0도 읽는다 — 그때는 평소대로 센다
             self.assertTrue(head.endswith("rejected list: 1"), head)
         else:
@@ -344,7 +346,8 @@ class PromoteStatusTest(PromoteFixture, unittest.TestCase):
         r = self.repo([handoff_en(["[V] One fact"], ["None"])] * 3)
         path = self.fake_git('case " $* " in *" status "*|*" log --oneline "*) echo "fatal: boom $3" >&2; exit 128;; esac')
         ls = self.run_promote(r, "en", brief=True, status=True, PATH=path).splitlines()
-        self.assertEqual(ls[1:], ["  Nothing to promote · all 3 days counted", "fatal: boom status", "fatal: boom log"])
+        self.assertEqual(ls[:2], ["fatal: boom status", "fatal: boom log"])
+        self.assertEqual(ls[3:], ["  Nothing to promote · all 3 days counted"])
         path = self.fake_git('echo "fatal: everything is broken" >&2; exit 128')
         out = self.run_promote(r, "en", brief=True, status=True, PATH=path)
         self.assertTrue(out.startswith(f"Not a git repository: {r}\n"), out)
@@ -355,15 +358,52 @@ class PromoteStatusTest(PromoteFixture, unittest.TestCase):
         start = time.monotonic()
         out = self.run_promote(r, "en", brief=True, status=True, PATH=path, BATON_PROMOTE_TIMEOUT="1")
         self.assertLess(time.monotonic() - start, 4)  # 끊긴 git이 출력 관을 붙잡지 않는다
-        self.assertEqual(out, "The promotion review did not finish within 1 s and was stopped (not 0: uncounted). "
-                              "If you need it, run promote.sh without --brief\n")
+        ls = out.splitlines()
+        self.assertTrue(ls[0].startswith("## "), ls)  # 셈에서 멈춰도 먼저 낸 상태는 남는다(리뷰 11-26)
+        self.assertEqual(len(ls), 5, ls)
+        self.assertEqual(ls[-1], "The promotion review did not finish within 1 s and was stopped (not 0: uncounted). "
+                                 "If you need it, run promote.sh without --brief")
         ko = self.run_promote(r, "ko", brief=True, PATH=path, BATON_PROMOTE_TIMEOUT="1")
         self.assertTrue(ko.startswith("승격 검토가 1초 안에 끝나지 않아 멈췄다 — 0건이 아니라 못 셈."), ko)
-        # 상태 부분에서 멈추면 요약 줄은 남는다
+        # 상태 부분에서 멈추면 시한 줄만 남는다
         path = self.fake_git('case " $* " in *" status "*) sleep 5;; esac')
         ls = self.run_promote(r, "en", brief=True, status=True, PATH=path, BATON_PROMOTE_TIMEOUT="1").splitlines()
-        self.assertEqual(ls[1], "  Nothing to promote · all 3 days counted")
-        self.assertTrue(ls[-1].startswith("The promotion review did not finish within 1 s"), ls)
+        self.assertEqual(len(ls), 1, ls)
+        self.assertTrue(ls[0].startswith("The promotion review did not finish within 1 s"), ls)
+
+    def test_timeout_kills_the_git_children_and_removes_its_temp_files(self):
+        # 리뷰 11-26: 시한에 자식 bash만 끊어 그 자식이 부른 git이 남았고, 출력 임시 파일은 끝날 때 지우지 않는 길이 있었다
+        r = self.repo([handoff_en(["[V] One fact"], ["None"])] * 3)
+        marker = "37.25"  # 이 테스트의 git만 집는 sleep 값
+        path = self.fake_git(f'case " $* " in *" log --format="*) sleep {marker};; esac')
+        tmp = self.tmp("tmp")
+        os.mkdir(tmp)
+        out = self.run_promote(r, "en", brief=True, PATH=path, BATON_PROMOTE_TIMEOUT="1", TMPDIR=tmp)
+        self.assertTrue(out.startswith("The promotion review did not finish within 1 s"), out)
+        left = ""
+        for _ in range(20):  # 신호가 닿을 때까지 잠깐
+            left = subprocess.run(["pgrep", "-f", f"sleep {marker}"], capture_output=True, text=True).stdout
+            if not left:
+                break
+            time.sleep(0.1)
+        self.assertEqual(left, "")  # 자식이 부른 git(과 그 sleep)까지 묶음째 끊었다
+        self.assertEqual(os.listdir(tmp), [])
+        self.run_promote(r, "en", brief=True, TMPDIR=tmp)  # 끝까지 돈 길도 치운다
+        self.assertEqual(os.listdir(tmp), [])
+
+    def test_slow_language_call_is_inside_the_time_limit(self):
+        # 리뷰 11-26: 언어를 정하는 python 호출이 시간 지킴이보다 먼저 돌아 10초 시한 밖이었다
+        r = self.repo([handoff_en(["[V] One fact"], ["None"])] * 3)
+        real = subprocess.run(["sh", "-c", "command -v python3"], capture_output=True, text=True, check=True).stdout.strip()
+        d = self.tmp("pybin")
+        os.mkdir(d)
+        with open(os.path.join(d, "python3"), "w") as f:
+            f.write(f'#!/bin/sh\ncase "$1" in *i18n.py) sleep 5;; esac\nexec "{real}" "$@"\n')
+        os.chmod(os.path.join(d, "python3"), 0o755)
+        start = time.monotonic()
+        out = self.run_promote(r, "ko", brief=True, PATH=d + os.pathsep + os.environ.get("PATH", ""), BATON_PROMOTE_TIMEOUT="1")
+        self.assertLess(time.monotonic() - start, 4)
+        self.assertTrue(out.startswith("승격 검토가 1초 안에 끝나지 않아 멈췄다"), out)  # 언어를 정하기 전에 끊겨도 셸 규칙의 언어로
 
 
 if __name__ == "__main__":

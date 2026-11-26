@@ -38,7 +38,9 @@ measured yet.
 - **`promote.sh --brief` always exits 0.** If an injected command exits non-zero, Claude Code fails to load the whole
   skill ("Shell command failed for pattern …"), and no handoff can be written. So every path that cannot run (not a
   repo, no or untracked HANDOFF.md, no committed version, git errors, an unreadable file) says why in its output and
-  exits 0; stderr goes to stdout; after 10 seconds (`BATON_PROMOTE_TIMEOUT`) it stops and says it was not counted.
+  exits 0; stderr goes to stdout; after 10 seconds (`BATON_PROMOTE_TIMEOUT`, counted from before its language lookup)
+  it stops its whole process group, git included, and says it was not counted. The repo state (`--status`) comes first,
+  so a timeout still leaves it. Outside a git repo it prints only that one line, with no usage line.
   The full form still exits 2 when it cannot run.
 - **Save and commit in one response.** Probed on Claude Code 2.1.332: in one assistant message, `Write` ran and then
   the Bash call, in that order; a PostToolUse block on the `Write` still let the Bash call run, and the block reason
