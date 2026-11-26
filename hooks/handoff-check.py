@@ -455,26 +455,38 @@ TOOL_USE_ID = re.compile(r"<tool-use-id>\s*([\w-]+)\s*</tool-use-id>")  # 끝난
 
 
 def transcript_events(path):
-    """세션 기록을 한 번 읽는다 — ("tool", 사이드체인인가, 이름, 입력, tool_use id, 시각), ("agent", tool_use id, agentId, 시각),
-    ("prompt", 알림이 가리키는 tool_use id들, 시각). 시각은 그 줄의 timestamp(초) 또는 None. tool_use는 assistant 줄에서만, 결과(tool_result)는
-    user 줄에서만 본다. agentId는 Agent·Task 결과 줄의 toolUseResult에 있고, 그 서브에이전트 기록은 <세션>/subagents/agent-<agentId>.jsonl이다.
+    """세션 기록을 한 번 읽는다 — ("tool", 사이드체인인가, 이름, 입력, tool_use id, 시각), ("agent", tool_use id, agentId, 뒤에서 도나, 시각),
+    ("prompt", 알림이 가리키는 tool_use id들, 시각), ("queued", 알림이 가리키는 tool_use id들, 시각). 시각은 그 줄의 timestamp(초) 또는 None.
+    tool_use는 assistant 줄에서만, 결과(tool_result)는 user 줄에서만 본다. agentId는 Agent·Task 결과 줄의 toolUseResult에 있고, 그 서브에이전트
+    기록은 <세션>/subagents/agent-<agentId>.jsonl이다. 뒤에서 도나는 그 결과의 status가 "async_launched"인가 — run_in_background를
+    적지 않은 호출도, 문자열 "true"로 적은 호출도 Claude Code가 뒤에서 띄우면 그렇게 적는다(이 기계 기록 11-26: 뒤에서 뜬 위임 250개 중
+    run_in_background가 불리언 true인 것은 15개).
     "prompt"는 메인 스레드에서 턴을 여는 줄이다(candidates.human_text와 같은 규칙: 글이거나 text 블록만, 압축 요약·사이드체인 줄은 아님).
     메타 줄(Stop 훅 피드백 등)은 턴을 열지 않는다 — 단 origin.kind가 다른 세션 메시지(peer)·작업 알림(task-notification)이면 연다.
     그런 줄과 본문이 <task-notification>·<agent-message>로 시작하는 줄(rules.machine_prompt)이면 본문의 <tool-use-id>를 함께 낸다
-    (사람이 친 프롬프트는 빈 묶음)."""
+    (사람이 친 프롬프트는 빈 묶음). "queued"는 턴이 도는 중에 와서 그 턴에 끼워 넣은 작업 알림(attachment queued_command)이다 — 턴을 열지
+    않는다(같은 기록: 뒤에서 뜬 위임의 완료 알림 247개 중 222개가 이렇게 왔다)."""
     from candidates import human_text, when
     with open(path, encoding="utf-8", errors="ignore") as f:
         for ln in f:
-            if '"tool_use"' not in ln and '"agentId"' not in ln and ('"user"' not in ln or '"tool_result"' in ln):
+            if '"tool_use"' not in ln and '"agentId"' not in ln and '"queued_command"' not in ln \
+                    and ('"user"' not in ln or '"tool_result"' in ln):
                 continue
             try:
                 d = json.loads(ln)
             except ValueError:
                 continue
-            if not isinstance(d, dict) or not isinstance(d.get("message"), dict):
+            if not isinstance(d, dict):
                 continue
             ts = when(d.get("timestamp"))
             ts = ts.timestamp() if ts else None
+            a = d.get("attachment")
+            if d.get("type") == "attachment" and isinstance(a, dict) and a.get("type") == "queued_command" \
+                    and isinstance(a.get("prompt"), str) and not d.get("isSidechain") and rules.machine_prompt(a["prompt"]):
+                yield "queued", tuple(TOOL_USE_ID.findall(a["prompt"])), ts
+                continue
+            if not isinstance(d.get("message"), dict):
+                continue
             content, tur = d["message"].get("content"), d.get("toolUseResult")
             origin = d["origin"].get("kind") if isinstance(d.get("origin"), dict) else None
             text = human_text(content) if d.get("type") == "user" else None
@@ -488,7 +500,7 @@ def transcript_events(path):
             if d.get("type") == "user" and isinstance(content, list) and isinstance(tur, dict) and isinstance(tur.get("agentId"), str):
                 for b in content:
                     if isinstance(b, dict) and b.get("type") == "tool_result":
-                        yield "agent", b.get("tool_use_id"), tur["agentId"], ts
+                        yield "agent", b.get("tool_use_id"), tur["agentId"], tur.get("status") == "async_launched", ts
 
 
 def with_handoff_mark(events, written):
@@ -652,9 +664,12 @@ def work_since_handoff(path, deadline=None, written=None):
     - Agent·Task 호출: 그 서브에이전트가 실제로 고쳤을 때만 — 기록(<세션>/subagents/agent-<id>.jsonl)에 편집이나 쓰기가 있나 본다.
       ponytail: 기록을 못 찾거나 깨졌으면(결과가 아직 없음·옛 형식·읽히는 줄 0개) 메인 기록의 사이드체인 줄에 쓰기가 있으면 일로 세고, 없으면 종류로 가른다 —
       읽기만 하는 종류(read_only_agent)는 안 세고 나머지는 센다. 서브에이전트가 또 맡긴 일은 따라가지 않는다.
-      뒤에서 도는 위임(run_in_background)은 그 위임의 tool_use id를 <tool-use-id>에 담은 작업 알림이 연 턴에서 한 번 다시 본다.
-      인계서를 쓰면 기다리던 위임도 넘긴 것으로 친다. ponytail: <tool-use-id>가 없는 알림 형식이면 뒤 위임의 일은 세지 못한다."""
-    work, agents, side, ids, background = [], [], False, {}, {}
+      뒤에서 도는 위임(결과가 async_launched이거나 run_in_background가 불리언 true)은 그 위임의 tool_use id를 <tool-use-id>에 담은 작업
+      알림이 온 턴에서 한 번 다시 본다 — 그 알림이 턴을 열었든, 도는 턴에 끼어 왔든("queued"). 인계서를 쓰면 기다리던 위임도 넘긴 것으로 친다.
+      ponytail: <tool-use-id>가 없는 알림으로만 끝을 알린 위임은 세지 못한다. 이 기계 기록(11-26)에서 그런 알림은 Monitor 사건(<event>)과
+      아티팩트 알림뿐이었고, 뒤에서 뜬 위임 250개 중 247개는 <tool-use-id>가 든 완료 알림이 왔다. 서브에이전트가 보내는 넘김 메시지
+      (<agent-message from="agentId">)에는 <tool-use-id>가 없어 쓰지 않는다."""
+    work, agents, side, ids, background, kinds = [], [], False, {}, {}, {}
     for ev in with_handoff_mark(transcript_events(path), written):
         if deadline is not None and time.monotonic() > deadline:
             return None
@@ -671,6 +686,11 @@ def work_since_handoff(path, deadline=None, written=None):
             continue
         if ev[0] == "agent":
             ids[ev[1]] = ev[2]
+            if ev[3] and ev[1] in kinds:
+                background[ev[1]] = kinds[ev[1]]
+            continue
+        if ev[0] == "queued":  # 도는 턴에 끼어 온 완료 알림 — 그 위임을 이 턴에 다시 보고 기다림에서 뺀다(턴은 그대로)
+            agents += [(t, background.pop(t)) for t in ev[1] if t in background]
             continue
         _, sidechain, name, inp, tid, _ = ev
         writes, handoff = call_kind(name, inp)
@@ -683,6 +703,7 @@ def work_since_handoff(path, deadline=None, written=None):
             work.append(inp.get("file_path") or inp.get("notebook_path") or "Bash")
         elif name in AGENT_TOOLS:
             agents.append((tid, inp.get("subagent_type")))
+            kinds[tid] = inp.get("subagent_type")
             if inp.get("run_in_background") is True:
                 background[tid] = inp.get("subagent_type")
     if work:
