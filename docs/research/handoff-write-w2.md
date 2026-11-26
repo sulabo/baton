@@ -94,8 +94,31 @@ Does the 1.0.3 write cost less than 1.0.1's **without losing any fact W's handof
 
 ## Build (filled at staging, before W1)
 
-The lead records the staged manifest here before W1, as W did: source head, tree hash, skill sha256,
-`hooks/hooks.json` sha256 and version string. Nothing has been staged yet.
+Staged 2026-11-26 23:22:46 by `wstage` from the release worktree with nothing uncommitted:
+- source head `28a7d967ff3c8d80701ccdc613ad71bd9038c68b` (branch `release-1.0.3`), version string `1.0.3`;
+- 133 files, tree hash `b7b9e624689fa93b79137819d42529208b940676bd416b46830873c94b30e02e`;
+- `skills/baton/SKILL.md` sha256 `77047e1e5e5c87a309e55d8dcc9b22d2d267f0b33dbc31ce524a734851c437bf` (11,948 bytes);
+- `hooks/hooks.json` sha256 `87a5a86984484858e21a52a2abf88d1e74cb64b9de56d763b4b876462d07439e`.
+
+Before W1 (W2 ledger $0.50, both probe sessions):
+- `preflight` passed: installed baton 1.0.1, OMC 5.8.7, CLI 2.1.331 pinned, opus 5.5 at xhigh, child environment
+  clean.
+- `wprobe` passed all seven checks. The staged session loaded one baton, 1.0.3, from the staged folder. Hook counts
+  per event matched the control's: SessionStart 7, UserPromptSubmit 4, Stop 7. The owner's files were unchanged.
+- `wenv` against W's W1 found:
+  - the same 7 non-baton plugins and the same 9 MCP servers;
+  - **tools 306 → 310** and **non-baton skills 147 → 145**, a drift in the owner's environment since W.
+
+  This adds or removes a few thousand prefix tokens per call, which is small against the expected effect. It is
+  reported, not corrected.
+
+Side costs before W1, outside the W2 ledger and inside the owner's $20:
+- the lead's mechanism and review probes (Haiku): $0.065;
+- an implementation probe for subagent Bash timing (Haiku): $0.015;
+- the skill change's smoke test (Sonnet): $0.652;
+- total: $0.73.
+
+`CVH_CAP_USD` is therefore $19.20.
 
 ## Comparison (pre-stated)
 
