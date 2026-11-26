@@ -22,7 +22,7 @@ baton is a plugin for Claude Code and Codex. When you ask a new session to pick 
 
 It works on two plain files in your repo, `HANDOFF.md` and `CONCEPTS.md`, through local hooks (small scripts that run at set moments).
 
-> Version `1.0.0`. Every number below comes from one person's use.
+> Version `1.0.3`. Every number below comes from one person's use.
 
 <p align="center">
   <img src="docs/assets/how-it-works.png" width="100%" alt="How it works. 1: In session 1 you finish some work and say “write a handoff”. 2: HANDOFF.md, one page you can read and edit, checked when saved. 3: In session 2 you ask “where were we?” and the page goes in once. 4: The agent starts at the next step, not by searching for where it left off. Result: sessions that re-opened HANDOFF.md in their first 5 model calls went from 41 of 42 before install to 3 of 11 after, in the author's real-use sessions that began with a progress question.">
