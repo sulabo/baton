@@ -1,6 +1,6 @@
 {
   "name": "baton",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Stops your AI agent from re-reading your project every new session. A one-page handoff (HANDOFF.md), checked when it is saved, goes into the next session when you ask to continue, with a line that says how old it is. A concept map (CONCEPTS.md) ties each concept to its files and the commit it was last checked at, so only concepts whose files changed get a second look. AI가 새 대화마다 프로젝트를 처음부터 다시 읽지 않게 — 지난 대화는 인계서 한 장으로, 바뀐 곳은 개념 지도로.",
   "author": { "name": "sulabo" },
   "homepage": "https://github.com/sulabo/baton",
