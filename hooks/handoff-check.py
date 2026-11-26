@@ -284,10 +284,19 @@ def session_start(path, lines=50):
 CALL_TAIL = 1 << 20  # 이 호출의 시작 시각을 찾을 때 읽는 세션 기록 끝(바이트)
 
 
-def call_start(path, tool_use_id):
-    """이 도구 호출이 시작된 때(초) — 세션 기록 끝 CALL_TAIL바이트에서 그 tool_use id를 담은 assistant 줄의 timestamp. 못 찾으면 None."""
+def call_start(path, tool_use_id, agent_id=None):
+    """이 도구 호출이 시작된 때(초) — 세션 기록 끝 CALL_TAIL바이트에서 그 tool_use id를 담은 assistant 줄의 timestamp. 못 찾으면 None.
+    서브에이전트 안의 호출이면(훅 입력의 agent_id) 그 서브에이전트 기록(subagent_file)에서 찾는다 — 호출 줄은 메인 기록에 없다.
+    문서 https://code.claude.com/docs/en/hooks(2026-11-26 확인): 서브에이전트의 도구 이벤트 입력은 "carries the agent_id and agent_type",
+    서브에이전트 기록은 "stored in a nested subagents/ folder". 실제 실행(11-26, claude -p, Haiku)으로 확인: transcript_path는 메인 기록이고,
+    훅이 돌 때 그 호출의 tool_use id는 메인 기록에 없고 <메인 기록>/subagents/agent-<agent_id>.jsonl에 있었다.
+    그 기록이 없으면(팀원 등 다른 자리) None — 명령이 인계서 파일을 말했는지만 본다."""
     if not isinstance(tool_use_id, str) or not tool_use_id:
         return None
+    if agent_id is not None:
+        path = subagent_file(path, agent_id) if isinstance(path, str) else None
+        if path is None:
+            return None
     from candidates import when
     try:
         with open(path, "rb") as f:
@@ -313,7 +322,8 @@ def on_bash(data):
     """PostToolUse·PostToolUseFailure(Bash) 느린 길 — 명령이 인계서 파일을 말했거나 CLAUDE_PROJECT_DIR가 없을 때(quiet_bash가 넘긴 것).
     저장소 루트 HANDOFF.md의 내용이 이 대화에서 마지막으로 검사한(또는 본) 것과 다르면: 명령이 인계서 파일을 말했고 그 변화가 이 호출 중에
     생겼으면 편집 도구와 같은 검사를 돌리고, 아니면 기억만 한다. 이 호출 중인지는 파일 mtime과 이 호출의 시작(call_start)을 견준다 —
-    호출 전에 다른 창이나 사람이 고친 것을 "이 Bash 호출 뒤 바뀌었다"로 막지 않으려고(리뷰 11-26). 시작을 못 찾으면 명령이 말했는지만 본다.
+    호출 전에 다른 창이나 사람이 고친 것을 "이 Bash 호출 뒤 바뀌었다"로 막지 않으려고(리뷰 11-26). 서브에이전트 안의 호출은 그 서브에이전트
+    기록에서 찾는다. 시작을 못 찾으면 명령이 말했는지만 본다.
     처음 보는 파일은 그때 대화가 시작된 뒤에 바뀌었을 때만 검사한다. 셸 명령은 해석하지 않는다.
     ponytail: 저장소 루트의 HANDOFF.md만 본다. 같은 호출 안의 쓰기와 커밋(python … && git commit)은 커밋한 뒤에야 검사된다.
     대화 시작은 세션 기록 첫 줄들의 timestamp — 못 읽으면 처음 본 파일은 검사하지 않는다. 같은 대화의 Bash 둘이 동시에 끝나면 같은 내용을
@@ -334,7 +344,7 @@ def on_bash(data):
         return
     ti = data.get("tool_input")
     said = isinstance(ti, dict) and isinstance(ti.get("command"), str) and bool(MENTION.search(ti["command"]))
-    start = call_start(data.get("transcript_path"), data.get("tool_use_id")) if said else None
+    start = call_start(data.get("transcript_path"), data.get("tool_use_id"), data.get("agent_id")) if said else None
     if start is None and said and "sha" not in prev:
         start = session_start(data.get("transcript_path"))
         start = start if start is not None else float("inf")  # 대화 시작도 모르면 처음 본 파일은 기억만

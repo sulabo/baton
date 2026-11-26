@@ -494,10 +494,11 @@ class BashHandoffCheckTest(unittest.TestCase):
         with open(self.transcript, "w", encoding="utf-8") as f:
             f.write(stamp(prompt("시작"), start) + "\n")
 
-    def bash(self, command=PY_WRITE, sid="s1", tool_use_id=None, event="PostToolUse", **kw):
+    def bash(self, command=PY_WRITE, sid="s1", tool_use_id=None, event="PostToolUse", agent_id=None, **kw):
         payload = {"hook_event_name": event, "tool_name": "Bash", "session_id": sid, "cwd": self.root,
                    "tool_input": {"command": command}, "transcript_path": self.transcript}
-        return self.run_hook(dict(payload, **({"tool_use_id": tool_use_id} if tool_use_id else {})), **kw)
+        payload.update({"tool_use_id": tool_use_id} if tool_use_id else {}, **({"agent_id": agent_id} if agent_id else {}))
+        return self.run_hook(payload, **kw)
 
     def at(self, path, t):
         os.utime(path, (t, t))
@@ -570,6 +571,30 @@ class BashHandoffCheckTest(unittest.TestCase):
         self.call("toolu_during", 4000)
         self.assertTrue(self.bash(tool_use_id="toolu_during")["reason"].startswith(BASH_HEAD))
         self.assertIsNotNone(self.bash_ts())
+
+    def test_call_inside_a_subagent_is_timed_from_the_subagent_record(self):
+        # 1.0.3: 서브에이전트 안의 Bash는 호출 줄이 메인 기록에 없다(실제 실행 11-26: 입력에 agent_id, transcript_path는 메인 기록,
+        # 호출 줄은 <메인>/subagents/agent-<agent_id>.jsonl) — 거기서 이 호출의 시작을 찾는다
+        self.session(1000)
+        self.at(self.handoff(GOOD), 500)
+        self.assertIsNone(self.bash("git status"))  # 처음 본 파일 — 기억만
+        sub = os.path.join(os.path.splitext(self.transcript)[0], "subagents", "agent-a1b2.jsonl")
+        os.makedirs(os.path.dirname(sub))
+
+        def sub_call(tid, t):
+            line = json.dumps({"type": "assistant", "isSidechain": True, "message": {"content": [
+                {"type": "tool_use", "id": tid, "name": "Bash", "input": {}}]}})
+            with open(sub, "a", encoding="utf-8") as f:
+                f.write(stamp(line, t) + "\n")
+        self.at(self.handoff("# Session Handoff\n- 다른 창이 고침\n"), 3000)
+        sub_call("toolu_sub_after", 3005)
+        self.assertIsNone(self.bash("cat HANDOFF.md", tool_use_id="toolu_sub_after", agent_id="a1b2"))  # 호출 전 변화 — 기억만
+        self.assertIsNone(self.bash_ts())
+        self.at(self.handoff("# Session Handoff\n- 서브에이전트가 씀\n"), 4010)
+        sub_call("toolu_sub_during", 4000)
+        self.assertTrue(self.bash(tool_use_id="toolu_sub_during", agent_id="a1b2")["reason"].startswith(BASH_HEAD))
+        self.at(self.handoff("# Session Handoff\n- 기록 없는 서브에이전트\n"), 5010)  # 그 기록이 없으면 이름 규칙만(1.0.2와 같다)
+        self.assertTrue(self.bash(tool_use_id="toolu_x", agent_id="zz9")["reason"].startswith(BASH_HEAD))
 
     def test_codex_hooks_file_is_the_claude_one_without_unknown_events(self):
         # 리뷰 11-26: codex-cli 0.164 바이너리의 훅 이벤트 목록에 PostToolUseFailure가 없다 — 모르는 키로 훅 전체가
