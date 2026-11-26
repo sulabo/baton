@@ -45,9 +45,17 @@ class SitePagesTest(unittest.TestCase):
     def test_share_preview_meta(self):
         meta = lambda p, k: re.search(r'<meta (?:property|name)="%s" content="([^"]*)">' % re.escape(k), p).group(1)
         canon = lambda p: re.search(r'<link rel="canonical" href="([^"]+)">', p).group(1)
-        self.assertEqual(meta(self.en, "og:image"), meta(self.ko, "og:image"))
-        self.assertTrue(os.path.isfile(os.path.join(SITE, meta(self.en, "og:image").rsplit("/", 1)[1])))
+        # 한국어판은 한국어 카드(소유자 결정 11-27, 1200×630), 영어판은 승인 배너. 메타의 가로세로는 실제 그림과 같아야 한다
+        self.assertNotEqual(meta(self.en, "og:image"), meta(self.ko, "og:image"))
+        self.assertTrue(meta(self.ko, "og:image").endswith("/og-ko.png"))
         for page in (self.en, self.ko):
+            path = os.path.join(SITE, meta(page, "og:image").rsplit("/", 1)[1])
+            self.assertTrue(os.path.isfile(path), path)
+            with open(path, "rb") as f:
+                head = f.read(24)
+            self.assertEqual(head[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual((int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")),
+                             (int(meta(page, "og:image:width")), int(meta(page, "og:image:height"))))
             self.assertEqual(meta(page, "og:url"), canon(page))
             self.assertEqual(meta(page, "twitter:card"), "summary_large_image")
 
