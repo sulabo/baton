@@ -794,7 +794,9 @@ class SkillCostRulesTest(unittest.TestCase):
     줄바꿈 위치에 기대지 않게 공백을 하나로 모은 뒤 본다. 1.0.3부터 까닭·측정은 같은 폴더 REFERENCE.md에 있다."""
 
     SKILL_DIR = os.path.join(os.path.dirname(HERE), "skills", "baton")
-    INJECT = "!`${CLAUDE_PLUGIN_ROOT}/lib/promote.sh --brief --status .`"
+    INJECT = '!`bash "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh" --brief --status .`'  # 따옴표: 플러그인 경로에 빈칸이 있어도 돈다(리뷰 11-26)
+    GATE = ('python3 "${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py" HANDOFF.md && git add HANDOFF.md '
+            '&& git commit -m "handoff: <topic>" -- HANDOFF.md')
 
     def setUp(self):
         with open(os.path.join(self.SKILL_DIR, "SKILL.md"), encoding="utf-8") as f:
@@ -808,6 +810,46 @@ class SkillCostRulesTest(unittest.TestCase):
     def test_commit_only_the_handoff_and_keep_the_one_line_output(self):
         self.assertIn('git add HANDOFF.md && git commit -m "handoff: <topic>" -- HANDOFF.md', self.skill)  # 미리 스테이징된 파일 제외
         self.assertNotIn("commit -q", self.skill)  # 한 줄 출력 [branch sha]이 증거다
+
+    def test_commit_is_gated_by_the_checker(self):
+        # 리뷰 11-26: 저장과 커밋을 한 응답에 두면 저장 훅이 막은 내용(비밀값·홈 경로·개인 자료 단어)이 먼저 커밋돼 이력에 남았다 —
+        # PostToolUse 막음은 같은 응답의 Bash를 멈추지 않는다(실측 Claude Code 2.1.331). Codex에는 훅이 없다. 검사기가 1로 끝나면 커밋하지 않는다
+        self.assertEqual(self.raw.count(self.GATE), 1)
+        self.assertIn("in the same response right after it, the gated commit", self.skill)
+        self.assertNotIn("\ngit add HANDOFF.md &&", self.raw)  # 검사기 없이 커밋하는 옛 명령은 없다
+        front = self.raw.split("\n---\n", 1)[0]
+        self.assertIn('Bash(python3 "${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py" *)', front)
+        self.assertIn('Bash(bash "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh" *)', front)
+        self.assertIn("Problems (nothing committed): fix only what the checker or the check line reported, then run the same "
+                      "gated command again", self.skill)
+        self.assertIn("commit it without the checker gate", self.skill)
+        self.assertIn('"Not a git repository": in step 2, run only the checker, not the commit', self.skill)
+
+    def test_gate_refuses_a_blocked_handoff_and_commits_a_clean_one(self):
+        # 스킬의 관문 명령을 그대로 돌린다 — 홈 경로가 든 인계서는 커밋하지 않고, 고친 뒤 같은 명령은 커밋한다
+        root = os.path.dirname(HERE)
+        cmd = self.GATE.replace("${CLAUDE_PLUGIN_ROOT}", root).replace("<topic>", "test")
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@example.invalid", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_COUNT="1",
+                   GIT_CONFIG_KEY_0="commit.gpgsign", GIT_CONFIG_VALUE_0="false", BATON_LANG="en")
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], check=True, env=env)
+            p = os.path.join(d, "HANDOFF.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(GOOD.replace("- 다음 행동: 설치", "- 다음 행동: /Users/alice/x 에 설치"))
+            bad = subprocess.run(["bash", "-c", cmd], cwd=d, capture_output=True, text=True, env=env)
+            self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
+            self.assertIn("absolute home path", bad.stdout)
+            self.assertNotIn("/Users/alice", bad.stdout)  # 찾은 값은 출력하지 않는다
+            log = subprocess.run(["git", "-C", d, "rev-list", "--all", "--count"], capture_output=True, text=True, env=env)
+            self.assertEqual(log.stdout.strip(), "0")  # 이력에 아무것도 남지 않았다
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(GOOD)
+            ok = subprocess.run(["bash", "-c", cmd], cwd=d, capture_output=True, text=True, env=env)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            self.assertIn("handoff: test", ok.stdout)  # 커밋의 한 줄 [branch sha] handoff: …
+            shown = subprocess.run(["git", "-C", d, "log", "--format=%s", "--name-only"], capture_output=True, text=True, env=env)
+            self.assertEqual(shown.stdout.split(), ["handoff:", "test", "HANDOFF.md"])
 
     def test_check_line_that_could_not_run_means_run_the_checker(self):
         self.assertIn("part of the check couldn't run", self.skill)
@@ -839,12 +881,18 @@ class SkillCostRulesTest(unittest.TestCase):
         self.assertNotIn("git status --short --branch; git log", self.skill)  # 손으로 잇는 옛 한 호출은 없다
 
     def test_write_and_commit_in_one_response(self):
-        self.assertIn("in the same response right after it, the commit", self.skill)
-        self.assertIn("you have not read it with the Read tool in this conversation (a hook-injected copy does not count), "
-                      "Read it first", self.skill)
-        self.assertIn("Problems: fix only those and commit again; warnings alone need no second commit unless you fix something",
-                      self.skill)
+        self.assertIn("in the same response right after it, the gated commit", self.skill)
+        # 필요한 Read와 확인 Bash는 저장 앞의 한 응답에 같이(리뷰 11-26)
+        self.assertIn("Any Read of `HANDOFF.md` you need (a hook-injected copy does not count: Write and Edit refuse a file not "
+                      "read with the Read tool) and any new check (one Bash call) go in one response first", self.skill)
+        self.assertIn("warnings alone need no second commit unless you fix something", self.skill)
         self.assertIn("Do not run `git log` or `git show` after the commit", self.skill)
+        self.assertIn("**do not run the checker yourself**", self.skill)
+
+    def test_warnings_are_acted_on_before_head_moves(self):
+        # 리뷰 11-26: 커밋하면 HEAD가 옮겨 가 한 번 보인 빠진 줄 경고는 다시 나오지 않는다 — 평소 길에서도 그때 되살린다
+        self.assertIn("Warnings: restore each dropped line that is still true and add missing `[V]`/`[?]` marks, then run the "
+                      "gated command again (after a commit they won't show again)", self.skill)
 
     def test_rules_the_model_acts_on_stay_in_the_skill(self):
         # 1.0.3에 까닭을 REFERENCE.md로 옮기며 지시는 남겼다 — 한도·표시·소유자 확인·끝 두 줄·Codex 경로

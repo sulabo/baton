@@ -35,18 +35,32 @@ measured yet.
   `git status`/`git log` cost no call. `${CLAUDE_PLUGIN_ROOT}` is substituted, and the command runs in the session's
   folder; `promote.sh` moves up to the repo root itself. If the permission rules don't allow the command, Claude Code
   asks the model to run it first, and Codex shows the line as it is: in both cases the model runs it as one Bash call.
+  The line is quoted, `bash "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh" --brief --status .`, and `allowed-tools` allows
+  `Bash(bash "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh" *)`. Probed on Claude Code 2.1.331 with a plugin path that contains
+  a space: the quoted form matched its `allowed-tools` pattern and its output was filled in at load.
 - **`promote.sh --brief` always exits 0.** If an injected command exits non-zero, Claude Code fails to load the whole
-  skill ("Shell command failed for pattern …"), and no handoff can be written. So every path that cannot run (not a
+  skill ("Shell command failed for pattern …"; probed again on 2.1.331), and no handoff can be written. So every path that cannot run (not a
   repo, no or untracked HANDOFF.md, no committed version, git errors, an unreadable file) says why in its output and
   exits 0; stderr goes to stdout; after 10 seconds (`BATON_PROMOTE_TIMEOUT`, counted from before its language lookup)
   it stops its whole process group, git included, and says it was not counted. The repo state (`--status`) comes first,
   so a timeout still leaves it. Outside a git repo it prints only that one line, with no usage line.
   The full form still exits 2 when it cannot run.
-- **Save and commit in one response.** Probed on Claude Code 2.1.332: in one assistant message, `Write` ran and then
-  the Bash call, in that order; a PostToolUse block on the `Write` still let the Bash call run, and the block reason
-  arrived afterwards. So a problem the save check finds is fixed with a second commit, and warnings alone need none.
+- **Save and commit in one response, with the commit behind the checker.** Probed on Claude Code 2.1.332: in one
+  assistant message, `Write` ran and then the Bash call, in that order; a PostToolUse block on the `Write` still let
+  the Bash call run, and the block reason arrived afterwards. Probed again on 2.1.331: the `Write`'s PostToolUse hook
+  finishes before the Bash call starts (a 1.5 s hook ended before the Bash's first line ran), and its block does not
+  stop the Bash call. So a plain `git add && git commit` in the same response committed what the save check blocks (a
+  secret, a home path, a private word), and it stayed in git history even after a second commit fixed the file; on
+  Codex, which has no hooks, that would happen every time. The commit therefore runs behind the checker:
+  `python3 "${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py" HANDOFF.md && git add HANDOFF.md && git commit …`. The checker
+  exits 1 on a problem and 0 on warnings only, and its output is not silenced, so the model sees what to fix. A file
+  over a size limit is a problem for the checker, so the commit is refused until the file fits (the save hook, in
+  contrast, only warns while a too-long file is getting shorter). On a refusal the model fixes only what the checker
+  or the check line reported and runs the same command again. Warnings are acted on in the next response: once the
+  commit moves `HEAD`, the dropped-lines check compares with the new version and does not show them again.
   `Write` and `Edit` refuse a file that was not opened with the Read tool in the conversation; the copy that the
-  injection hook puts into context does not count, so a handoff not yet read is read first.
+  injection hook puts into context does not count, so a handoff not yet read is read first, in one response together
+  with any check Bash call.
 - **The skill moved its explanations here**, from 24.7 KB to under 12 KB.
 
 Why not to pipe `promote.sh --brief` through `head` or `tail`: cut output is what made earlier runs call it a second
@@ -165,7 +179,8 @@ not checked) and about more than 3 must-read marks. On Claude Code, saving with 
 checker and add one line to the context: "check passed (N lines, M chars)", or the problems and warnings. Codex's
 `apply_patch` gives the hook no path, so no check line appears there.
 
-**Why commit.** The `-- HANDOFF.md` keeps files the user had already staged out of this commit. Without a commit, the
+**Why commit.** The `-- HANDOFF.md` keeps files the user had already staged out of this commit. Outside a git
+repository there is nothing to commit: the skill then runs only the checker. Without a commit, the
 next version cannot see this one, and the promotion review does not work. The commit prints one line,
 `[branch sha] handoff: …`, so `git log` or `git show` afterwards adds nothing.
 
@@ -243,3 +258,6 @@ If yes, DECISIONS; if not, HANDOFF.
   candidate and let the owner reject it. Leaving one out costs more.
 - The step 1 block shows the state when the skill loaded. If the skill was loaded long before the write and files
   changed since, that state is old; the "Facts already confirmed" rule covers it (check again, or write `[?]`).
+- If the `Write` fails (the file was not read, it changed since it was read, or the write was refused), the gated
+  command in the same response still runs: it commits the working-tree `HANDOFF.md` as it is, if that passes the
+  check. The commit line alone does not show that the new content was saved; the `Write` result does.
