@@ -19,8 +19,8 @@ Above: the repo root's `git status --short --branch` and `git log --oneline -3`,
 lines). **Do not run them again or put git commands together by hand.** If the line above still shows a command
 instead of its output (Codex, or a permission rule), run it as one Bash call, adding anything else you need to check.
 Run the full form, `bash "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh" [repo path] [versions (default 8)]`, only for a
-promotion review on its own or when the summary shows only some of the candidates. Untracked HANDOFF.md: report it,
-advising `git add HANDOFF.md`. "Not a git repository": in step 2, run only the checker, not the commit.
+promotion review on its own or when the summary shows only some of the candidates. Untracked HANDOFF.md: say so in
+your report. "Not a git repository": in step 2, run only the checker, not the commit.
 
 Signals: **repeated failure**, a "Failed approaches" item on 3 or more different days: raise it as a candidate (2 days:
 do not promote it, but **shorten it to one line** in the handoff; 1 day: leave it). **Dropped**: a standing constraint
@@ -64,8 +64,8 @@ Edit refuse a file not read with the Read tool) and any new check (one Bash call
 python3 "${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py" HANDOFF.md && git add HANDOFF.md && git commit -m "handoff: <topic>" -- HANDOFF.md
 ```
 
-Never write `HANDOFF.md` through Bash (a python heredoc, `cat >`, `sed -i`): it is checked only afterwards. Do not
-run `git log` or `git show` after the commit: its one line, `[branch sha] handoff: …`, is the evidence.
+On Codex, if `${CLAUDE_PLUGIN_ROOT}` is empty, it is the folder two levels above this file's folder.
+Never write `HANDOFF.md` through Bash (a python heredoc, `cat >`, `sed -i`): it is checked only afterwards.
 
 **Then read the save hook's `[baton] HANDOFF.md` check line** and the gate's output; **do not run the checker
 yourself**. Problems (nothing committed): fix only what the checker or the check line reported, then run the same gated
@@ -195,12 +195,12 @@ promote" on its own, do step 1 only and report.
 ## Do not
 
 - Write "ask the user" or "confirm with the owner" as a next action
-- Write `DECISIONS.md` for the owner, or fill in rejected alternatives by guessing
+- Write `DECISIONS.md` on your own judgment, or fill in rejected alternatives by guessing
 - Keep growing a failure item that survived 3 or more days instead of raising it
 - Raise a rejected candidate again
 - Read past versions in full (`promote.sh` extracts the sections)
 - Pipe `promote.sh --brief` through `head`/`tail`, or run it again when step 1 shows its output
-- Run the checker outside the gate after a `[baton] HANDOFF.md` check line, or `git log`/`git show` after committing
+- Run the checker outside the gate after a check line that says it passed, or `git log`/`git show` after committing
 - Report a 0 from the script as "none"
 - Leave `HANDOFF.md` uncommitted, or commit it without the checker gate
 - Paste the full conversation or raw tool output into the handoff

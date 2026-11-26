@@ -51,6 +51,8 @@ if [ "$BRIEF" = 1 ] && [ -z "${BATON_PROMOTE_CHILD:-}" ]; then
   BATON_PROMOTE_CHILD=1 bash "${BASH_SOURCE[0]}" "$@" >"$D/out" 2>&1 4>"$D/ui" </dev/null &
   PID=$!
   set +m
+  # 신호를 받으면(호출한 쪽이 묶음째 끊거나 TERM) 자식 묶음과 지킴이를 치우고 0으로 끝난다 — 자식은 제 묶음이라 같이 죽지 않는다
+  trap 'kill -TERM -- "-$PID" 2>/dev/null || kill "$PID" 2>/dev/null; kill "${DOG:-}" 2>/dev/null; exit 0' TERM INT HUP
   # 시간 지킴이: LIMIT초 뒤 자식의 묶음을 끊는다. 자식이 먼저 끝나면 부모가 지킴이를 끊고, 지킴이는 제 sleep까지 치운다
   ( trap 'kill "$S" 2>/dev/null; exit 0' TERM; sleep "$LIMIT" & S=$!; wait "$S"
     kill -TERM -- "-$PID" 2>/dev/null || kill "$PID" 2>/dev/null ) >/dev/null 2>&1 </dev/null &

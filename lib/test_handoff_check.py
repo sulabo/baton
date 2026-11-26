@@ -813,7 +813,7 @@ class SkillCostRulesTest(unittest.TestCase):
 
     def test_commit_is_gated_by_the_checker(self):
         # 리뷰 11-26: 저장과 커밋을 한 응답에 두면 저장 훅이 막은 내용(비밀값·홈 경로·개인 자료 단어)이 먼저 커밋돼 이력에 남았다 —
-        # PostToolUse 막음은 같은 응답의 Bash를 멈추지 않는다(실측 Claude Code 2.1.331). Codex에는 훅이 없다. 검사기가 1로 끝나면 커밋하지 않는다
+        # PostToolUse 막음은 같은 응답의 Bash를 멈추지 않는다(실측 Claude Code 2.1.331). Codex에서는 저장 검사가 돌지 않는다(apply_patch는 훅에 경로를 주지 않음). 검사기가 1로 끝나면 커밋하지 않는다
         self.assertEqual(self.raw.count(self.GATE), 1)
         self.assertIn("in the same response right after it, the gated commit", self.skill)
         self.assertNotIn("\ngit add HANDOFF.md &&", self.raw)  # 검사기 없이 커밋하는 옛 명령은 없다
@@ -886,7 +886,9 @@ class SkillCostRulesTest(unittest.TestCase):
         self.assertIn("Any Read of `HANDOFF.md` you need (a hook-injected copy does not count: Write and Edit refuse a file not "
                       "read with the Read tool) and any new check (one Bash call) go in one response first", self.skill)
         self.assertIn("warnings alone need no second commit unless you fix something", self.skill)
-        self.assertIn("Do not run `git log` or `git show` after the commit", self.skill)
+        self.assertIn("or `git log`/`git show` after committing", self.skill)  # 금지 목록에 한 번(본문 중복은 뺐다)
+        # Codex는 ${CLAUDE_PLUGIN_ROOT}를 채우지 않을 수 있다 — 게이트가 검사기를 못 찾으면 커밋이 아예 안 된다(재검토 11-26)
+        self.assertIn("On Codex, if `${CLAUDE_PLUGIN_ROOT}` is empty, it is the folder two levels above this file's folder", self.skill)
         self.assertIn("**do not run the checker yourself**", self.skill)
 
     def test_warnings_are_acted_on_before_head_moves(self):

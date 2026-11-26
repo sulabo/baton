@@ -27,7 +27,7 @@ final two lines. That is 5–6 assistant calls. Each call reads the whole contex
 $0.05 at that size. The skill text was 24.7 KB (about 8K tokens) and was written to the cache on every write, about
 $0.06. A write with a warm cache cost about $0.42–0.57.
 
-1.0.3 changes three things. The expected effect is fewer calls and a smaller cache write; the real cost has not been
+1.0.3 changes four things. The expected effect is fewer calls and a smaller cache write; the real cost has not been
 measured yet.
 
 - **Step 1 is filled in when the skill loads.** Claude Code's dynamic context injection runs the line made of an
@@ -51,7 +51,7 @@ measured yet.
   finishes before the Bash call starts (a 1.5 s hook ended before the Bash's first line ran), and its block does not
   stop the Bash call. So a plain `git add && git commit` in the same response committed what the save check blocks (a
   secret, a home path, a private word), and it stayed in git history even after a second commit fixed the file; on
-  Codex, which has no hooks, that would happen every time. The commit therefore runs behind the checker:
+  Codex, where the save check never runs (`apply_patch` gives the hook no path), that would happen every time. The commit therefore runs behind the checker:
   `python3 "${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py" HANDOFF.md && git add HANDOFF.md && git commit …`. The checker
   exits 1 on a problem and 0 on warnings only, and its output is not silenced, so the model sees what to fix. A file
   over a size limit is a problem for the checker, so the commit is refused until the file fits (the save hook, in
