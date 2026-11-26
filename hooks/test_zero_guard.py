@@ -87,6 +87,16 @@ class ZeroGuardTest(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertIsNotNone(run(cmd, stdout="지적 총 0건"))
 
+    def test_only_scripts_in_a_lib_folder_fire(self):
+        # 1.0.3: 플러그인의 검사 스크립트는 <플러그인 루트>/lib/에 있다 — 저장소 자기 check.sh가 낸 "Errors: 0"에는 울리지 않는다
+        for cmd in ("./check.sh", "bash scripts/check.sh --all", "check.sh", "sh tools/fresh.sh", "cd lib && ./promote.sh"):
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(run(cmd, stdout="Errors: 0"))
+        for cmd in ("bash /opt/plugins/baton/1.0.3/lib/fresh.sh CONCEPTS.md .", 'bash "$CLAUDE_PLUGIN_ROOT"/lib/check.sh m',
+                    "L=/opt/baton/lib; bash $L/fresh.sh CONCEPTS.md .", 'bash "${B}/check.sh" m'):
+            with self.subTest(cmd=cmd):  # 폴더가 변수 하나면 값을 모른다 — 실행으로 본다
+                self.assertIsNotNone(run(cmd, stdout="지적 총 0건"))
+
     def test_sourcing_other_files_is_silent(self):
         self.assertIsNone(run(". ./env.sh && cat lib/fresh.sh", stdout="없음"))
 

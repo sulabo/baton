@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # 승격 검토. HANDOFF.md 과거 판에서 DECISIONS.md로 올릴 것을 뽑는다.
-#   promote.sh [--brief] [저장소 경로] [판수(기본 8)]
+#   promote.sh [--brief] [--status] [저장소 경로] [판수(기본 8)]
 #   --brief: 8줄 안의 요약만(중요한 것 먼저, 후보가 없으면 그렇다고 한 줄). 인계서를 쓸 때 스킬이 이것을 부른다 —
 #     전체 출력을 tail·head로 자르면 머리 줄·못 센 판 줄이 잘려 다시 부르게 된다(2026-11-24 실험 2차, game 저장소 5번 중 4번)
-# 종료코드: 0 = 돌았음, 2 = 못 돌림
+#   --status: 앞에 git status --short --branch 와 git log --oneline -3 을 먼저 낸다(저장소가 아니면 내지 않는다) — 시한에 끊겨도
+#     상태는 남게. 스킬은 1.0.3부터 --brief --status를 불러올 때 돌린다(SKILL.md 1단계의 동적 주입) — 쓰기 전 상태를 호출 없이 받는다
+# 종료코드: 0 = 돌았음, 2 = 못 돌림. 단 --brief는 언제나 0이다 — 주입 명령이 0이 아니면 Claude Code가 스킬을 통째로 못 띄워
+#   인계서를 못 쓴다. 못 돌린 까닭은 출력으로 말하고, stderr도 stdout으로 낸다. 저장소가 아니면 사용법 줄은 내지 않는다(주입 출력에
+#   "Usage:"가 섞이면 모델이 그 명령을 고쳐 다시 부른다)
 set -uo pipefail
 
-BRIEF=0; ARGS=()
-for a in "$@"; do   # --brief는 어느 자리에 와도 된다
-  if [ "$a" = --brief ]; then BRIEF=1; else ARGS+=("$a"); fi
+BRIEF=0; STATUS=0; ARGS=()
+for a in "$@"; do   # --brief·--status는 어느 자리에 와도 된다
+  case "$a" in --brief) BRIEF=1 ;; --status) STATUS=1 ;; *) ARGS+=("$a") ;; esac
 done
 R="${ARGS[0]:-.}"
 K="${ARGS[1]:-8}"
@@ -17,12 +21,11 @@ WIDTH=55             # 문구가 조금씩 다듬어진 같은 항목을 묶기 
 
 die() { printf '%s\n' "$@"; exit 2; }
 
-# 메시지 언어(ko/en, lib/i18n.py) — 한 번만 정한다. 인계서 절 제목은 언어와 무관하게 한국어·영어 둘 다 읽는다.
-# python3이 없거나 실패하면 셸에서 같은 순서로 본다: BATON_LANG 환경변수(ko/en) > LC_ALL·LC_MESSAGES·LANG 중 처음 비지 않은 값.
+# 메시지 언어(ko/en, lib/i18n.py). 인계서 절 제목은 언어와 무관하게 한국어·영어 둘 다 읽는다.
+# python3이 없거나 실패하면 셸에서 같은 순서로 본다(shell_ui): BATON_LANG 환경변수(ko/en) > LC_ALL·LC_MESSAGES·LANG 중 처음 비지 않은 값.
 # 로캘이 "ko" 뒤에 끝·_·.·@·- 가 오면 한국어("kok" 같은 다른 언어는 아니다). 설정 파일의 BATON_LANG은 python 없이는 못 읽는다.
 # 이 스크립트는 그 밖에는 python이 필요 없어서다(main은 python 없이 한국어로 돌았다 — 리뷰 11-23)
-UI=$(python3 "$(dirname "${BASH_SOURCE[0]}")/i18n.py" "$R" 2>/dev/null) || UI=""
-if [ "$UI" != ko ] && [ "$UI" != en ]; then
+shell_ui() {
   case "$(printf '%s' "${BATON_LANG:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
     ko) UI=ko ;;
     en) UI=en ;;
@@ -31,17 +34,68 @@ if [ "$UI" != ko ] && [ "$UI" != en ]; then
          *) UI=en ;;
        esac ;;
   esac
-fi
+}
 t() { if [ "$UI" = ko ]; then printf '%s' "$1"; else printf '%s' "$2"; fi; }   # $1=한국어 $2=영어
+
+# --brief는 본문을 자식으로 다시 돌려 LIMIT초(BATON_PROMOTE_TIMEOUT, 기본 10)가 넘으면 끊고, 어느 길로든 0으로 끝낸다.
+# 지킴이는 언어를 정하는 python 호출(느릴 수 있다)보다 먼저 선다 — 그 호출도 자식이 하고, 정한 언어는 fd 4로 부모에게 남긴다.
+# 자식의 출력은 임시 폴더의 파일로 받는다 — 끊긴 자식이 남긴 git이 출력 관을 붙잡아 Claude Code가 기다리지 않게. 폴더는 끝날 때 지운다.
+# 자식은 제 프로세스 묶음에서 돈다(set -m) — 시한에 자식이 부른 git·sed까지 묶음째 끊는다. 묶음을 못 만들었으면 자식만 끊는다
+if [ "$BRIEF" = 1 ] && [ -z "${BATON_PROMOTE_CHILD:-}" ]; then
+  exec 2>&1
+  LIMIT=${BATON_PROMOTE_TIMEOUT:-10}
+  case "$LIMIT" in ''|*[!0-9]*|0*) LIMIT=10 ;; esac
+  D=$(mktemp -d "${TMPDIR:-/tmp}/baton-promote.XXXXXX" 2>/dev/null) || { BATON_PROMOTE_CHILD=1 bash "${BASH_SOURCE[0]}" "$@"; exit 0; }
+  trap 'rm -rf "$D"' EXIT
+  set -m
+  BATON_PROMOTE_CHILD=1 bash "${BASH_SOURCE[0]}" "$@" >"$D/out" 2>&1 4>"$D/ui" </dev/null &
+  PID=$!
+  set +m
+  # 신호를 받으면(호출한 쪽이 묶음째 끊거나 TERM) 자식 묶음과 지킴이를 치우고 0으로 끝난다 — 자식은 제 묶음이라 같이 죽지 않는다
+  trap 'kill -TERM -- "-$PID" 2>/dev/null || kill "$PID" 2>/dev/null; kill "${DOG:-}" 2>/dev/null; exit 0' TERM INT HUP
+  # 시간 지킴이: LIMIT초 뒤 자식의 묶음을 끊는다. 자식이 먼저 끝나면 부모가 지킴이를 끊고, 지킴이는 제 sleep까지 치운다
+  ( trap 'kill "$S" 2>/dev/null; exit 0' TERM; sleep "$LIMIT" & S=$!; wait "$S"
+    kill -TERM -- "-$PID" 2>/dev/null || kill "$PID" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
+  DOG=$!
+  { wait "$PID"; } 2>/dev/null; RC=$?   # 끊긴 자식의 "Terminated" 알림이 출력에 섞이지 않게
+  kill "$DOG" 2>/dev/null; { wait "$DOG"; } 2>/dev/null
+  cat "$D/out"
+  if [ "$RC" -ge 128 ]; then
+    UI=$(cat "$D/ui" 2>/dev/null)
+    [ "$UI" = ko ] || [ "$UI" = en ] || shell_ui   # 언어를 정하기 전에 끊겼다
+    t "승격 검토가 ${LIMIT}초 안에 끝나지 않아 멈췄다 — 0건이 아니라 못 셈. 필요하면 --brief 없이 promote.sh를 직접 돌린다" \
+      "The promotion review did not finish within ${LIMIT} s and was stopped (not 0: uncounted). If you need it, run promote.sh without --brief"; echo
+  fi
+  exit 0
+fi
+
+UI=$(python3 "$(dirname "${BASH_SOURCE[0]}")/i18n.py" "$R" 2>/dev/null) || UI=""
+[ "$UI" = ko ] || [ "$UI" = en ] || shell_ui
+if [ -n "${BATON_PROMOTE_CHILD:-}" ]; then   # 시간 제한 자식: 정한 언어를 부모에게(fd 4가 열려 있을 때만)
+  { printf '%s' "$UI" >&4; } 2>/dev/null
+  exec 4>&-
+fi
+
+status() {   # --status: git 상태와 최근 커밋 3개. 저장소일 때만 내고, 실패한 git 줄도 그대로 보여 준다(종료코드는 보지 않는다)
+  [ "$STATUS" = 1 ] || return 0
+  GIT_OPTIONAL_LOCKS=0 git -C "$R" status --short --branch 2>&1
+  git -C "$R" log --oneline -3 2>&1
+  return 0
+}
 
 case "$K" in   # 판수는 1 이상 정수 — 아니면 head가 오류를 내고 0건처럼 보인다
   ''|*[!0-9]*|0|0*) die "$(t "판수는 1 이상 정수여야 한다: $K" "The number of versions must be a whole number of 1 or more: $K")" \
                         "$(t "사용법: promote.sh [--brief] <저장소 경로> [판수]" "Usage: promote.sh [--brief] <repo path> [versions (default 8)]")" ;;
 esac
 
-git -C "$R" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  || die "$(t "git 저장소가 아니다: $R" "Not a git repository: $R")" \
-         "$(t "사용법: promote.sh [--brief] <저장소 경로> [판수]" "Usage: promote.sh [--brief] <repo path> [versions (default 8)]")"
+if ! git -C "$R" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  [ "$BRIEF" = 1 ] && die "$(t "git 저장소가 아니다: $R" "Not a git repository: $R")"
+  die "$(t "git 저장소가 아니다: $R" "Not a git repository: $R")" \
+      "$(t "사용법: promote.sh [--brief] <저장소 경로> [판수]" "Usage: promote.sh [--brief] <repo path> [versions (default 8)]")"
+fi
+# 인계서는 저장소 루트에 있다(주입 훅도 루트에서 찾는다). 스킬은 대화 폴더에서 "."로 부르므로 하위 폴더면 루트로 올린다
+R=$(git -C "$R" rev-parse --show-toplevel 2>/dev/null) || R="${ARGS[0]:-.}"
+status   # 상태를 먼저 — 아래 셈이 시한에 끊겨도 남는다
 
 [ -f "$R/HANDOFF.md" ] || die \
   "$(t "HANDOFF.md가 없다: $R" "No HANDOFF.md: $R")" \
@@ -141,7 +195,8 @@ t "[C] 번복 — 문자열로는 안 잡힌다. 소유자가 알려줄 때만 �
 echo
 t "기각 목록을 먼저 확인한다: HANDOFF.md 의 '기각됨' 절" "Check the rejected list first: the 'Rejected' section of HANDOFF.md"; echo
 REJECTED=$(grep -E -A20 '기각됨|^#+ *[Rr]ejected' "$R/HANDOFF.md" 2>/dev/null | grep '^- ' | real | head -5)
-if [ -n "$REJECTED" ]; then echo "$REJECTED" | sed "s/^/    $(t "이미 기각: " "already rejected: ")/"
+if [ ! -r "$R/HANDOFF.md" ]; then t "    (HANDOFF.md를 읽을 수 없어 기각 목록을 못 봤다)" "    (HANDOFF.md can't be read, so the rejected list wasn't read)"; echo
+elif [ -n "$REJECTED" ]; then echo "$REJECTED" | sed "s/^/    $(t "이미 기각: " "already rejected: ")/"
 else t "    (기각 목록 없음)" "    (no rejected list)"; echo; fi
 
 [ "$BRIEF" = 1 ] || exit 0
@@ -152,8 +207,10 @@ NA=$(echo "$REPEATED" | count); NB=$(echo "$DROPPED" | count); NM=$(echo "$MARKE
 NR=$(grep -E -A20 '기각됨|^#+ *[Rr]ejected' "$R/HANDOFF.md" 2>/dev/null | grep '^- ' | real | count)
 if [ -n "$NOW" ]; then B=$(t "탈락 ${NB}건(결정 표지 ${NM}건)" "dropped: ${NB} (${NM} with a decision marker)")
 else B=$(t "탈락 못 셈" "dropped: not counted"); fi
-t "승격 검토(요약) · 검토 ${NDAY}일 · 반복 실패 ${NA}건 · ${B} · 기각 목록 ${NR}개" \
-  "Promotion review (brief) · ${NDAY} days reviewed · repeated failures: ${NA} · ${B} · rejected list: ${NR}"; echo
+if [ -r "$R/HANDOFF.md" ]; then C=$(t "기각 목록 ${NR}개" "rejected list: ${NR}")
+else C=$(t "기각 목록 못 읽음(HANDOFF.md를 읽을 수 없다)" "rejected list: not read (HANDOFF.md can't be read)"); fi
+t "승격 검토(요약) · 검토 ${NDAY}일 · 반복 실패 ${NA}건 · ${B} · ${C}" \
+  "Promotion review (brief) · ${NDAY} days reviewed · repeated failures: ${NA} · ${B} · ${C}"; echo
 USED=1; GAPS=""
 [ "$MISS" -gt 0 ] && GAPS="$(t "반복 실패 형식 불일치 판 ${MISS}개" "repeated failures: ${MISS} versions in another format")"
 [ -z "$NOW" ] && GAPS="${GAPS:+$GAPS · }$(t "최신판에 '확인된 사실과 결정' 절 없음" "the latest version has no 'Verified facts and decisions' section")"

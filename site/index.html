@@ -175,7 +175,7 @@ p { margin: 0; }
 /* ---------- pin: hero stays while the problem band covers it ---------- */
 .pin { position: relative; }
 .problem, .story, .mapsec, .measured, .diff, .get, .faq, .foot { position: relative; z-index: 1; }
-.story, .mapsec, .diff, .get, .faq, .foot { background: var(--paper); }
+.story, .mapsec, .diff, .kit, .get, .faq, .foot { background: var(--paper); }
 @media (min-width: 900px) { .js .pin > .hero { position: sticky; top: 0; z-index: 0; } }
 .hero-fade { transform-origin: 50% 30%; will-change: opacity, transform, filter; }
 
@@ -272,6 +272,14 @@ html.lenis, html.lenis body { height: auto; }
 .diff ol { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--line); }
 .diff li { padding: var(--space-6) 0; border-bottom: 1px solid var(--line); display: grid; gap: var(--space-2); }
 .diff li p { color: var(--ink-2); }
+.kit { padding-block: var(--section); }
+.kit ol { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--line); }
+.kit li { padding: var(--space-6) 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: var(--space-2) var(--space-6); align-items: center; }
+.kit-mark { display: block; height: 2.7rem; width: auto; max-width: 100%; align-self: center; }
+.kit li p { color: var(--ink-2); }
+.kit li .how { font-size: var(--text-sm); color: var(--ink-3); margin-top: var(--space-1); }
+.kit .aside { font-size: var(--text-sm); color: var(--ink-3); margin-top: var(--space-6); max-width: 60ch; }
+@media (max-width: 640px) { .kit li { grid-template-columns: minmax(0, 1fr); } .kit-mark { height: 2.3rem; } }
 .diff .aside { font-size: var(--text-sm); color: var(--ink-3); margin-top: var(--space-6); max-width: 60ch; }
 
 /* ---------- install ---------- */
@@ -353,7 +361,7 @@ html.lenis, html.lenis body { height: auto; }
     <svg class="relay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M44 50 C 48 50, 49 54, 53 54" vector-effect="non-scaling-stroke"/></svg>
     <div class="container hero-grid hero-fade">
       <div class="hero-copy">
-        <a class="pill enter d1" href="https://github.com/sulabo/baton/releases"><b>New</b><span>v1.0.2 · a question never stops your turn</span></a>
+        <a class="pill enter d1" href="https://github.com/sulabo/baton/releases"><b>New</b><span>v1.0.3 · two fewer calls per handoff</span></a>
         <h1 id="hero-title" class="enter d1">Stop your AI agent from <span class="mark-accent">re‑reading</span> your project every new session.</h1>
         <p class="lede enter d2">Don't spend today's tokens explaining yesterday's work. In the next session, the agent starts with <span class="nw">where you stopped</span> and what comes next.</p>
         <div class="install enter d3" id="hero-install">
@@ -525,6 +533,27 @@ html.lenis, html.lenis body { height: auto; }
           <li><h3>Flags where decisions, code and docs disagree</h3><p>For example, a decision that isn't built yet shows up on its concept.</p></li>
         </ol>
         <p class="aside">We read other tools' docs on <span class="nw">2026-11-21</span> and <span class="nw">11-22</span>; none documented these three. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.md#how-it-compares">Full comparison</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="kit gutter" id="tools" aria-labelledby="kit-title">
+    <div class="container diff-grid" data-rise="100">
+      <div style="display:grid;gap:var(--space-4);align-content:start">
+        <p class="label">What comes with it</p>
+        <h2 id="kit-title"><span class="sent">Seven tools,</span> <span class="sent">one word each.</span></h2>
+      </div>
+      <div>
+        <ol>
+          <li><img class="kit-mark" src="marks/handoff.svg" alt="handoff" height="30"><div><p>Writes the one-page handoff and checks what should move to <code>DECISIONS.md</code>.</p><p class="how">Ask “write a handoff”</p></div></li>
+          <li><img class="kit-mark" src="marks/driftmap.svg" alt="driftmap" height="30"><div><p>Builds the concept map, <code>CONCEPTS.md</code>, and keeps it fresh.</p><p class="how">Ask “build a concept map”</p></div></li>
+          <li><img class="kit-mark" src="marks/drift.svg" alt="drift" height="30"><div><p>Lists only the concepts to re‑check, then stops.</p><p class="how"><code>/drift</code></p></div></li>
+          <li><img class="kit-mark" src="marks/promote.svg" alt="promote" height="30"><div><p>Finds rules that survived several days and decisions that quietly dropped out.</p><p class="how"><code>/promote</code></p></div></li>
+          <li><img class="kit-mark" src="marks/setup.svg" alt="setup" height="30"><div><p>Run once after install. Suggests thresholds and the private words to block.</p><p class="how"><code>/baton-setup</code></p></div></li>
+          <li><img class="kit-mark" src="marks/doctor.svg" alt="doctor" height="30"><div><p>Checks that the plugin is ready in this repo.</p><p class="how"><code>/baton-doctor</code></p></div></li>
+          <li><img class="kit-mark" src="marks/explain.svg" alt="explain" height="30"><div><p>Shows what baton’s rules decide for a prompt. Changes nothing.</p><p class="how"><code>/baton-explain</code></p></div></li>
+        </ol>
+        <p class="aside">Slash commands work in Claude Code only. On Codex, ask for the skill by name.</p>
       </div>
     </div>
   </section>

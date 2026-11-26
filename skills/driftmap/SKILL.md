@@ -69,7 +69,7 @@ so every concept starts as `checked=unknown`. The first two or three runs are re
 "the code is the same but the decision changed" — that is, "not built yet". That is exactly why this skill exists.
 
 **Mode ④ is the default entry point.** Run ④ first to pick the concepts that need a re-check. If there are none, stop there.
-If there are some, take only those into ② or ③. Don't re-check all ten concepts every time.
+If there are some, take only those into ② or ③. Don't re-check every concept every time.
 
 **The difference between ② and ③ matters.** A check-up is a diagnosis; an update is the treatment.
 "What is out of sync right now?" is ②. "Clean it up" is ③. If unsure, start with ②, report, then ask.
@@ -245,7 +245,7 @@ If the project already set rules for document status (for example, step 1 decisi
 
 Skim the doc list and the source structure. Don't read everything; focus on file names, type names and key constants.
 
-### 2. Pick concepts — ten or fewer
+### 2. Pick concepts — 8–12
 
 The criterion is not "is it a concept?" but **"would a mismatch actually cost a lot?"**
 Split into 30 and it can't be maintained. Start from the costliest, 8–12 of them.

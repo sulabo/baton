@@ -30,5 +30,7 @@ jobs:
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
+      # deploy-pages sometimes could not find the artifact right after upload (failed 3 times on 2026-11-24, each fixed by a rerun)
+      - run: sleep 20
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

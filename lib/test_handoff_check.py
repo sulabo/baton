@@ -446,24 +446,48 @@ def git_repo(root):
 
 
 class DropCheckTest(unittest.TestCase):
-    """저장 때 마지막 커밋판보다 빠진 줄을 경고한다(막지 않음). 이어 가야 하는 절은 모두, 사실·다음 행동은 결정·제약 표지가 있는 줄만."""
+    """저장 때 마지막 커밋판보다 빠진 줄을 경고한다(막지 않음). 실패한 접근법·승격 후보·기각됨 절의 빠진 줄 모두.
+    확인된 사실·다음 행동 절은 보지 않는다(소유자 결정 11-26 — 표지가 있는 줄도)."""
     OLD = GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "## 확인된 사실과 결정\n- [V] 테스트 168개 통과(11-23)\n"
                        "- [V] 소유자 결정: 배포는 사람이 한다\n").replace(
         "## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n"
-        "- 세션 기억 파일을 잠금 없이 동시에 쓰기\n").replace(
-        "## 남은 리스크와 다음 행동\n- 다음 행동: 설치\n", "## 남은 리스크와 다음 행동\n- 다음 행동: 설치 스크립트 고치기\n")
+        "- 세션 기억 파일을 잠금 없이 동시에 쓰기\n- 배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다\n").replace(
+        "## 남은 리스크와 다음 행동\n- 다음 행동: 설치\n", "## 남은 리스크와 다음 행동\n- 다음 행동: 설치 스크립트 고치기\n"
+        "- main에 직접 푸시 금지\n")
+    FACT_MARKED = "- [V] 소유자 결정: 배포는 사람이 한다\n"
+    NEXT_MARKED = "- main에 직접 푸시 금지\n"
+    FAIL_MARKED = "- 배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다\n"
 
     def test_dropped_lines_by_section_rule(self):
-        new = self.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "").replace(
-            "- [V] 테스트 168개 통과(11-23)\n", "").replace("- [V] 소유자 결정: 배포는 사람이 한다\n", "")
+        new = self.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "").replace(self.FAIL_MARKED, "").replace(
+            "- [V] 테스트 168개 통과(11-23)\n", "").replace(self.FACT_MARKED, "").replace(self.NEXT_MARKED, "")
+        # 실패한 접근법은 표지가 있든 없든 알린다. 사실·다음 행동은 표지가 있는 줄(소유자 결정·금지)을 지워도 알리지 않는다
         self.assertEqual(gone(self.OLD, new),
-                         [(0, "[V] 소유자 결정: 배포는 사람이 한다"), (1, "rtk가 감싼 diff 출력을 믿기 — md5로 확인")])
-        # 표지 없는 끝난 사실(테스트 통과)은 지워도 알리지 않는다. 고쳐 쓴 줄·다른 절로 옮긴 줄·DECISIONS.md로 올린 줄은 빠진 것이 아니다
-        moved = new.replace("## 이미 한 변경\n- 없음\n", "## 이미 한 변경\n- 다음 행동이던 설치 스크립트를 고쳤다\n").replace(
-            "- 다음 행동: 설치 스크립트 고치기\n", "- 다음 행동: 배포\n") + "- rtk가 감싼 diff 출력은 믿지 않는다 — md5로\n"
-        self.assertEqual(gone(self.OLD, moved, decisions="## 배포는 사람이 한다(소유자 결정)\n"), [])
+                         [(0, "rtk가 감싼 diff 출력을 믿기 — md5로 확인"), (0, "배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다")])
+        self.assertEqual(gone(self.OLD, self.OLD.replace(self.FACT_MARKED, "").replace(self.NEXT_MARKED, "")), [])
+        # 고쳐 쓴 줄·다른 절로 옮긴 줄·DECISIONS.md로 올린 줄은 빠진 것이 아니다
+        moved = new + "- rtk가 감싼 diff 출력은 믿지 않는다 — md5로\n"
+        self.assertEqual(gone(self.OLD, moved, decisions="## 배포 스크립트는 훅에서 돌리지 않는다(소유자 결정)\n"), [])
         self.assertEqual(gone(GOOD, GOOD.replace("## 실패한 접근법 (다시 시도 금지)\n- 없음\n",
                                                                   "## 실패한 접근법 (다시 시도 금지)\n")), [])  # 자리표시는 줄이 아니다
+
+    def test_facts_and_next_actions_are_not_checked(self):
+        # 소유자 결정 11-26: 오탐이 대부분이던 두 절은 결정·제약 표지가 있는 줄이 빠져도 경고하지 않는다
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "HANDOFF.md")
+        old = GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "## 확인된 사실과 결정\n" + self.FACT_MARKED).replace(
+            "## 남은 리스크와 다음 행동\n- 다음 행동: 설치\n", "## 남은 리스크와 다음 행동\n" + self.NEXT_MARKED)
+        old_en = GOOD_EN.replace("## Verified facts and decisions\n- None\n",
+                                 "## Verified facts and decisions\n- [V] Owner decided: a person deploys\n").replace(
+            "## Risks and next actions\n- Next action: install\n", "## Risks and next actions\n- Never push to main directly\n")
+        for lang in ("ko", "en"):
+            self.assertEqual(handoff_check.drop_warnings(path, GOOD, lang=lang, old=old, private_terms=[]), [], lang)
+            self.assertEqual(handoff_check.drop_warnings(path, GOOD_EN, lang=lang, old=old_en, private_terms=[]), [], lang)
+        # 같은 줄이 실패한 접근법에 있으면 여전히 알린다(대조군)
+        failed = GOOD.replace("## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n" + self.NEXT_MARKED)
+        out = handoff_check.drop_warnings(path, GOOD, lang="ko", old=failed, private_terms=[])
+        self.assertEqual(out, ["경고: 결정·제약으로 보이는 줄 1개가 마지막 커밋판에서 빠졌다 — DECISIONS.md로 옮겼는지 확인하고, "
+                               "아니면 되살린다:\n    - [실패한 접근법] main에 직접 푸시 금지"])
 
     def test_english_sections_and_markers(self):
         old = GOOD_EN.replace("## Failed approaches (do not retry)\n- None\n",
@@ -471,9 +495,8 @@ class DropCheckTest(unittest.TestCase):
             "### Rejected (do not raise again)\n- None\n", "### Rejected (do not raise again)\n- Retry loop / 2026-10-03 / owner said no\n"
         ).replace("## Risks and next actions\n- Next action: install\n",
                   "## Risks and next actions\n- Never push to main directly\n- Next action: install the hook\n")
-        self.assertEqual(gone(old, GOOD_EN),
-                         [(1, "Trusting the wrapped diff output — check with md5"), (2, "Never push to main directly"),
-                          (4, "Retry loop / 2026-10-03 / owner said no")])
+        self.assertEqual(gone(old, GOOD_EN),  # 다음 행동의 "Never push …"는 표지가 있어도 보지 않는다
+                         [(0, "Trusting the wrapped diff output — check with md5"), (2, "Retry loop / 2026-10-03 / owner said no")])
         self.assertEqual(gone(old, old.replace("Trusting the wrapped diff output", "Trusted wrapped diff outputs")), [])
 
     def test_warning_messages(self):
@@ -484,15 +507,17 @@ class DropCheckTest(unittest.TestCase):
         out = handoff_check.drop_warnings(path, GOOD, lang="ko", old=many, private_terms=[])
         self.assertEqual(len(out), 2, out)
         self.assertTrue(out[0].startswith("경고: 결정·제약으로 보이는 줄 1개가 마지막 커밋판에서 빠졌다 — DECISIONS.md로 옮겼는지"), out[0])
-        self.assertIn("\n    - [확인된 사실과 결정] [V] 소유자 결정: 배포는 사람이 한다", out[0])
-        self.assertTrue(out[1].startswith("경고: 마지막 커밋판에 있던 줄 13개가 새 인계서에 없다 — 아직 참이면 되살리고"), out[1])
+        self.assertIn("\n    - [실패한 접근법] 배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다", out[0])  # 표지가 있는 실패는 더 세게
+        self.assertNotIn("배포는 사람이 한다", "\n".join(out))  # 빠진 사실 줄은 표지가 있어도 알리지 않는다
+        self.assertTrue(out[1].startswith("경고: 마지막 커밋판에 있던 줄 13개가 새 인계서에 없다 — 아직 해당하는 줄은 되살리고, "
+                                          "DECISIONS.md로 옮겼거나 일부러 지운 줄은 빼 둔다:"), out[1])
         self.assertEqual(out[1].count("\n    - [실패한 접근법]"), 7)  # 내용은 모두 합쳐 8줄까지
         self.assertTrue(out[1].endswith("\n    - … 외 6개"), out[1])
         self.assertNotIn("someone", "\n".join(out))
         en = handoff_check.drop_warnings(path, GOOD, lang="en", old=many, private_terms=[])
         self.assertTrue(en[0].startswith("warning: 1 line(s) that look like a decision or constraint are gone since the last "
                                          "committed version — check that they moved to DECISIONS.md, otherwise restore them:"))
-        self.assertIn("\n    - [Verified facts and decisions] [V] 소유자 결정", en[0])
+        self.assertIn("\n    - [Failed approaches] 배포 스크립트를", en[0])
         self.assertTrue(en[1].endswith("\n    - … and 6 more"), en[1])
         hidden = handoff_check.drop_warnings(path, GOOD, lang="en", old=GOOD.replace(
             "## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n- 경로 /Users/someone/x 에서 실패\n"), private_terms=[])
@@ -504,7 +529,7 @@ class DropCheckTest(unittest.TestCase):
         self.assertNotIn("홍길동", ko[0])
         self.assertEqual(handoff_check.drop_warnings(path, GOOD, old=""), [])
         with open(os.path.join(tmp.name, "DECISIONS.md"), "w", encoding="utf-8") as f:
-            f.write("## 11-23 배포는 사람이 한다 (소유자 결정)\n")
+            f.write("## 11-26 훅에서 배포 스크립트 돌리기 금지 (소유자 결정)\n")
         self.assertEqual(len(handoff_check.drop_warnings(path, GOOD, lang="ko", old=many, private_terms=[])), 1)  # 결정 기록으로 올라갔다
 
     def test_against_git_head_and_silent_without_history(self):
@@ -628,6 +653,9 @@ class DropCostTest(unittest.TestCase):
                                              private_terms=[])
             self.assertIn("the last committed version is large, only its first 256 KB was read", en[0])
             self.assertIn("50 line(s) from the last committed version are not in the new handoff", en[1])
+            self.assertIn("keep each one that still applies; if it moved to DECISIONS.md or you removed it on purpose, leave it out:",
+                          en[1])  # 보는 절(실패한 접근법·승격 후보·기각됨)에 맞는 안내 — 끝난 일을 '이미 한 변경'으로 옮기라고 하지 않는다
+            self.assertNotIn("Changes made", en[1])
 
     def test_keep_rule_unchanged_by_the_index(self):
         # 색인(비둘기집) 비교는 예전의 "한 줄이 열쇠의 DROP_KEEP 이상을 가진다"와 같은 답을 낸다
@@ -762,18 +790,66 @@ class DoctorSkillShadowTest(unittest.TestCase):
 
 
 class SkillCostRulesTest(unittest.TestCase):
-    """인계서 쓰기 호출을 줄이는 스킬 규칙(11-25)과 그 리뷰 반영. 문장이 빠지면 모델이 예전처럼 다시 부른다.
-    줄바꿈 위치에 기대지 않게 공백을 하나로 모은 뒤 본다."""
+    """인계서 쓰기 호출을 줄이는 스킬 규칙(11-25, 1.0.3)과 그 리뷰 반영. 문장이 빠지면 모델이 예전처럼 다시 부른다.
+    줄바꿈 위치에 기대지 않게 공백을 하나로 모은 뒤 본다. 1.0.3부터 까닭·측정은 같은 폴더 REFERENCE.md에 있다."""
+
+    SKILL_DIR = os.path.join(os.path.dirname(HERE), "skills", "baton")
+    INJECT = '!`bash "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh" --brief --status .`'  # 따옴표: 플러그인 경로에 빈칸이 있어도 돈다(리뷰 11-26)
+    GATE = ('python3 "${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py" HANDOFF.md && git add HANDOFF.md '
+            '&& git commit -m "handoff: <topic>" -- HANDOFF.md')
 
     def setUp(self):
-        with open(os.path.join(os.path.dirname(HERE), "skills", "baton", "SKILL.md"), encoding="utf-8") as f:
-            raw = f.read()
-        self.skill = " ".join(raw.split())
-        self.stop = " ".join(raw.split("## When the Stop hook asks", 1)[1].split("## Templates", 1)[0].split())
+        with open(os.path.join(self.SKILL_DIR, "SKILL.md"), encoding="utf-8") as f:
+            self.raw = f.read()
+        with open(os.path.join(self.SKILL_DIR, "REFERENCE.md"), encoding="utf-8") as f:
+            ref = f.read()
+        self.skill = " ".join(self.raw.split())
+        self.stop = " ".join(self.raw.split("## When the Stop hook asks", 1)[1].split("## Templates", 1)[0].split())
+        self.ref_stop = " ".join(ref.split("\n## Stop hook\n", 1)[1].split("\n## ", 1)[0].split())
 
     def test_commit_only_the_handoff_and_keep_the_one_line_output(self):
         self.assertIn('git add HANDOFF.md && git commit -m "handoff: <topic>" -- HANDOFF.md', self.skill)  # 미리 스테이징된 파일 제외
         self.assertNotIn("commit -q", self.skill)  # 한 줄 출력 [branch sha]이 증거다
+
+    def test_commit_is_gated_by_the_checker(self):
+        # 리뷰 11-26: 저장과 커밋을 한 응답에 두면 저장 훅이 막은 내용(비밀값·홈 경로·개인 자료 단어)이 먼저 커밋돼 이력에 남았다 —
+        # PostToolUse 막음은 같은 응답의 Bash를 멈추지 않는다(실측 Claude Code 2.1.331). Codex에서는 저장 검사가 돌지 않는다(apply_patch는 훅에 경로를 주지 않음). 검사기가 1로 끝나면 커밋하지 않는다
+        self.assertEqual(self.raw.count(self.GATE), 1)
+        self.assertIn("in the same response right after it, the gated commit", self.skill)
+        self.assertNotIn("\ngit add HANDOFF.md &&", self.raw)  # 검사기 없이 커밋하는 옛 명령은 없다
+        front = self.raw.split("\n---\n", 1)[0]
+        self.assertIn('Bash(python3 "${CLAUDE_PLUGIN_ROOT}/lib/handoff_check.py" *)', front)
+        self.assertIn('Bash(bash "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh" *)', front)
+        self.assertIn("Problems (nothing committed): fix only what the checker or the check line reported, then run the same "
+                      "gated command again", self.skill)
+        self.assertIn("commit it without the checker gate", self.skill)
+        self.assertIn('"Not a git repository": in step 2, run only the checker, not the commit', self.skill)
+
+    def test_gate_refuses_a_blocked_handoff_and_commits_a_clean_one(self):
+        # 스킬의 관문 명령을 그대로 돌린다 — 홈 경로가 든 인계서는 커밋하지 않고, 고친 뒤 같은 명령은 커밋한다
+        root = os.path.dirname(HERE)
+        cmd = self.GATE.replace("${CLAUDE_PLUGIN_ROOT}", root).replace("<topic>", "test")
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@example.invalid", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_COUNT="1",
+                   GIT_CONFIG_KEY_0="commit.gpgsign", GIT_CONFIG_VALUE_0="false", BATON_LANG="en")
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], check=True, env=env)
+            p = os.path.join(d, "HANDOFF.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(GOOD.replace("- 다음 행동: 설치", "- 다음 행동: /Users/alice/x 에 설치"))
+            bad = subprocess.run(["bash", "-c", cmd], cwd=d, capture_output=True, text=True, env=env)
+            self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
+            self.assertIn("absolute home path", bad.stdout)
+            self.assertNotIn("/Users/alice", bad.stdout)  # 찾은 값은 출력하지 않는다
+            log = subprocess.run(["git", "-C", d, "rev-list", "--all", "--count"], capture_output=True, text=True, env=env)
+            self.assertEqual(log.stdout.strip(), "0")  # 이력에 아무것도 남지 않았다
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(GOOD)
+            ok = subprocess.run(["bash", "-c", cmd], cwd=d, capture_output=True, text=True, env=env)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            self.assertIn("handoff: test", ok.stdout)  # 커밋의 한 줄 [branch sha] handoff: …
+            shown = subprocess.run(["git", "-C", d, "log", "--format=%s", "--name-only"], capture_output=True, text=True, env=env)
+            self.assertEqual(shown.stdout.split(), ["handoff:", "test", "HANDOFF.md"])
 
     def test_check_line_that_could_not_run_means_run_the_checker(self):
         self.assertIn("part of the check couldn't run", self.skill)
@@ -786,10 +862,58 @@ class SkillCostRulesTest(unittest.TestCase):
 
     def test_stop_hook_path_has_its_own_check_call(self):
         self.assertIn("there is no step 1 call on this path", self.stop)
-        self.assertIn("1M-token context window", self.stop)
-        self.assertIn("`Agent`/`Task` call whose subagent edited or wrote files", self.stop)
-        self.assertIn("below 250K it makes no cost claim", self.stop)
-        self.assertIn("also under the ratio rule", self.stop)
+        self.assertIn("if step 1 shows a command instead of its output, do not run it", self.stop)  # 읽어 온 원문이면 주입 명령이 그대로 보인다
+        self.assertIn("Do step 2 without the commit", self.stop)
+        # 맥락 문턱의 정확한 조건은 1.0.3부터 REFERENCE.md의 "Stop hook" 절에 있다(같은 문장 그대로)
+        self.assertIn("1M-token context window", self.ref_stop)
+        self.assertIn("`Agent`/`Task` call whose subagent edited or wrote files", self.ref_stop)
+        self.assertIn("below 250K it makes no cost claim", self.ref_stop)
+        self.assertIn("also under the ratio rule", self.ref_stop)
+        self.assertIn("the rules are in `REFERENCE.md`", self.stop)
+
+    def test_step_1_is_filled_in_when_the_skill_loads(self):
+        # 1.0.3: 쓰기 전 상태(승격 검토 요약·git status·git log)는 Claude Code가 스킬을 불러올 때 채운다(동적 주입) — 호출 0번.
+        # 주입 줄은 한 번, 제 줄에만 있다. 다른 곳의 "!" + 백틱은 Claude Code가 명령으로 돌릴 수 있어 두지 않는다
+        self.assertEqual(self.raw.splitlines().count(self.INJECT), 1)
+        self.assertEqual(self.raw.count("!`"), 1)
+        self.assertIn("still shows a command instead of its output (Codex, or a permission rule), run it as one Bash call", self.skill)
+        self.assertIn("Do not run them again", self.skill)
+        self.assertNotIn("git status --short --branch; git log", self.skill)  # 손으로 잇는 옛 한 호출은 없다
+
+    def test_write_and_commit_in_one_response(self):
+        self.assertIn("in the same response right after it, the gated commit", self.skill)
+        # 필요한 Read와 확인 Bash는 저장 앞의 한 응답에 같이(리뷰 11-26)
+        self.assertIn("Any Read of `HANDOFF.md` you need (a hook-injected copy does not count: Write and Edit refuse a file not "
+                      "read with the Read tool) and any new check (one Bash call) go in one response first", self.skill)
+        self.assertIn("warnings alone need no second commit unless you fix something", self.skill)
+        self.assertIn("or `git log`/`git show` after committing", self.skill)  # 금지 목록에 한 번(본문 중복은 뺐다)
+        # Codex는 ${CLAUDE_PLUGIN_ROOT}를 채우지 않을 수 있다 — 게이트가 검사기를 못 찾으면 커밋이 아예 안 된다(재검토 11-26)
+        self.assertIn("On Codex, if `${CLAUDE_PLUGIN_ROOT}` is empty, it is the folder two levels above this file's folder", self.skill)
+        self.assertIn("**do not run the checker yourself**", self.skill)
+
+    def test_warnings_are_acted_on_before_head_moves(self):
+        # 리뷰 11-26: 커밋하면 HEAD가 옮겨 가 한 번 보인 빠진 줄 경고는 다시 나오지 않는다 — 평소 길에서도 그때 되살린다
+        self.assertIn("Warnings: restore each dropped line that is still true and add missing `[V]`/`[?]` marks, then run the "
+                      "gated command again (after a commit they won't show again)", self.skill)
+
+    def test_rules_the_model_acts_on_stay_in_the_skill(self):
+        # 1.0.3에 까닭을 REFERENCE.md로 옮기며 지시는 남겼다 — 한도·표시·소유자 확인·끝 두 줄·Codex 경로
+        for rule in ("**Stay within 200 lines and 8,700 characters**", "no code block over 20 lines", "at most 3",
+                     "starts with `[V]`", "**or `[?]`**", "Facts already confirmed", "**First line: the written date**",
+                     '"current state (evidence) → what to do"', "**Owner decisions** (Korean: **소유자 확인**)",
+                     "**recommended default**", "Never write `HANDOFF.md` through Bash", "Codex: `apply_patch` gives the hook no path",
+                     "End with **exactly these two lines**", "새 세션에서 'HANDOFF.md 읽고 이어서 해줘'라고 시작하세요.", "승격 후보 없음.",
+                     "**shorten it to one line**", "raise one only when the owner points it out", "copy the script's format-mismatch line",
+                     "record them with the `/decision` skill; if either is missing, do not write the entry", "Never suggest `/compact`",
+                     "End the turn with the one line to the user that the request gives you, word for word"):
+            self.assertIn(rule, self.skill)
+        dont = self.raw.split("## Do not\n", 1)[1]
+        self.assertEqual(sum(1 for ln in dont.splitlines() if ln.startswith("- ")), 11)
+
+    def test_skill_stays_small_and_points_to_its_reference(self):
+        # 1.0.3: 스킬 본문은 쓰기마다 캐시에 다시 쓰인다(1.0.1 실측 24.7KB, 약 $0.06). 까닭·측정은 REFERENCE.md로
+        self.assertLessEqual(len(self.raw.encode("utf-8")), 12000)
+        self.assertIn("`REFERENCE.md` in this skill's folder: read it only when you need it", self.skill)
 
 
 class InjectBudgetTest(unittest.TestCase):

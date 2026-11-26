@@ -494,10 +494,11 @@ class BashHandoffCheckTest(unittest.TestCase):
         with open(self.transcript, "w", encoding="utf-8") as f:
             f.write(stamp(prompt("시작"), start) + "\n")
 
-    def bash(self, command=PY_WRITE, sid="s1", tool_use_id=None, event="PostToolUse", **kw):
+    def bash(self, command=PY_WRITE, sid="s1", tool_use_id=None, event="PostToolUse", agent_id=None, **kw):
         payload = {"hook_event_name": event, "tool_name": "Bash", "session_id": sid, "cwd": self.root,
                    "tool_input": {"command": command}, "transcript_path": self.transcript}
-        return self.run_hook(dict(payload, **({"tool_use_id": tool_use_id} if tool_use_id else {})), **kw)
+        payload.update({"tool_use_id": tool_use_id} if tool_use_id else {}, **({"agent_id": agent_id} if agent_id else {}))
+        return self.run_hook(payload, **kw)
 
     def at(self, path, t):
         os.utime(path, (t, t))
@@ -571,6 +572,30 @@ class BashHandoffCheckTest(unittest.TestCase):
         self.assertTrue(self.bash(tool_use_id="toolu_during")["reason"].startswith(BASH_HEAD))
         self.assertIsNotNone(self.bash_ts())
 
+    def test_call_inside_a_subagent_is_timed_from_the_subagent_record(self):
+        # 1.0.3: 서브에이전트 안의 Bash는 호출 줄이 메인 기록에 없다(실제 실행 11-26: 입력에 agent_id, transcript_path는 메인 기록,
+        # 호출 줄은 <메인>/subagents/agent-<agent_id>.jsonl) — 거기서 이 호출의 시작을 찾는다
+        self.session(1000)
+        self.at(self.handoff(GOOD), 500)
+        self.assertIsNone(self.bash("git status"))  # 처음 본 파일 — 기억만
+        sub = os.path.join(os.path.splitext(self.transcript)[0], "subagents", "agent-a1b2.jsonl")
+        os.makedirs(os.path.dirname(sub))
+
+        def sub_call(tid, t):
+            line = json.dumps({"type": "assistant", "isSidechain": True, "message": {"content": [
+                {"type": "tool_use", "id": tid, "name": "Bash", "input": {}}]}})
+            with open(sub, "a", encoding="utf-8") as f:
+                f.write(stamp(line, t) + "\n")
+        self.at(self.handoff("# Session Handoff\n- 다른 창이 고침\n"), 3000)
+        sub_call("toolu_sub_after", 3005)
+        self.assertIsNone(self.bash("cat HANDOFF.md", tool_use_id="toolu_sub_after", agent_id="a1b2"))  # 호출 전 변화 — 기억만
+        self.assertIsNone(self.bash_ts())
+        self.at(self.handoff("# Session Handoff\n- 서브에이전트가 씀\n"), 4010)
+        sub_call("toolu_sub_during", 4000)
+        self.assertTrue(self.bash(tool_use_id="toolu_sub_during", agent_id="a1b2")["reason"].startswith(BASH_HEAD))
+        self.at(self.handoff("# Session Handoff\n- 기록 없는 서브에이전트\n"), 5010)  # 그 기록이 없으면 이름 규칙만(1.0.2와 같다)
+        self.assertTrue(self.bash(tool_use_id="toolu_x", agent_id="zz9")["reason"].startswith(BASH_HEAD))
+
     def test_codex_hooks_file_is_the_claude_one_without_unknown_events(self):
         # 리뷰 11-26: codex-cli 0.164 바이너리의 훅 이벤트 목록에 PostToolUseFailure가 없다 — 모르는 키로 훅 전체가
         # 버려지는지 확인하지 못해 Codex는 그 이벤트만 뺀 파일을 쓴다. 두 파일이 어긋나지 않게 여기서 묶는다.
@@ -614,17 +639,31 @@ class BashHandoffCheckTest(unittest.TestCase):
         # 리뷰 11-26: handoff-seen/<sid>/가 대화마다 하나씩 쌓였다 — 30일 넘게 안 건드린 대화 폴더는 Stop이 지운다
         base = os.path.join(self.root, "cache", "baton", "handoff-seen")
         old, new, odd = os.path.join(base, "old-sid"), os.path.join(base, "new-sid"), os.path.join(base, "not a sid")
-        for d in (old, new, odd):
+        own = os.path.join(base, "s1")  # 인계서를 안 쓴 채 30일 넘게 열어 둔 이 창 — 1.0.2는 이 기억도 지웠다
+        split = os.path.join(self.root, "cache", "baton", "split")  # 맥락 문턱 상태(hooks/split-notice.py state_path)도 같은 규칙
+        os.makedirs(split)
+        files = {n: os.path.join(split, n) for n in ("old-sid.json", "new-sid.json", "s1.json", "not a sid.json", "old-sid.txt")}
+        for d in (old, new, odd, own):
             os.makedirs(d)
             with open(os.path.join(d, "x.json"), "w") as f:
                 f.write("{}")
+        for p in files.values():
+            with open(p, "w") as f:
+                f.write("[250000]")
         stale = time.time() - 31 * 86400
-        for d in (old, odd):
-            os.utime(d, (stale, stale))
+        for p in (old, odd, own, *(v for k, v in files.items() if k != "new-sid.json")):
+            os.utime(p, (stale, stale))
         self.run_hook({"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript})
         self.assertFalse(os.path.exists(old))
         self.assertTrue(os.path.exists(new))
         self.assertTrue(os.path.exists(odd))  # 세션 id 모양이 아닌 것은 건드리지 않는다
+        self.assertTrue(os.path.exists(os.path.join(own, "x.json")))  # 부른 대화의 것은 남기고
+        self.assertGreater(os.stat(own).st_mtime, stale + 86400)  # 수정 시각을 당겨 다른 창의 Stop도 지우지 않게 한다
+        self.assertEqual(sorted(os.listdir(split)), ["new-sid.json", "not a sid.json", "old-sid.txt", "s1.json"])
+        self.assertGreater(os.stat(files["s1.json"]).st_mtime, stale + 86400)
+        self.run_hook({"hook_event_name": "Stop", "session_id": "other", "transcript_path": self.transcript})
+        self.assertTrue(os.path.exists(own))  # 다른 창의 Stop — 당겨 둔 시각이라 남는다
+        self.assertTrue(os.path.exists(files["s1.json"]))
 
     def test_bash_write_time_survives_an_overlapping_remember(self):
         # 리뷰 11-26: 기억 파일을 읽고-고쳐-쓰는 동안 겹친 Bash 훅(서브에이전트의 Bash)이 옛 내용으로 덮으면 bash_write_ts가 사라졌다
@@ -883,8 +922,8 @@ class BashWritesTest(unittest.TestCase):
             with open(tr, "w", encoding="utf-8") as f:
                 f.write("\n".join(rows) + "\n")
             self.assertEqual(list(self.hook.transcript_events(tr)),  # 기계가 보낸 프롬프트만 본문의 <tool-use-id>를 낸다
-                             [("prompt", (), None)] * 3 + [("prompt", (), 1000.0), ("prompt", (), None), ("prompt", ("toolu_9",), None),
-                                                           ("prompt", (), None)])
+                             [("prompt", (), False, None)] * 3 + [("prompt", (), True, 1000.0), ("prompt", (), True, None),
+                                                                  ("prompt", ("toolu_9",), True, None), ("prompt", (), False, None)])
 
     def test_work_counting_has_a_deadline_and_stop_falls_back_to_edits(self):
         import contextlib, io, tempfile, time
