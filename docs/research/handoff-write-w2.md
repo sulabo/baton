@@ -265,6 +265,61 @@ items below record what changed and what the lead checked about it before W1, al
 
 ---
 
-## Results
+## Results (2026-11-26, runs 23:23–23:43)
 
-(Not run yet.)
+**Verdict (pre-registered, against W): not shown cheaper.** The median warm-normalized cost per write fell in both
+repos, but by less than the 10% the rule asks for:
+
+| | assistant calls per write | warm-normalized cost, median [range] | raw cost, median | handoff bytes, median | required facts kept |
+|---|---|---|---|---|---|
+| baton repo, W (1.0.1) | 5 (all five) | $0.670 [0.575–0.718] | $0.670 | 8,314 | 5/5 |
+| baton repo, W2 (1.0.3) | 3 (all five) | $0.625 [0.531–0.643] | $0.643 | 9,277 | 5/5 |
+| game repo, W (1.0.1) | 6 (5–8) | $0.570 [0.558–0.688] | $2.211 | 6,752 | 4/5 |
+| game repo, W2 (1.0.3) | 4 (all five) | $0.541 [0.525–0.606] | $0.606 | 6,922 | 4/5 |
+
+- **Ratios W2/W:** 0.93 (baton repo) and 0.95 (game repo). The rule needed ≤ 0.90 in both, so: not shown cheaper.
+  The margin-free line, also pre-stated, is "lower in both repos".
+- **Mechanism: confirmed.** The median assistant calls per write fell by 2 in both repos (5 → 3, 6 → 4).
+- **Facts:** 9 of 10 valid W2 handoffs carry every required marker in their added lines. That is the same count as
+  W. The miss is game-repo W4 (F6), the same fact W's one miss lost.
+- **Secondary** (W2's runs by W's rule against round 2): cheaper, with ratios 0.86 and 0.83.
+- **All ten runs were valid; there were no retries.**
+- **Descriptive:**
+  - the skill's state block was filled in at load in 10 of 10 runs;
+  - the Write and the gated commit came in one assistant message in 10 of 10;
+  - every run made one commit;
+  - there were 0 PostToolUse check blocks and 0 Stop blocks.
+
+**Where the money went** (descriptive; warm runs only, i.e. runs whose first turn read the cache: W 4 and 2, W2 3
+and 3; cost components priced as in W, with the rest by subtraction):
+
+| per write, median | cache reads | cache writes | the rest (output, including thinking) |
+|---|---|---|---|
+| baton repo, W → W2 | $0.252 → $0.148 | $0.183 → $0.192 | $0.218 → $0.298 |
+| game repo, W → W2 | $0.325 → $0.184 | $0.162 → $0.179 | $0.136 → $0.185 |
+
+- **The call cut did what it was built for.** Re-reading the ~220–250k context cost 10–14 cents less per write.
+- **Output grew by about 5–8 cents and took most of that back.**
+  - The handoffs were longer, by about 960 bytes in the baton repo and about 170 bytes in the game repo (medians
+    over all runs).
+  - The save-and-commit response is one larger turn.
+  - These component medians rest on 2–4 warm runs per cell, so they show a direction, not a size.
+
+**Other observations:**
+- **Third-carrier flag.** It fired in all five game-repo runs. Each listed the project's auto-memory folder
+  (`ls ~/.claude/projects/<project>/memory`), which preflight had found empty. W's game-repo W4 did the same. Nothing
+  was read from it.
+- **Cold first turns.** Four of the ten writes started cold, costing $2.15–2.41 raw each. The warm-normalized cost
+  reprices them, as in W.
+
+**Cost:**
+- W2 ledger $13.16: the probe $0.51, the ten writes $12.66.
+- Side costs $0.73.
+- Total $13.89, inside the owner's $20.
+
+**What this supports:**
+- The 1.0.3 write needs two fewer assistant calls.
+- At this context size, it spent 10–14 cents less re-reading the conversation.
+- In these runs, the net saving was 5–7%. That is inside the pre-stated noise margin, so W2 does not claim the 1.0.3
+  write is cheaper.
+- Next-session correctness was not measured.
