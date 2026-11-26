@@ -7,6 +7,9 @@
 > **Corrected 2026-11-25.** In the game repo the `/compact` arm also received a handoff, so that repo is left out
 > and both verdicts become "inconclusive" under the pre-registered rule. See
 > [Correction (2026-11-25)](#correction-2026-11-25). The original text below is unchanged.
+>
+> **Follow-ups 2026-11-25:** round 3 (the next day, a different task) and W (the handoff write in 1.0.1). See
+> [Round 3 and W](#round-3-and-w-2026-11-25).
 
 **Question.** A long Claude Code session reaches a task boundary and work continues. Is it better to
 write a handoff (baton's `HANDOFF.md`) and start a **new** session, or to run `/compact` and keep going in the
@@ -394,3 +397,21 @@ Values are median (min–max) per run; the C rows are round 1's. Round 2 spent *
 **What this says.** In these 10 runs no handoff run lost work, but continuing with /compact was cheaper.
 A handoff's advantage, a page a person can read and edit, isn't measured here.
 
+## Round 3 and W (2026-11-25)
+
+Two follow-ups, each pre-registered before its main run, with method, deviations and full tables in
+[compact-vs-handoff-r3.md](compact-vs-handoff-r3.md#results-2026-11-25). Both reuse the long sessions S above.
+
+- **W, the handoff write in 1.0.1** (5 writes per repo, a build byte-identical to `v1.0.1` in skills, hooks and lib):
+  **cheaper** by the pre-stated rule. Median warm-normalized cost per write $0.726 → $0.670 (baton) and $0.653 →
+  $0.570 (game repo); assistant calls 6 → 5 and 6 → 6. Nine of the ten handoffs kept every fact marker the round-2
+  handoffs had added; one game-repo write missed one.
+- **Round 3, the next day and a different task** (the cache has expired; the game repo's start state no longer holds
+  the build's handoff, and its compactions were redone on it; 2 repos, 3 pairs each): correct C 5/6, H 4/6.
+  - Against compacting the next morning: **no difference detected** (H/C cost 0.86; H was 13–14% cheaper in both
+    repos, short of the rule's 15%, at n = 3).
+  - Against compacting at the end of the day: **compact better** (H/C cost 1.32).
+  - In the game repo a control run with neither carrier passed on the first prompt (its rerun on the revised prompt
+    read the rule from the old session's transcript on disk instead), so that repo's correctness does not separate
+    the arms. Baton's
+    two H misses had the rule in their handoff but followed the prompt's instruction instead.
