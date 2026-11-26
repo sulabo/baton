@@ -281,7 +281,8 @@ repos, but by less than the 10% the rule asks for:
   The margin-free line, also pre-stated, is "lower in both repos".
 - **Mechanism: confirmed.** The median assistant calls per write fell by 2 in both repos (5 → 3, 6 → 4).
 - **Facts:** 9 of 10 valid W2 handoffs carry every required marker in their added lines. That is the same count as
-  W. The miss is game-repo W4 (F6), the same fact W's one miss lost.
+  W. The miss is game-repo W4 (F6), the same fact W's one miss lost. The count is by added lines only: W4's whole
+  file still states F6, as W's missing handoff did (threat 8).
 - **Secondary** (W2's runs by W's rule against round 2): cheaper, with ratios 0.86 and 0.83.
 - **All ten runs were valid; there were no retries.**
 - **Descriptive:**
@@ -289,37 +290,49 @@ repos, but by less than the 10% the rule asks for:
   - the Write and the gated commit came in one assistant message in 10 of 10;
   - every run made one commit;
   - there were 0 PostToolUse check blocks and 0 Stop blocks.
+- **Descriptive, against W:**
+  - First-turn input: W2 baton 243,173–243,350 tokens (W: 243,079); game 222,734–222,932 (W: 222,640–222,932).
+  - Hook calls per run: PostToolUse:Bash 5 in the baton repo (W: 8; W's W5 had 4, plus 2 PostToolUseFailure). In
+    the game repo, PostToolUse:Bash 10 plus Read 5 (W: Bash 8–20). W2 had no PostToolUseFailure.
+  - The drift-notice state was reset before 9 runs (one file each). Game-repo W1 had nothing to reset.
+  - The environment drift that `wenv` found (tools 306 → 310, non-baton skills 147 → 145) is in the Build section.
 
-**Where the money went** (descriptive; warm runs only, i.e. runs whose first turn read the cache: W 4 and 2, W2 3
-and 3; cost components priced as in W, with the rest by subtraction):
+**Where the money went** (descriptive; all five runs per cell; the first turn's cache creation is repriced as cache
+reads, as `warm_cost` does; components priced as in W, with the rest by subtraction from the warm-normalized cost):
 
-| per write, median | cache reads | cache writes | the rest (output, including thinking) |
-|---|---|---|---|
-| baton repo, W → W2 | $0.252 → $0.148 | $0.183 → $0.192 | $0.218 → $0.298 |
-| game repo, W → W2 | $0.325 → $0.184 | $0.162 → $0.179 | $0.136 → $0.185 |
+| per write, median | cache reads | cache writes | the rest (output, including thinking) | warm-normalized total |
+|---|---|---|---|---|
+| baton repo, W → W2 | $0.253 → $0.148 | $0.188 → $0.190 | $0.230 → $0.285 | $0.670 → $0.625 |
+| game repo, W → W2 | $0.278 → $0.184 | $0.167 → $0.179 | $0.148 → $0.181 | $0.570 → $0.541 |
 
-- **The call cut did what it was built for.** Re-reading the ~220–250k context cost 10–14 cents less per write.
-- **Output grew by about 5–8 cents and took most of that back.**
-  - The handoffs were longer, by about 960 bytes in the baton repo and about 170 bytes in the game repo (medians
-    over all runs).
-  - The save-and-commit response is one larger turn.
-  - These component medians rest on 2–4 warm runs per cell, so they show a direction, not a size.
+- **The call cut did what it was built for.** Re-reading the context cost about 9–10 cents less per write: two
+  calls at about 223–245k tokens, close to the pre-stated expectation of about $0.10.
+- **Output grew by about 3–6 cents.** Together with slightly larger cache writes, that took back about half to
+  two-thirds of the read saving. The net medians fell 4.5 cents (baton repo) and 2.9 cents (game repo).
+- **Where the extra output went was not measured.**
+  - Most of it is not in visible text or tool inputs. At the median, visible output grew by about 390 characters
+    (baton) and about 50 (game). Output tokens grew by about 2,750 and 1,600. So it is probably hidden thinking.
+  - The longer handoffs account for a small part: about 960 and 170 bytes, medians over all runs.
+  - Per-turn output can't be read from the stream, so whether the one save-and-commit turn thinks more was not
+    measured.
 
 **Other observations:**
 - **Third-carrier flag.** It fired in all five game-repo runs. Each listed the project's auto-memory folder
-  (`ls ~/.claude/projects/<project>/memory`), which preflight had found empty. W's game-repo W4 did the same. Nothing
-  was read from it.
+  (`ls ~/.claude/projects/<project>/memory`), which preflight had found empty, and every listing came back empty.
+  W's game-repo W1, W2, W4 and W5 did the same: the flag fired in four of W's five game-repo runs. Nothing was read
+  from the folder.
 - **Cold first turns.** Four of the ten writes started cold, costing $2.15–2.41 raw each. The warm-normalized cost
   reprices them, as in W.
 
 **Cost:**
-- W2 ledger $13.16: the probe $0.51, the ten writes $12.66.
+- W2 ledger $13.16: the probe $0.50, the ten writes $12.66.
 - Side costs $0.73.
-- Total $13.89, inside the owner's $20.
+- Total $13.90, inside the owner's $20.
 
 **What this supports:**
 - The 1.0.3 write needs two fewer assistant calls.
-- At this context size, it spent 10–14 cents less re-reading the conversation.
+- At this context size, it spent about 9–10 cents less re-reading the conversation. Its output grew by about 3–6
+  cents, for a reason not measured.
 - In these runs, the net saving was 5–7%. That is inside the pre-stated noise margin, so W2 does not claim the 1.0.3
   write is cheaper.
 - Next-session correctness was not measured.
