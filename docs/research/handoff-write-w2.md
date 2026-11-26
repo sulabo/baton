@@ -215,6 +215,31 @@ and committed before any W2 run, at $0. Amendment n answers the review's finding
     added-line ones.
 14. **Launcher.** `run.sh stage` (outside git) runs `preflight` before the paid `wprobe`.
 
+## Amendments before any W2 run (build changes from the code review, 2026-11-26)
+
+An independent code review of the 1.0.3 candidate changed the build after this pre-registration was written. The
+items below record what changed and what the lead checked about it before W1, all at $0 of W2's ledger.
+
+15. **The commit is gated by the checker.** The second change now reads: in the same assistant message as the
+    Write, one Bash call runs `python3 "…/lib/handoff_check.py" HANDOFF.md && git add HANDOFF.md && git commit …`.
+    Without the gate, content the checker blocks (secrets, home paths) would be committed before the check reported
+    it. The gate adds no assistant call. `commits` and `write_commit_one_message` still detect the call, by its
+    `git commit`.
+16. **The injection line is quoted:** `bash "${CLAUDE_PLUGIN_ROOT}/lib/promote.sh" --brief --status .`, with a
+    matching `allowed-tools` entry. A probe on CLI 2.1.331 (Haiku, scratch repo, a plugin path containing a space)
+    showed the quoted form filled in at load.
+17. **Open question 1, about the Write's own check, is settled.** A probe on 2.1.331 put a Write and a Bash in one
+    assistant message, with a PostToolUse hook on the Write that slept 1.5 s. The hook finished before the Bash
+    started, so the save-time check compares with the commit before this write. (The question as written, about
+    the Bash handoff check on the commit call, stays open.)
+18. **Other build changes from the same review:**
+    - the context-threshold Stop no longer counts a background completion queued into a question-only turn;
+    - the dropped-lines warning stops looking at verified facts and next actions (owner decision, 2026-11-26), so a
+      write may see fewer warnings and make fewer follow-up edits;
+    - `promote.sh` timing and output-order fixes.
+
+    The verdict still compares the 1.0.1 and 1.0.3 builds as wholes (threat 6).
+
 ---
 
 ## Results
