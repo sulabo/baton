@@ -16,7 +16,8 @@ All phases run one at a time in the same snapshot path (S's transcript holds abs
 
 Round 3 (next day, different task; docs/research/compact-vs-handoff-r3.md): seed --from <r1>:C --from <r2>:H, startstate,
 probe-cut, preflight, next --pilot, gate, next, report --task T1|T2. Write-cost re-measure (W): seed --from <r2>:H,
-startstate, wstage, wprobe, write, wreport.
+startstate, wstage, wprobe, write, wreport. W2 (docs/research/handoff-write-w2.md): the same with CVH_WREF=<W's folder>,
+plus wenv ($0) after wprobe.
 
 Cost accounting: total_cost_usd and modelUsage of a --resume/--fork-session child INCLUDE the parent's usage
 (probed 2026-11-23 on 6 parent->child pairs), so every phase is charged child minus parent. The /compact call
@@ -42,6 +43,9 @@ BATON_REQUIRED = os.environ.get("CVH_BATON")
 BATON_INSTALLED = os.environ.get("CVH_BATON_INSTALLED") or BATON_REQUIRED
 # W2: CVH_WREF=<an earlier W data folder> also judges the new W runs against that folder's valid W runs (not only round 2).
 WREF = os.environ.get("CVH_WREF")
+# W2 (amendment 3, before any W2 run): against CVH_WREF, "cheaper" needs the W2/W median warm-cost ratio <= this in both
+# repos. Used only with a reference W; W's own rule against round 2 has no margin.
+W2_RATIO = 0.90
 # Round 3 (2026-11-25): also pin OMC and the Claude Code CLI (round 2 drifted from OMC 5.8.4 to 5.8.7 mid-run, unnoticed).
 OMC_REQUIRED = os.environ.get("CVH_OMC")
 CLI_REQUIRED = os.environ.get("CVH_CLI")
@@ -1822,6 +1826,112 @@ def added_text(diff_text, path="HANDOFF.md"):
     return "\n".join((parse_diff(diff_text).get(path) or {}).get("added", []))
 
 
+def drift_reset(repo):
+    """W2 (amendment 5): from 1.0.2, hooks/drift-notice.sh shows the same concept-map notice at most once a day, keeping
+    what it showed in ${XDG_CACHE_HOME:-~/.cache}/baton/drift/shown-<cksum of "lang|map path">, outside the snapshot.
+    Every W run carried that notice, so before each run only those files of this repo's maps (both languages) are
+    removed; the notice's other cache files stay. Returns the removed paths."""
+    root = git(repo, "rev-parse", "--show-toplevel").stdout.strip() or repo  # the hook's ROOT and find, exactly
+    maps = subprocess.run(["find", root, "-maxdepth", "2", "-name", "CONCEPTS.md", "-not", "-path", "*/node_modules/*"],
+                          capture_output=True, text=True).stdout.splitlines()
+    d = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "baton", "drift")
+    out = []
+    for m in filter(None, maps):
+        for lang in ("ko", "en"):
+            ck = subprocess.run(["cksum"], input=f"{lang}|{m}".encode(), capture_output=True, check=True).stdout.decode()
+            f = os.path.join(d, "shown-" + ck.strip().replace(" ", ""))
+            if os.path.isfile(f):
+                os.remove(f)
+                out.append(f)
+    return out
+
+
+GIT_STATUS_HEAD = re.compile(r"(?m)^## (?:No commits yet on \S+|HEAD \(no branch\)|\S+(?:\.\.\.\S+)?(?: \[[^\]\n]+\])?)$")
+GIT_ONELINE = re.compile(r"(?m)^[0-9a-f]{7,40} \S")
+GIT_COMMIT = re.compile(r"\bgit\b[^|;&\n]*?\bcommit\b")
+
+
+def write_metrics(path):
+    """W2 descriptive metrics (amendments 2 and 7) from a write's raw stream, main thread only:
+    state_filled: the Skill tool result (with the skill text loaded after it) holds `git status --short --branch` and
+      `git log --oneline` output and no "[run this first" placeholder;
+    write_commit_one_message: one assistant message holds both a Write/Edit of HANDOFF.md and a `git commit` Bash call;
+    commits: Bash calls that run `git commit`; posttool_blocks: PostToolUse hook responses with "decision": "block"."""
+    out = dict(state_filled=False, write_commit_one_message=False, commits=0, posttool_blocks=0)
+    msgs, skill_ids, skill_text, capture = {}, set(), [], False
+    for d in read_rows(path):
+        t = d.get("type")
+        if t == "system" and d.get("subtype") == "hook_response" and d.get("hook_event") == "PostToolUse":
+            o = (d.get("stdout") or "") + (d.get("output") or "")
+            out["posttool_blocks"] += '"decision": "block"' in o or '"decision":"block"' in o
+        if d.get("parent_tool_use_id") or t not in ("assistant", "user"):
+            continue
+        content = (d.get("message") or {}).get("content")
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
+        if t == "assistant":
+            capture = False
+            mid = (d.get("message") or {}).get("id") or d.get("uuid")
+            for x in blocks:
+                if isinstance(x, dict) and x.get("type") == "tool_use":
+                    msgs.setdefault(mid, []).append((x.get("name"), x.get("input") or {}))
+                    if x.get("name") == "Skill":
+                        skill_ids.add(x.get("id"))
+            continue
+        for x in blocks:
+            if not isinstance(x, dict):
+                continue
+            if x.get("type") == "tool_result" and x.get("tool_use_id") in skill_ids:
+                capture = True
+                c = x.get("content")
+                skill_text.append(c if isinstance(c, str) else json.dumps(c, ensure_ascii=False))
+            elif x.get("type") == "text" and capture:
+                skill_text.append(x.get("text") or "")
+    text = "\n".join(skill_text)
+    out["state_filled"] = bool(GIT_STATUS_HEAD.search(text) and GIT_ONELINE.search(text)) and "[run this first" not in text
+    commit = lambda n, i: n == "Bash" and bool(GIT_COMMIT.search(i.get("command") or ""))
+    ho = lambda n, i: n in ("Write", "Edit", "MultiEdit") and re.search(r"(^|/)HANDOFF\.md$", str(i.get("file_path") or ""))
+    out["commits"] = sum(commit(n, i) for calls in msgs.values() for n, i in calls)
+    out["write_commit_one_message"] = any(any(ho(n, i) for n, i in calls) and any(commit(n, i) for n, i in calls)
+                                          for calls in msgs.values())
+    return out
+
+
+def init_line(path):
+    return next((d for d in read_rows(path) if d.get("type") == "system" and d.get("subtype") == "init"), None)
+
+
+def cmd_wenv(a):
+    """W2, $0 (amendment 4; the lead runs it once after wprobe and before W1): the environment around baton, the
+    staged probe session's init line against the reference W's W1 init line in the same repo: non-baton plugin names
+    and versions, MCP server names, tool count, skill count. Prints the differences; reads only."""
+    if not WREF:
+        raise Stop("wenv needs CVH_WREF (the reference W folder)")
+    name = load_spec(a.spec)["name"]
+    probe_path = w_paths()[2]
+    probe = json.load(open(probe_path)) if os.path.exists(probe_path) else {}
+    mine = ((probe.get("runs") or {}).get("staged") or {}).get("stream") or os.path.join(DATA, "runs", name, "wprobe-staged.jsonl")
+    ref = os.path.join(os.path.expanduser(WREF), "runs", name, "W1-t.jsonl")
+    lines = {}
+    for label, f in (("W W1", ref), ("W2 probe", mine)):
+        d = init_line(f) if os.path.exists(f) else None
+        if not d:
+            raise Stop(f"no init line in {f}")
+        lines[label] = {"plugins (not baton)": sorted(f"{x.get('name')} {x.get('version')}" for x in d.get("plugins") or [] if x.get("name") != "baton"),
+                        "MCP servers": sorted(x.get("name") for x in d.get("mcp_servers") or []),
+                        "tools": len(d.get("tools") or []), "skills": len(d.get("skills") or []),
+                        "skills (not baton)": len([x for x in d.get("skills") or [] if not x.startswith("baton:")])}
+    a_, b_ = lines["W W1"], lines["W2 probe"]
+    diffs = [k for k in a_ if a_[k] != b_[k]]
+    for k in a_:
+        if a_[k] == b_[k]:
+            print(f"  same {k}: {a_[k] if not isinstance(a_[k], list) else len(a_[k])}")
+        elif isinstance(a_[k], list):
+            print(f"  DIFFERS {k}: only in W W1 {sorted(set(a_[k]) - set(b_[k]))}, only in the W2 probe {sorted(set(b_[k]) - set(a_[k]))}")
+        else:
+            print(f"  DIFFERS {k}: W W1 {a_[k]}, W2 probe {b_[k]}")
+    print(f"wenv: {len(diffs)} difference(s) ({ref} vs {mine})")
+
+
 def cmd_wprobe(a):
     """W, about $0.6: two new one-word sessions in the snapshot at B1 — the installed setup (control) and the staged
     build (--plugin-dir + --settings disabling baton@baton). Passes when the staged session loads exactly one baton,
@@ -1846,7 +1956,8 @@ def cmd_wprobe(a):
                                usage_of(None), run_dir, dict(arm=kind), plugin_dir=pdir, prepare=prepare)
         r2.kill_leftovers(repo)
         res[kind] = dict(plugins=p["plugins"], skills=p["skills"], hooks=p["hooks"], baton=p["baton"], omc=p["omc"],
-                         cli=p["cli"], subtype=(p["result"] or {}).get("subtype"), cost=(du or {}).get("cost"), seconds=dt)
+                         cli=p["cli"], subtype=(p["result"] or {}).get("subtype"), cost=(du or {}).get("cost"), seconds=dt,
+                         stream=out)
     fresh(repo, b["B1"], b["project_dir"], "wprobe-after")
     after = owner_files()
     c, s_ = res["control"], res["staged"]
@@ -1927,7 +2038,12 @@ def write_one(spec, st, i, dst):
             if os.path.exists(f):
                 os.replace(f, os.path.join(run_dir, f"{tag}-t.fail{len(prev) + 1}{ext}"))
         prev = prev + [{k: w[tag].get(k) for k in ("subtype", "delta", "first", "seconds", "leak", "problems")}]
-    prepare = lambda: fresh(repo, b["B1"], b["project_dir"], f"{name}-{tag}")
+    reset = []  # W2 (amendment 5): the drift notice's "shown" state, removed before each attempt so the input matches W's
+
+    def prepare():
+        m = fresh(repo, b["B1"], b["project_dir"], f"{name}-{tag}")
+        reset.extend(drift_reset(repo))
+        return m
     mem = prepare()
     check_S(b)
     check_parents(st)
@@ -1960,7 +2076,8 @@ def write_one(spec, st, i, dst):
                markers=markers_in(text.decode("utf-8", "replace"), spec["markers"]),
                added_markers=markers_in(added_text(d) if written else "", spec["markers"]),
                skills=[x.get("skill") for n_, x in calls if n_ == "Skill"], n_tool_calls=len(calls), leak=leak,
-               third_carrier=third_carrier(every), problems=problems, failed_attempts=prev, valid=not problems)
+               third_carrier=third_carrier(every), problems=problems, failed_attempts=prev, valid=not problems,
+               drift_notice_reset=reset, **write_metrics(out))
     rec["ok"] = rec["valid"]  # "ok" = a valid run, as in the other phases; `written` says whether it wrote a handoff
     rec["warm"] = warm_cost(dict(rec, arm="H")) if du else None
     w[tag] = rec
@@ -1987,71 +2104,112 @@ def wverdict(states, ref_states=None):
     lower than round 2's in both repos AND at most one valid W run misses a required marker in its handoff's added
     lines (a run that wrote no handoff misses them all); 'loses facts' if more miss; otherwise 'not cheaper'. Each
     repo needs >= 3 valid W runs, else 'inconclusive'. W2 (pre-registered in docs/research/handoff-write-w2.md before any
-    W2 run): with ref_states (CVH_WREF's states) the reference is that folder's valid W runs instead of round 2; the
-    required markers stay round 2's."""
+    W2 run, amended before any W2 run): with ref_states (CVH_WREF's states) the reference is that folder's valid W runs
+    instead of round 2, and 'cheaper' needs the W2/W median ratio <= W2_RATIO in both repos; lower in both repos but
+    above W2_RATIO in some repo is 'not shown cheaper'; not lower in both repos is 'not cheaper'. Two lines follow it:
+    the mechanism (median assistant calls lower by >= 1 in both repos) and the margin-free comparison. The required
+    markers stay round 2's."""
     import statistics as stt
-    lower, total, kept, per = {}, 0, 0, {}
-    label, rl = ("", "r2") if ref_states is None else (" vs the reference W", "ref W")
+    w2 = ref_states is not None
+    lower, ratio, fewer, total, kept, per = {}, {}, {}, 0, 0, {}
+    head, me, rl = ("W2 VERDICT vs W", "W2", "W") if w2 else ("W VERDICT", "W", "r2")
     for name, st in states.items():
         need = w_required(st)
         w = [r for r in st.get("write", {}).values() if r.get("valid", r.get("ok"))]
         if len(w) < 3:
-            return f"W VERDICT{label}: inconclusive ({name}: {len(w)} valid W runs)"
-        if ref_states is None:
+            return f"{head}: inconclusive ({name}: {len(w)} valid {me} runs)"
+        if not w2:
             mr = stt.median(warm_cost(t) for t in st["transitions"].values() if t["arm"] == "H" and t.get("ok"))
         else:
-            ref = [r["warm"] for r in (ref_states.get(name) or {}).get("write", {}).values() if r.get("valid", r.get("ok"))]
+            ref = [r for r in (ref_states.get(name) or {}).get("write", {}).values() if r.get("valid", r.get("ok"))]
             if len(ref) < 3:
-                return f"W VERDICT{label}: inconclusive ({name}: {len(ref)} valid reference W runs)"
-            mr = stt.median(ref)
+                return f"{head}: inconclusive ({name}: {len(ref)} valid reference W runs)"
+            mr = stt.median(r["warm"] for r in ref)
+            cw, cr = stt.median(r["turns"] for r in w), stt.median(r["turns"] for r in ref)
+            fewer[name] = (cr - cw >= 1, f"{name} {me} {cw:g} vs {rl} {cr:g}")
         mw = stt.median(r["warm"] for r in w)
-        lower[name] = mw < mr
+        lower[name], ratio[name] = mw < mr, mw / mr
         miss = [r["i"] for r in w if not (r.get("written", True) and all((r.get("added_markers") or {}).get(f) for f in need))]
         total, kept = total + len(w), kept + len(w) - len(miss)
-        per[name] = f"warm W {mw:.3f} vs {rl} {mr:.3f} (ratio {mw / mr:.2f}); required (added lines) {need}; W runs missing one: {miss}"
+        per[name] = f"warm {me} {mw:.3f} vs {rl} {mr:.3f} (ratio {mw / mr:.2f}); required (added lines) {need}; {me} runs missing one: {miss}"
     if kept < total - 1:
         v = "loses facts"
-    elif all(lower.values()):
-        v = "cheaper"
-    else:
+    elif not all(lower.values()):
         v = "not cheaper"
-    return f"W VERDICT{label}: {v}  (valid runs with every required marker {kept}/{total}; " + "; ".join(f"{k}: {x}" for k, x in per.items()) + ")"
+    elif w2 and not all(x <= W2_RATIO for x in ratio.values()):
+        v = "not shown cheaper"
+    else:
+        v = "cheaper"
+    out = f"{head}: {v}  (valid runs with every required marker {kept}/{total}; " + "; ".join(f"{k}: {x}" for k, x in per.items()) + ")"
+    if w2:
+        out += (f"\nW2 mechanism (median assistant calls lower by >= 1 in both repos): "
+                f"{'confirmed' if all(x for x, _ in fewer.values()) else 'not confirmed'} ({'; '.join(s for _, s in fewer.values())})"
+                f"\nW2 descriptive, no margin: median warm cost lower than W's in both repos: {'yes' if all(lower.values()) else 'no'}"
+                f" (ratios {', '.join(f'{k} {x:.2f}' for k, x in ratio.items())}; the rule needs <= {W2_RATIO:.2f} in both)")
+    return out
 
 
 def cmd_wreport(a):
+    """Reads only. This folder's write runs (called W2 when CVH_WREF is set) against round 2 and, with CVH_WREF,
+    against that folder's W runs. Per run: the descriptive metrics (a run recorded before W2 gets them from its raw
+    stream), first-turn input, the PostToolUse/PostToolUseFailure hook counts, and the required markers missing from
+    the added lines and from the whole file."""
     import statistics as stt
     sd = os.path.join(DATA, "state")
     names = sorted(f[:-5] for f in os.listdir(sd) if f.endswith(".json"))
+    me = "W2" if WREF else "W"
     def rng(v):
         v = [x for x in v if x is not None]
         return f"{stt.median(v):.3g} [{min(v):.3g}-{max(v):.3g}]" if v else "-"
+    first_in = lambda r: sum((r.get("first") or {}).values()) if r.get("first") else None  # cache creation + read + input
+    def per_run(label, w, need, run_dir):
+        for tag, r in sorted(w.items(), key=lambda x: x[1].get("i", 0)):
+            raw = os.path.join(run_dir, f"{tag}-t.jsonl")
+            m = r if "commits" in r else write_metrics(raw) if os.path.exists(raw) else {}
+            post = {k: v for k, v in sorted((r.get("hooks") or {}).items()) if k.startswith("PostToolUse")}
+            miss = lambda key: [f for f in need if not (r.get(key) or {}).get(f)]
+            reset = "" if "drift_notice_reset" not in r else f" drift-notice state removed {len(r['drift_notice_reset'])}"
+            print(f"    {label} {tag}{'' if r.get('ok') else ' (invalid)'}: calls={r.get('turns')} warm=${r.get('warm') or 0:.3f}"
+                  f" raw=${(r.get('delta') or {}).get('cost', 0):.3f} first_in={first_in(r)} state_filled={m.get('state_filled')}"
+                  f" write+commit one message={m.get('write_commit_one_message')} commits={m.get('commits')}"
+                  f" posttool_blocks={m.get('posttool_blocks')} stop_blocks={r.get('stop_blocks')} hooks={post}"
+                  f" missing required: added lines {miss('added_markers')}, whole file {miss('markers')}{reset}")
     states = {}
     for name in names:
         st = states[name] = load_state(name)
         ref = [t for t in st["transitions"].values() if t["arm"] == "H" and t.get("ok")]
         w = [r for r in st.get("write", {}).values() if r.get("ok")]
         print(f"=== {name}: staged build {(st.get('stage') or {}).get('head', '?')[:8]} + {len((st.get('stage') or {}).get('uncommitted', []))} uncommitted files")
-        for label, rr, warm in (("round 2", ref, [warm_cost(t) for t in ref]), ("W", w, [r["warm"] for r in w])):
+        for label, rr, warm in (("round 2", ref, [warm_cost(t) for t in ref]), (me, w, [r["warm"] for r in w])):
             print(f" {label:7s} n={len(rr)} assistant calls={rng([r['turns'] for r in rr])} warm=${rng(warm)}"
                   f" raw=${rng([r['delta']['cost'] for r in rr])} bytes={rng([r.get('handoff_bytes') for r in rr])}"
-                  f" first_cc={rng([(r.get('first') or {}).get('cache_creation_input_tokens') for r in rr])}")
-        print(f"    required facts (markers in the added lines of every round-2 patch): {w_required(st)}")
+                  f" first_cc={rng([(r.get('first') or {}).get('cache_creation_input_tokens') for r in rr])}"
+                  f" first_in={rng([first_in(r) for r in rr])}")
+        need = w_required(st)
+        print(f"    required facts (markers in the added lines of every round-2 patch): {need}")
         if w:
-            need = w_required(st)
-            print(f"    W missing required (added lines): {[[f for f in need if not (r.get('added_markers') or {}).get(f)] or 'none' for r in w]}"
+            print(f"    {me} missing required (added lines): {[[f for f in need if not (r.get('added_markers') or {}).get(f)] or 'none' for r in w]}"
                   f" written={sum(bool(r.get('written')) for r in w)}/{len(w)} stop_blocks={sum(r['stop_blocks'] for r in w)}"
                   f" skills={sorted({s for r in w for s in r['skills'] if s})} third_carrier={sorted({x for r in w for x in r.get('third_carrier') or []})}"
                   f" efforts={sorted({e for r in w for e in r.get('efforts') or []})}")
+        per_run(me, st.get("write", {}), need, os.path.join(DATA, "runs", name))
         bad = sorted(t for t, r in st.get("write", {}).items() if not r.get("ok"))
         if bad:
-            print(f"    invalid W runs (harness failures, rerun): {bad}")
-    print(wverdict(states))
+            print(f"    invalid {me} runs (harness failures, rerun): {bad}")
+    print(("(secondary: W2 runs by W's rule vs round 2) " if WREF else "") + wverdict(states))
     if WREF:
-        refs = {n: json.load(open(os.path.join(os.path.expanduser(WREF), "state", f"{n}.json"))) for n in names}
+        ref_dir = os.path.expanduser(WREF)
+        refs = {}
+        for n in names:  # a repo without a reference state file loads as {}: wverdict then says inconclusive
+            p = os.path.join(ref_dir, "state", f"{n}.json")
+            refs[n] = json.load(open(p)) if os.path.exists(p) else {}
         for name in names:
-            rw = [r for r in refs[name].get("write", {}).values() if r.get("valid", r.get("ok"))]
-            print(f"=== {name}: reference W ({WREF}) n={len(rw)} assistant calls={rng([r['turns'] for r in rw])}"
-                  f" warm=${rng([r['warm'] for r in rw])} raw=${rng([r['delta']['cost'] for r in rw])}")
+            rw = {t: r for t, r in refs[name].get("write", {}).items() if r.get("valid", r.get("ok"))}
+            v = list(rw.values())
+            print(f"=== {name}: reference W ({WREF}) n={len(v)} assistant calls={rng([r['turns'] for r in v])}"
+                  f" warm=${rng([r['warm'] for r in v])} raw=${rng([r['delta']['cost'] for r in v])}"
+                  f" first_in={rng([first_in(r) for r in v])}")
+            per_run("W", rw, w_required(states[name]), os.path.join(ref_dir, "runs", name))
         print(wverdict(states, refs))
     print(f"ledger total ${spent():.2f} of ${CAP_USD}")
 
@@ -2100,7 +2258,7 @@ if __name__ == "__main__":
         x.add_argument("--retry-invalid", action="store_true", help="rerun runs recorded invalid (harness failures); raw files kept")
     e = sub.add_parser("seed"); e.add_argument("--name", required=True)
     e.add_argument("--from", dest="sources", action="append", required=True, help="<data folder>:<arm>, repeatable")
-    for c in ("startstate", "probe-cut", "probe-effort", "wprobe"):
+    for c in ("startstate", "probe-cut", "probe-effort", "wprobe", "wenv"):
         x = sub.add_parser(c); x.add_argument("--spec", required=True); x.add_argument("--tag")
     for c in ("preflight", "gate", "write"):
         x = sub.add_parser(c); x.add_argument("--spec", action="append", required=True); x.add_argument("--n", type=int, default=5)
@@ -2120,7 +2278,7 @@ if __name__ == "__main__":
     fn = {"snapshot": cmd_snapshot, "build": cmd_build, "transitions": cmd_transitions, "next": cmd_next,
           "report": cmd_report, "ledger": cmd_ledger, "regrade": cmd_regrade, "seed": cmd_seed,
           "startstate": cmd_startstate, "probe-cut": cmd_probe_cut, "probe-effort": cmd_probe_effort, "preflight": cmd_preflight, "gate": cmd_gate,
-          "wstage": cmd_wstage, "wprobe": cmd_wprobe, "write": cmd_write, "wreport": cmd_wreport}[a.cmd]
+          "wstage": cmd_wstage, "wprobe": cmd_wprobe, "wenv": cmd_wenv, "write": cmd_write, "wreport": cmd_wreport}[a.cmd]
     try:
         held = lock() if a.cmd in LOCKED else None
         fn(a)
