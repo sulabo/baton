@@ -614,17 +614,31 @@ class BashHandoffCheckTest(unittest.TestCase):
         # 리뷰 11-26: handoff-seen/<sid>/가 대화마다 하나씩 쌓였다 — 30일 넘게 안 건드린 대화 폴더는 Stop이 지운다
         base = os.path.join(self.root, "cache", "baton", "handoff-seen")
         old, new, odd = os.path.join(base, "old-sid"), os.path.join(base, "new-sid"), os.path.join(base, "not a sid")
-        for d in (old, new, odd):
+        own = os.path.join(base, "s1")  # 인계서를 안 쓴 채 30일 넘게 열어 둔 이 창 — 1.0.2는 이 기억도 지웠다
+        split = os.path.join(self.root, "cache", "baton", "split")  # 맥락 문턱 상태(hooks/split-notice.py state_path)도 같은 규칙
+        os.makedirs(split)
+        files = {n: os.path.join(split, n) for n in ("old-sid.json", "new-sid.json", "s1.json", "not a sid.json", "old-sid.txt")}
+        for d in (old, new, odd, own):
             os.makedirs(d)
             with open(os.path.join(d, "x.json"), "w") as f:
                 f.write("{}")
+        for p in files.values():
+            with open(p, "w") as f:
+                f.write("[250000]")
         stale = time.time() - 31 * 86400
-        for d in (old, odd):
-            os.utime(d, (stale, stale))
+        for p in (old, odd, own, *(v for k, v in files.items() if k != "new-sid.json")):
+            os.utime(p, (stale, stale))
         self.run_hook({"hook_event_name": "Stop", "session_id": "s1", "transcript_path": self.transcript})
         self.assertFalse(os.path.exists(old))
         self.assertTrue(os.path.exists(new))
         self.assertTrue(os.path.exists(odd))  # 세션 id 모양이 아닌 것은 건드리지 않는다
+        self.assertTrue(os.path.exists(os.path.join(own, "x.json")))  # 부른 대화의 것은 남기고
+        self.assertGreater(os.stat(own).st_mtime, stale + 86400)  # 수정 시각을 당겨 다른 창의 Stop도 지우지 않게 한다
+        self.assertEqual(sorted(os.listdir(split)), ["new-sid.json", "not a sid.json", "old-sid.txt", "s1.json"])
+        self.assertGreater(os.stat(files["s1.json"]).st_mtime, stale + 86400)
+        self.run_hook({"hook_event_name": "Stop", "session_id": "other", "transcript_path": self.transcript})
+        self.assertTrue(os.path.exists(own))  # 다른 창의 Stop — 당겨 둔 시각이라 남는다
+        self.assertTrue(os.path.exists(files["s1.json"]))
 
     def test_bash_write_time_survives_an_overlapping_remember(self):
         # 리뷰 11-26: 기억 파일을 읽고-고쳐-쓰는 동안 겹친 Bash 훅(서브에이전트의 Bash)이 옛 내용으로 덮으면 bash_write_ts가 사라졌다

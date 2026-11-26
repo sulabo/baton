@@ -170,7 +170,7 @@ def crossed_band(path, repo, sid):
 
 
 def state_path(sid):
-    # ponytail: 세션마다 작은 상태 파일이 하나씩 쌓인다(정리 안 함). 많아지면 오래된 것부터 지우는 정리를 더한다
+    # 세션마다 작은 상태 파일이 하나씩 남는다 — 30일 넘게 안 건드린 것은 Stop이 지운다(hooks/handoff-check.py prune_seen, 부른 대화의 것은 남김)
     return os.path.join(runlog.cache_dir(), "split", f"{sid}.json")
 
 

@@ -67,7 +67,7 @@ def seen_file(sid, path, ext=".json"):
     """대화·파일별 저장 검사 기억 <캐시>/baton/handoff-seen/<sid>/<실제 경로 해시>.json — 마지막으로 검사하거나 본 내용의 해시·글자 수·stat.
     ext=".bash_ts"는 Bash로 쓴 것을 검사한 시각(Stop이 쓴다) — 따로 둬서 겹친 Bash 훅의 읽고-고쳐-쓰기가 지우지 않게(리뷰 11-26).
     파일마다 따로라 다른 워크트리의 HANDOFF.md를 고쳐도 루트 것의 기억과 "직전 검사보다 짧아졌나"가 섞이지 않는다. sid가 이상하면 None.
-    30일 넘게 안 건드린 대화 폴더는 Stop이 지운다(prune_seen)."""
+    30일 넘게 안 건드린 대화 폴더는 Stop이 지운다 — 부른 대화의 폴더는 남긴다(prune_seen)."""
     d = runlog.session_dir("handoff-seen", sid)
     real = os.path.realpath(path).encode("utf-8", "surrogateescape")
     return os.path.join(d, hashlib.sha1(real).hexdigest()[:16] + ext) if d else None
@@ -203,21 +203,35 @@ def blocked_file(sid):
     return os.path.join(d, "blocked") if d else None
 
 
-def prune_seen(days=30):
-    """days일 넘게 안 건드린 대화의 저장 검사 기억 폴더(handoff-seen/<sid>)를 지운다 — 대화마다 폴더가 하나씩 남는다(리뷰 11-26,
-    drift 캐시가 오래된 파일을 지우는 것과 같은 방식). Stop마다 돈다(폴더 목록 한 번). 실패는 넘긴다."""
+def prune_seen(sid, days=30):
+    """days일 넘게 안 건드린 대화의 상태를 지운다 — 저장 검사 기억 폴더(handoff-seen/<sid>)와 맥락 문턱 상태(split/<sid>.json,
+    hooks/split-notice.py state_path). 대화마다 하나씩 남는다(리뷰 11-26, drift 캐시가 오래된 파일을 지우는 것과 같은 방식).
+    부른 대화(sid)의 것은 지우지 않고 수정 시각을 지금으로 당긴다 — 30일 넘게 열어 둔 창이 자기 Stop이나 다른 창의 Stop에 기억을 잃지
+    않게(1.0.2는 인계서를 안 쓴 채 30일 넘게 열어 둔 창의 기억도 지웠다). Stop마다 돈다(폴더 목록 두 번). 실패는 넘긴다.
+    ponytail: 턴을 한 번도 끝내지 않고(Stop 없이) 30일 넘게 둔 창은 다른 창의 Stop이 지운다 — 그 창은 인계서를 처음 보는 것처럼 다시
+    보고(기억만 하거나 검사), 알린 맥락 문턱을 한 번 더 물을 수 있다."""
     import shutil  # Stop에서만 — Bash 빠른 길이 불러오지 않게
-    base, cut = os.path.join(runlog.cache_dir(), "handoff-seen"), time.time() - days * 86400
-    try:
-        entries = list(os.scandir(base))
-    except OSError:
-        return
-    for e in entries:
+    cut = time.time() - days * 86400
+    for kind, ext in (("handoff-seen", ""), ("split", ".json")):
         try:
-            if runlog.SID.fullmatch(e.name) and e.is_dir(follow_symlinks=False) and e.stat(follow_symlinks=False).st_mtime < cut:
-                shutil.rmtree(e.path, ignore_errors=True)
+            entries = list(os.scandir(os.path.join(runlog.cache_dir(), kind)))
         except OSError:
-            pass
+            continue
+        for e in entries:
+            name = e.name[:len(e.name) - len(ext)]
+            try:
+                if not (e.name.endswith(ext) and runlog.SID.fullmatch(name)
+                        and (e.is_file(follow_symlinks=False) if ext else e.is_dir(follow_symlinks=False))):
+                    continue
+                if name == sid:
+                    os.utime(e.path)
+                elif e.stat(follow_symlinks=False).st_mtime < cut:
+                    if ext:
+                        os.remove(e.path)
+                    else:
+                        shutil.rmtree(e.path, ignore_errors=True)
+            except OSError:
+                pass
 
 
 def block_once(sid):
@@ -793,7 +807,7 @@ def on_stop(data):
             os.remove(p)
         except OSError:
             pass
-    prune_seen()
+    prune_seen(data.get("session_id"))
     cwd = data["cwd"] if isinstance(data.get("cwd"), str) else None
     repo = repo_of(cwd)
     split = split_mod() if not off("BATON_SPLIT_NOTICE", repo) else None
