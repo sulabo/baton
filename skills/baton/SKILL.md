@@ -163,7 +163,7 @@ claims the next action depends on. The writer has three jobs.
 - **Add how each verified fact was checked** (command, file, date), so the reader can check it again the same way.
 
 **Change `HANDOFF.md` with your file-editing tool — not through Bash** (a python heredoc, `cat >`, `sed -i`): a Bash
-write is checked only afterwards, by the hook that runs after a Bash call that mentions `handoff`.
+write is checked only afterwards, by the hook that runs after a Bash call that names a handoff file.
 
 **After saving, look for a `[baton] HANDOFF.md` check line.** On Claude Code, saving with `Write`/`Edit` makes a hook
 run the checker and add one line to your context: "check passed (N lines, M chars)" (Korean: "검사 통과"), or the
@@ -225,10 +225,10 @@ written (a turn that only asked or read is not stopped; the threshold waits for 
 edited with `Write`/`Edit`, an `Agent`/`Task` call whose subagent edited or wrote files (read-only kinds such as
 Explore don't count when its record can't be found), or a Bash command that clearly writes a file (`sed -i`, a
 `>`/`>>` redirect to a path outside temp folders, `tee`, `mv`, `cp`, `git mv`). A Bash command that writes
-`HANDOFF.md` counts as writing the handoff, and so does a Bash call that mentions `handoff` after which the repo-root
-`HANDOFF.md` had changed (so a write inside a python heredoc counts too). A turn starts at a human prompt, a message from
+`HANDOFF.md` counts as writing the handoff, and so does a Bash call that names a handoff file and during which the repo-root
+`HANDOFF.md` changed (so a write inside a python heredoc counts too). A turn starts at a human prompt, a message from
 another session or a task notification (Stop hook feedback stays in the same turn); a background subagent's edits count
-in the turn its task notification opens. It also doesn't ask when the new
+once, in the turn opened by its completion notification (matched by `<tool-use-id>`). It also doesn't ask when the new
 conversation would start almost as large (the context is not yet 24K tokens past the first call; also under the ratio
 rule). Then the line tells the user the handoff was saved; from 250K up it adds that, by a recount of the author's
 sessions, a new conversation is usually cheaper from this size on (below 250K it makes no cost claim). The 250K and
