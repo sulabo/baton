@@ -80,6 +80,23 @@ class HandoffInjectTest(unittest.TestCase):
             self.assertIn("다음 행동", r.stdout)  # 사람이 그 태그를 말한 것은 막지 않는다
             self.assertIsNone(self.last_acted(root)["handoff_skip"])
 
+    def test_unreadable_handoff_is_skipped_without_traceback(self):
+        # 11-25 실사용: macOS ~/Documents 접근이 잠깐 막혀 open이 PermissionError — traceback, exit 1이었다
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("handoff_inject_hook", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "HANDOFF.md", "다음 행동\n")
+            with mock.patch("builtins.open", side_effect=PermissionError("막힘")):  # root로 돌려도 막히게 프로세스 안에서
+                self.assertEqual(hook.inject_handoff(root, "이어서", {}), ("", None, "unreadable"))
+            p = os.path.join(root, "HANDOFF.md")
+            os.chmod(p, 0)
+            if not os.access(p, os.R_OK):  # 실제 훅 프로세스로도(root는 권한을 무시해 이 부분을 못 본다)
+                r = self.run_hook(root, "이어서 해줘", session_id="s1")
+                self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+                self.assertEqual(self.last_acted(root)["handoff_skip"], "unreadable")
+
     def test_same_session_gets_same_handoff_once(self):
         with tempfile.TemporaryDirectory() as root:
             self.write(root, "HANDOFF.md", "다음 행동\n")

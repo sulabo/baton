@@ -227,7 +227,8 @@ def remember_injected(data, sha=None, index=False):
 
 def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None, reserve=0):
     """(넣을 텍스트, 넣은 것 dict, 건너뛴 이유). 조건이 안 맞으면 ("", None, None).
-    넣을 조건인데 건너뛰면 이유를 남긴다: machine(사람이 친 프롬프트가 아님) · already(이 세션에 같은 내용을 이미 넣음).
+    넣을 조건인데 건너뛰면 이유를 남긴다: machine(사람이 친 프롬프트가 아님) · already(이 세션에 같은 내용을 이미 넣음) ·
+    unreadable(파일을 못 읽음).
     reserve는 같은 출력에 뒤따를 개념 색인 몫 — 본문 예산을 그만큼 줄이되 HANDOFF_KEEP 밑으로는 줄이지 않는다.
     reserve 때문에 더 잘렸으면 넣은 것 dict의 "unreserved"에 예산을 덜지 않은 판 (텍스트, 줄 수)를 둔다 — 색인이 결국 빠지면 그것으로 되돌린다."""
     if off("BATON_HANDOFF_INJECT", repo):
@@ -239,8 +240,11 @@ def inject_handoff(repo, prompt, data, machine=False, hook_deadline=None, reserv
         return "", None, None
     if machine:
         return "", None, "machine"
-    with open(path, encoding="utf-8", errors="replace") as f:
-        text = f.read()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:  # 권한·잠깐 막힌 접근(11-25 실사용: macOS ~/Documents). traceback·exit 1로 프롬프트를 막지 않고 건너뛴다
+        return "", None, "unreadable"
     sha = hashlib.sha1(text.encode("utf-8", "surrogatepass")).hexdigest()[:16]
     if already_injected(data, sha):
         return "", None, "already"
