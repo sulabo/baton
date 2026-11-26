@@ -153,7 +153,8 @@ class SplitNoticeTest(unittest.TestCase):
 
     def test_long_transcript_reads_tail_only(self):
         # 512KB 넘는 기록: 끝에서 잘린 한글 멀티바이트 줄을 버리고 마지막 호출을 읽는다
-        pad = json.dumps({"type": "user", "message": {"content": "가" * 3000}}, ensure_ascii=False)
+        # 채움 줄은 모델의 긴 답(사용량 없음) — 사람 프롬프트로 채우면 턴이 바뀌어 이번 턴에 한 일이 없어진다(1.0.2)
+        pad = json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "가" * 3000}]}}, ensure_ascii=False)
         self.write([call(40000), WORK] + [pad] * 300 + [call(260000)])
         self.assertGreater(os.path.getsize(self.transcript), 512 * 1024)
         self.assertIn("(4만 → 26만 토큰)", self.message(self.run_hook()))
@@ -164,6 +165,11 @@ class SplitNoticeTest(unittest.TestCase):
         self.assertIsNotNone(self.message(self.run_hook()))
         self.write([call(40000), WORK, call(260000), call(30000), call(270000)])
         self.assertIsNone(self.message(self.run_hook()))
+        # 한 번에 두 문턱을 넘어 높은 쪽(45만)만 알렸으면, 압축 뒤 25만~45만에서 낮은 문턱을 다시 묻지 않는다(11-25 노트)
+        self.write([call(40000), WORK, call(460000)])
+        self.assertIn("45만 토큰을 넘었어요", self.message(self.run_hook(sid="jump")))
+        self.write([call(40000), WORK, call(460000), call(30000), WORK, call(300000)])
+        self.assertIsNone(self.message(self.run_hook(sid="jump")))
 
     def test_unwritable_state_means_no_notice(self):
         # 한 번만 알린다는 약속을 못 지키면 알리지 않는다 — 상태 폴더 자리에 파일을 둬서 쓰기를 막는다
@@ -282,6 +288,27 @@ class AutoSplitTest(unittest.TestCase):
         self.assertIn("25만 토큰을 넘었다(7만 6천 → 26만 5천 토큰)", out["reason"])
         self.assertNotIn("파일 1개를 고쳤다", out["reason"])  # 파일 수 까닭(기본 3개)은 그대로
         self.assertEqual([e["mode"] for e in self.events()], ["ask"])
+
+    def test_question_or_read_only_turn_waits_for_a_turn_that_works(self):
+        # 1.0.1 재돌림(대화 6개, Stop 155곳): 막힘 10번 중 5번이 질문·읽기만 한 턴 끝이었다(앞선 턴에 한 일이 있어서).
+        # 소유자 결정 11-26: 이번 턴에 일했을 때만 묻는다. 문턱은 남겨 뒀다가 다음에 일한 턴 끝에 한 번
+        r = self.root
+        tool = lambda name, **inp: json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}})
+        reads = [tool("Read", file_path=f"{r}/a.py"), tool("Bash", command="git log --oneline -3"), tool("Grep", pattern="x"),
+                 tool("Bash", command="python3 x.py > /tmp/o.txt")]
+        for i, turn in enumerate(([prompt("이건 뭐야?")], [prompt("어디 봐 줘")] + reads)):
+            with self.subTest(i=i):
+                self.write([call(40000), WORK, call(100000)] + turn + [call(260000)])
+                self.assertIsNone(self.run_auto(sid=f"q{i}"))
+                self.assertIsNone(self.run_auto(sid=f"n{i}", extra_env={"BATON_HANDOFF_AUTO": "off"}))  # 알림으로도 안 나온다
+        self.assertEqual(self.events(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.root, "cache", "baton", "split", "q0.json")))  # 문턱이 남지 않았다
+        self.write([call(40000), WORK, call(100000), prompt("이건 뭐야?"), call(260000), prompt("그럼 고쳐 줘"), edit(f"{r}/b.py"),
+                    call(262000)])
+        self.assertIn("25만 토큰을 넘었다(4만 → 26만 2천 토큰)", self.run_auto(sid="q0")["reason"])
+        self.assertIsNone(self.run_auto(sid="q0"))
+        self.write([call(40000), edit(f"{r}/a.py"), edit(f"{r}/b.py"), edit(f"{r}/c.py"), prompt("질문만"), call(50000)])
+        self.assertIn("파일 3개를 고쳤다", self.run_auto(sid="f", extra_env={"BATON_SPLIT_NOTICE": "off"})["reason"])  # 파일 수 까닭은 그대로
 
     def test_english_ask(self):
         self.write([call(76000), WORK, call(260000)])
