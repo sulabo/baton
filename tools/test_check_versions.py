@@ -61,5 +61,26 @@ class CheckVersionsTest(unittest.TestCase):
         self.assertIn("no '## [x.y.z]' heading", check_versions.check(self.root)[0])
 
 
+
+class ReadmeVersionTest(CheckVersionsTest):
+    """README의 "Version `x`"·"버전 `x`" 줄도 CHANGELOG와 같아야 한다(11-27: README만 1.0.0에 머물렀다)."""
+    def write_readmes(self, en, ko):
+        for name, text in (("README.md", en), ("README.ko.md", ko)):
+            with open(os.path.join(self.root, name), "w", encoding="utf-8") as f:
+                f.write(text)
+
+    def test_readme_versions_must_match(self):
+        self.write_readmes("> Version `2.0.0`. Numbers.\n", "> 버전 `2.0.0`이에요.\n")
+        self.assertEqual(check_versions.check(self.root), [])
+        self.write_readmes("> Version `1.0.0`. Numbers.\n", "> 버전 `2.0.0`이에요.\n")
+        self.assertEqual(check_versions.check(self.root), ["README.md: version '1.0.0' != CHANGELOG '2.0.0'"])
+        self.write_readmes("> Version `2.0.0`.\n", "버전 줄 없음\n")
+        self.assertEqual(len(check_versions.check(self.root)), 1)
+        self.assertIn("README.ko.md: no version line", check_versions.check(self.root)[0])
+
+    def test_the_real_readmes_match_the_real_changelog(self):
+        self.assertEqual(check_versions.check(REPO), [])
+
+
 if __name__ == "__main__":
     unittest.main()
