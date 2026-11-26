@@ -2,12 +2,13 @@
 """Tests for compact_ab.py: stream parsing on the shapes seen in the 2026-11-23 probes (zero-usage compact result,
 cumulative child totals), the budget guard, the arm order, the diff rules, and the hidden baton harness against a
 reference implementation (so a harness bug cannot pass as a model failure)."""
-import json, os, subprocess, sys, tempfile, unittest
+import argparse, contextlib, io, json, os, subprocess, sys, tempfile, unittest
 
 TMP = tempfile.mkdtemp()
 os.environ["CVH_DATA"] = TMP
 os.environ.update(CVH_CAP_USD="77", CVH_PROBE_USD="2.902")  # the round-1 defaults, whatever the shell exports
-for k in ("CVH_BATON", "CVH_OMC", "CVH_CLI", "CVH_SNAPS", "CVH_MODEL", "CVH_EFFORT", "CVH_CLAUDE_BIN", "CVH_LOCK_HELD"):
+for k in ("CVH_BATON", "CVH_BATON_INSTALLED", "CVH_WREF", "CVH_OMC", "CVH_CLI", "CVH_SNAPS", "CVH_MODEL", "CVH_EFFORT",
+          "CVH_CLAUDE_BIN", "CVH_LOCK_HELD"):
     os.environ.pop(k, None)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -357,6 +358,15 @@ class Round3Test(unittest.TestCase):
         self.assertIsNone(cab.version_problem(p, TMP))
         p["plugins"].append({"name": "host-view", "version": "0.2.0", "source": "host-view@inline", "path": "/h"})
         self.assertIn("['host-view']", cab.version_problem(p, TMP))
+        old = (cab.BATON_REQUIRED, cab.BATON_INSTALLED)
+        try:  # W2: staged 1.0.0 (CVH_BATON) and installed 0.9 (CVH_BATON_INSTALLED) are checked apart
+            cab.BATON_REQUIRED, cab.BATON_INSTALLED = "1.0.0", "0.9"
+            p["plugins"] = p["plugins"][:2]
+            self.assertIsNone(cab.version_problem(p, TMP))
+            self.assertIn("baton 1.0.0 loaded, 0.9 required", cab.version_problem(p))
+        finally:
+            cab.BATON_REQUIRED, cab.BATON_INSTALLED = old
+            p["plugins"].append({"name": "host-view", "version": "0.2.0", "source": "host-view@inline", "path": "/h"})
         os.environ["CLAUDE_CODE_PLUGIN_DIRS"] = "/h"
         try:
             self.assertNotIn("CLAUDE_CODE_PLUGIN_DIRS", cab.child_env())
@@ -527,12 +537,13 @@ class WTest(unittest.TestCase):
         open(os.path.join(d, "lib", "a.py"), "w").write("z")
         self.assertNotEqual(cab.staged_tree(d), h)
 
-    def wstate(self, w_warm, w_marks, r2_warm=(0.73,) * 5, written=None):
+    def wstate(self, w_warm, w_marks, r2_warm=(0.73,) * 5, written=None, turns=5):
         mk = lambda ok: {"F1": True, "F2": ok}
-        tr = {f"H{i}": {"arm": "H", "ok": True, "delta": {"cost": c}, "first": {}, "handoff_markers": mk(True), "added_markers": mk(True)}
-              for i, c in enumerate(r2_warm, 1)}
+        tr = {f"H{i}": {"arm": "H", "ok": True, "turns": 6, "delta": {"cost": c}, "first": {}, "handoff_markers": mk(True),
+                        "added_markers": mk(True)} for i, c in enumerate(r2_warm, 1)}
         w = {f"W{i}": {"arm": "W", "i": i, "ok": True, "valid": True, "written": True if written is None else written[i - 1],
-                       "warm": c, "markers": mk(True), "added_markers": mk(m)} for i, (c, m) in enumerate(zip(w_warm, w_marks), 1)}
+                       "warm": c, "turns": turns, "delta": {"cost": c}, "first": {}, "stop_blocks": 0, "skills": [],
+                       "markers": mk(True), "added_markers": mk(m)} for i, (c, m) in enumerate(zip(w_warm, w_marks), 1)}
         return {"transitions": tr, "write": w}
 
     def test_wverdict(self):
@@ -550,6 +561,145 @@ class WTest(unittest.TestCase):
         st = self.wstate([0.5] * 5, five)
         st["transitions"]["H3"]["added_markers"]["F2"] = False
         self.assertEqual(cab.w_required(st), ["F1"])
+
+    def test_wverdict_against_a_reference_w(self):
+        """W2: with ref_states the reference is the earlier W's valid runs; round 2 still gives the required markers."""
+        five = [True] * 5
+        a, b = self.wstate([0.5] * 5, five, r2_warm=(0.4,) * 5), self.wstate([0.5] * 5, five, r2_warm=(0.4,) * 5)
+        v = lambda ref: cab.wverdict({"a": a, "b": b}, ref).split("  ")[0]
+        self.assertEqual(v(None), "W VERDICT: not cheaper")  # against round 2 (0.4)
+        ref = {"a": self.wstate([0.6] * 5, five), "b": self.wstate([0.6] * 5, five)}
+        self.assertEqual(v(ref), "W2 VERDICT vs W: cheaper")
+        ref["b"] = self.wstate([0.45] * 5, five)
+        self.assertEqual(v(ref), "W2 VERDICT vs W: not cheaper")
+        ref["b"]["write"] = dict(list(ref["b"]["write"].items())[:2])
+        self.assertTrue(v(ref).startswith("W2 VERDICT vs W: inconclusive (b: 2 valid reference"))
+        self.assertIn("warm W2 0.500 vs W 0.600", cab.wverdict({"a": a}, {"a": self.wstate([0.6] * 5, five)}))
+        self.assertTrue(cab.wverdict({"a": self.wstate([0.5] * 2, [True] * 2)}, ref).startswith("W2 VERDICT vs W: inconclusive (a: 2 valid W2 runs)"))
+
+    def test_w2_margin_mechanism_and_margin_free_lines(self):
+        """W2 (amendment 3): 'cheaper' needs W2/W <= 0.90 in both repos; positive controls 0.89 and 0.91. The margin is
+        used only against a reference W: round 2's line keeps W's rule."""
+        five = [True] * 5
+        ref = {"a": self.wstate([1.0] * 5, five), "b": self.wstate([1.0] * 5, five)}
+        for x, want in ((0.89, "cheaper"), (0.90, "cheaper"), (0.91, "not shown cheaper"), (1.0, "not cheaper"), (1.1, "not cheaper")):
+            states = {"a": self.wstate([0.8] * 5, five), "b": self.wstate([x] * 5, five)}
+            self.assertEqual(cab.wverdict(states, ref).split("  ")[0], f"W2 VERDICT vs W: {want}", x)
+        r2 = {"a": self.wstate([0.91] * 5, five, r2_warm=(1.0,) * 5), "b": self.wstate([0.91] * 5, five, r2_warm=(1.0,) * 5)}
+        self.assertEqual(cab.wverdict(r2).split("  ")[0], "W VERDICT: cheaper")  # no margin against round 2
+        out = cab.wverdict({"a": self.wstate([0.8] * 5, five, turns=3), "b": self.wstate([0.91] * 5, five, turns=4)}, ref).splitlines()
+        self.assertEqual(len(out), 3)
+        self.assertTrue(out[1].startswith("W2 mechanism (median assistant calls lower by >= 1 in both repos): confirmed (a W2 3 vs W 5; b W2 4 vs W 5)"), out[1])
+        self.assertTrue(out[2].startswith("W2 descriptive, no margin: median warm cost lower than W's in both repos: yes (ratios a 0.80, b 0.91"), out[2])
+        out = cab.wverdict({"a": self.wstate([0.8] * 5, five, turns=3), "b": self.wstate([1.0] * 5, five, turns=4.5)}, ref).splitlines()
+        self.assertTrue(out[1].startswith("W2 mechanism (median assistant calls lower by >= 1 in both repos): not confirmed"), out[1])
+        self.assertIn("lower than W's in both repos: no", out[2])
+        # loses facts as before: two valid W2 handoffs miss a required marker
+        miss = [False] + [True] * 4
+        self.assertEqual(cab.wverdict({"a": self.wstate([0.5] * 5, miss), "b": self.wstate([0.5] * 5, miss)}, ref).split("  ")[0],
+                         "W2 VERDICT vs W: loses facts")
+
+    def test_write_metrics_from_a_synthetic_stream(self):
+        """W2 (amendment 7): state filled at skill load, Write and commit in one message, commits, PostToolUse blocks;
+        main thread only."""
+        a = lambda mid, *blocks, sub=None: {"type": "assistant", "parent_tool_use_id": sub, "message": {"id": mid, "content": list(blocks)}}
+        use = lambda i, name, **inp: {"type": "tool_use", "id": i, "name": name, "input": inp}
+        res = lambda i, c: {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": i, "content": c}]}}
+        text = lambda t: {"type": "user", "isSynthetic": True, "message": {"content": [{"type": "text", "text": t}]}}
+        hook = lambda ev, out: {"type": "system", "subtype": "hook_response", "hook_event": ev, "stdout": out, "output": out}
+        block = json.dumps({"decision": "block", "reason": "too long"})
+        filled = "Base directory for this skill: /p\n# Handoff\n## Procedure\n## feat/x\n?? a.txt\ne6c37bd stats: cli\nc995f56 stats: more\n"
+        rows = [a("m1", use("s1", "Skill", skill="baton:baton")), res("s1", "Launching skill: baton:baton"), text(filled),
+                a("m2", use("w1", "Write", file_path="/r/HANDOFF.md", content="x")),
+                a("m2", use("b1", "Bash", command="git add HANDOFF.md && git commit -m 'handoff' -- HANDOFF.md")),
+                hook("PostToolUse", block), hook("PostToolUse", "{}"), hook("Stop", block),
+                a("m3", use("b2", "Bash", command="git -C /r commit --amend --no-edit")),
+                a("s", use("b3", "Bash", command="git commit -m sub"), sub="t1"),
+                a("m4", use("b4", "Bash", command="git log --oneline -3"))]
+        self.assertEqual(cab.write_metrics(write_stream(rows)),
+                         {"state_filled": True, "write_commit_one_message": True, "commits": 2, "posttool_blocks": 1})
+        # 1.0.1's shape: the commit in its own message; a placeholder instead of the state; headings alone are not state
+        rows[4] = a("m2b", use("b1", "Bash", command="git commit -m h"))
+        rows[2] = text(filled + "[run this first, exactly as written, and use its output: git status --short --branch]\n")
+        m = cab.write_metrics(write_stream(rows))
+        self.assertEqual((m["state_filled"], m["write_commit_one_message"], m["commits"]), (False, False, 2))
+        rows[2] = text("Base directory for this skill: /p\n## Procedure\n## Templates\n")
+        self.assertFalse(cab.write_metrics(write_stream(rows))["state_filled"])
+
+    def test_drift_reset_removes_only_this_repos_notice_state(self):
+        """W2 (amendment 5): the real hook (1.0.2 and later) shows a notice once a day per map; drift_reset removes that
+        state for this repo's map and nothing else, so the next session sees the notice again."""
+        root = os.path.dirname(os.path.dirname(HERE))
+        hook = os.path.join(root, "hooks", "drift-notice.sh")
+        repo, g = git_repo()
+        with open(os.path.join(repo, "CONCEPTS.md"), "w", encoding="utf-8") as f:
+            f.write("## 1. 세이브 — 저장\n본문\n")  # no metadata line: the hook reports that
+        g("add", "."), g("commit", "-qm", "c", env=ME)
+        cache = tempfile.mkdtemp(dir=TMP)
+        run = lambda lang: subprocess.run(["bash", hook], cwd=repo, capture_output=True, text=True,
+                                          env=dict(os.environ, XDG_CACHE_HOME=cache, CLAUDE_PLUGIN_ROOT=root, BATON_LANG=lang)).stdout.strip()
+        for lang in ("ko", "en"):
+            self.assertTrue(run(lang))
+            self.assertEqual(run(lang), "")  # shown once a day
+        drift = os.path.join(cache, "baton", "drift")
+        keep = [os.path.join(drift, "shown-1"), os.path.join(drift, "12345")]  # another map's state, a computed cache
+        for p in keep:
+            open(p, "w").write("x")
+        old = os.environ.get("XDG_CACHE_HOME")
+        os.environ["XDG_CACHE_HOME"] = cache
+        try:
+            removed = cab.drift_reset(repo)
+        finally:
+            os.environ.pop("XDG_CACHE_HOME") if old is None else os.environ.__setitem__("XDG_CACHE_HOME", old)
+        self.assertEqual(len(removed), 2)
+        self.assertTrue(all(os.path.basename(p).startswith("shown-") and not os.path.exists(p) for p in removed))
+        self.assertTrue(all(os.path.exists(p) for p in keep))
+        self.assertTrue(run("ko"))  # the notice is back
+
+    def test_wreport_reads_only_and_a_missing_reference_is_inconclusive(self):
+        d, ref = tempfile.mkdtemp(dir=TMP), tempfile.mkdtemp(dir=TMP)
+        os.makedirs(os.path.join(d, "state"))
+        json.dump(self.wstate([0.5] * 5, [True] * 5), open(os.path.join(d, "state", "a.json"), "w"))
+        files = lambda: sorted((r, f, os.path.getmtime(os.path.join(r, f))) for x in (d, ref) for r, _, fs in os.walk(x) for f in fs)
+        before = files()
+        old = (cab.DATA, cab.WREF, cab.LEDGER)
+        buf = io.StringIO()
+        try:
+            cab.DATA, cab.WREF, cab.LEDGER = d, ref, os.path.join(d, "ledger.jsonl")
+            with contextlib.redirect_stdout(buf):
+                cab.cmd_wreport(None)
+        finally:
+            cab.DATA, cab.WREF, cab.LEDGER = old
+        out = buf.getvalue()
+        self.assertIn("(secondary: W2 runs by W's rule vs round 2) W VERDICT: cheaper", out)
+        self.assertIn("W2 VERDICT vs W: inconclusive (a: 0 valid reference W runs)", out)
+        self.assertIn("W2 W1: calls=5", out)
+        self.assertEqual(files(), before)
+
+    def test_wenv_prints_environment_differences(self):
+        d, ref = tempfile.mkdtemp(dir=TMP), tempfile.mkdtemp(dir=TMP)
+        init = lambda baton, omc, mcp: {"type": "system", "subtype": "init", "tools": ["Bash", "Read"], "skills": ["baton:baton", "x:y"],
+                                        "plugins": [{"name": "baton", "version": baton}, {"name": "oh-my-claudecode", "version": omc}],
+                                        "mcp_servers": [{"name": m} for m in mcp]}
+        for root, f, row in ((ref, "W1-t.jsonl", init("1.0.0", "5.8.7", ["m1", "m2"])), (d, "wprobe-staged.jsonl", init("1.0.3", "5.8.8", ["m1"]))):
+            os.makedirs(os.path.join(root, "runs", "a"))
+            with open(os.path.join(root, "runs", "a", f), "w") as fh:
+                fh.write(json.dumps(row) + "\n")
+        spec = os.path.join(d, "spec.json")
+        json.dump({"name": "a"}, open(spec, "w"))
+        old = (cab.DATA, cab.WREF)
+        buf = io.StringIO()
+        try:
+            cab.DATA, cab.WREF = d, ref
+            with contextlib.redirect_stdout(buf):
+                cab.cmd_wenv(argparse.Namespace(spec=spec))
+        finally:
+            cab.DATA, cab.WREF = old
+        out = buf.getvalue()
+        self.assertIn("DIFFERS plugins (not baton): only in W W1 ['oh-my-claudecode 5.8.7'], only in the W2 probe ['oh-my-claudecode 5.8.8']", out)
+        self.assertIn("DIFFERS MCP servers: only in W W1 ['m2'], only in the W2 probe []", out)
+        self.assertIn("same tools: 2", out)
+        self.assertIn("wenv: 2 difference(s)", out)
 
     def test_leak_forms_and_staged_checks(self):
         for x in ("~/.claude/plugins/cache/baton/baton/1.0.0/lib/promote.sh", "$HOME/.claude/plugins/cache/baton/x",
