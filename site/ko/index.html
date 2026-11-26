@@ -178,7 +178,7 @@ p { margin: 0; }
 /* ---------- pin: hero stays while the problem band covers it ---------- */
 .pin { position: relative; }
 .problem, .story, .mapsec, .measured, .diff, .get, .faq, .foot { position: relative; z-index: 1; }
-.story, .mapsec, .diff, .get, .faq, .foot { background: var(--paper); }
+.story, .mapsec, .diff, .kit, .get, .faq, .foot { background: var(--paper); }
 @media (min-width: 900px) { .js .pin > .hero { position: sticky; top: 0; z-index: 0; } }
 .hero-fade { transform-origin: 50% 30%; will-change: opacity, transform, filter; }
 
@@ -275,6 +275,14 @@ html.lenis, html.lenis body { height: auto; }
 .diff ol { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--line); }
 .diff li { padding: var(--space-6) 0; border-bottom: 1px solid var(--line); display: grid; gap: var(--space-2); }
 .diff li p { color: var(--ink-2); }
+.kit { padding-block: var(--section); }
+.kit ol { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--line); }
+.kit li { padding: var(--space-6) 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: var(--space-2) var(--space-6); align-items: center; }
+.kit-mark { display: block; height: 2.7rem; width: auto; max-width: 100%; align-self: center; }
+.kit li p { color: var(--ink-2); }
+.kit li .how { font-size: var(--text-sm); color: var(--ink-3); margin-top: var(--space-1); }
+.kit .aside { font-size: var(--text-sm); color: var(--ink-3); margin-top: var(--space-6); max-width: 60ch; }
+@media (max-width: 640px) { .kit li { grid-template-columns: minmax(0, 1fr); } .kit-mark { height: 2.3rem; } }
 .diff .aside { font-size: var(--text-sm); color: var(--ink-3); margin-top: var(--space-6); max-width: 60ch; }
 
 /* ---------- install ---------- */
@@ -542,6 +550,27 @@ body { word-break: keep-all; }
           <li><h3><span class="nw">결정, 코드, 문서가</span> <span class="nw">어긋난 곳을 짚어요</span></h3><p>정해 두고 아직 안 만든 것처럼, 셋이 서로 <span class="nw">다른 말을</span> 하는 곳을 개념마다 표시해요.</p></li>
         </ol>
         <p class="aside">2026-11-21과 11-22에 살펴본 도구 중, <span class="nw">이 세 가지를</span> 문서에 적어 둔 곳은 없었어요. <a class="textlink" href="https://github.com/sulabo/baton/blob/main/docs/GUIDE.ko.md#다른-도구와-비교">전체 비교 보기</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="kit gutter" id="tools" aria-labelledby="kit-title">
+    <div class="container diff-grid" data-rise="100">
+      <div style="display:grid;gap:var(--space-4);align-content:start">
+        <p class="label">들어 있는 것</p>
+        <h2 id="kit-title"><span class="sent"><span class="nw">baton에 든</span> <span class="nw">일곱 가지</span></span></h2>
+      </div>
+      <div>
+        <ol>
+          <li><img class="kit-mark" src="../marks/handoff.svg" alt="handoff" height="30"><div><p>한 장짜리 인계서를 쓰고, <code>DECISIONS.md</code>로 옮길 것도 함께 살펴요.</p><p class="how">“인계서 써 줘”라고 말하기</p></div></li>
+          <li><img class="kit-mark" src="../marks/driftmap.svg" alt="driftmap" height="30"><div><p>개념 지도(<code>CONCEPTS.md</code>)를 만들고 최신으로 유지해요.</p><p class="how">“개념 지도 만들어 줘”라고 말하기</p></div></li>
+          <li><img class="kit-mark" src="../marks/drift.svg" alt="drift" height="30"><div><p>다시 확인할 개념만 골라 보여 주고 끝나요.</p><p class="how"><code>/drift</code></p></div></li>
+          <li><img class="kit-mark" src="../marks/promote.svg" alt="promote" height="30"><div><p>며칠째 살아남은 규칙과 말없이 빠진 결정을 찾아요.</p><p class="how"><code>/promote</code></p></div></li>
+          <li><img class="kit-mark" src="../marks/setup.svg" alt="setup" height="30"><div><p>설치하고 한 번 돌려요. 문턱과 막을 개인 자료 단어를 제안해요.</p><p class="how"><code>/baton-setup</code></p></div></li>
+          <li><img class="kit-mark" src="../marks/doctor.svg" alt="doctor" height="30"><div><p>이 저장소에서 플러그인이 돌 준비가 됐는지 점검해요.</p><p class="how"><code>/baton-doctor</code></p></div></li>
+          <li><img class="kit-mark" src="../marks/explain.svg" alt="explain" height="30"><div><p>baton 규칙이 이 프롬프트를 어떻게 판단하는지 보여 줘요. 아무것도 바꾸지 않아요.</p><p class="how"><code>/baton-explain</code></p></div></li>
+        </ol>
+        <p class="aside">슬래시 명령은 Claude Code에서만 돼요. Codex에서는 스킬 이름으로 요청하세요.</p>
       </div>
     </div>
   </section>
