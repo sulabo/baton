@@ -293,7 +293,7 @@ def call_start(path, tool_use_id, agent_id=None):
     그 기록이 없으면(팀원 등 다른 자리) None — 명령이 인계서 파일을 말했는지만 본다."""
     if not isinstance(tool_use_id, str) or not tool_use_id:
         return None
-    if agent_id is not None:
+    if agent_id:
         path = subagent_file(path, agent_id) if isinstance(path, str) else None
         if path is None:
             return None
