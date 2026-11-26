@@ -27,8 +27,9 @@ final two lines. That is 5–6 assistant calls. Each call reads the whole contex
 $0.05 at that size. The skill text was 24.7 KB (about 8K tokens) and was written to the cache on every write, about
 $0.06. A write with a warm cache cost about $0.42–0.57.
 
-1.0.3 changes four things. The expected effect is fewer calls and a smaller cache write; the real cost has not been
-measured yet.
+1.0.3 changes four things. Measured (W2, `docs/research/handoff-write-w2.md`): calls per write 5 → 3
+and 6 → 4; cost per write 5–7% lower, short of the pre-registered 10%; re-reading cost about 9–10 cents less, output
+about 3–6 cents more (mostly hidden thinking; the cause was not measured).
 
 - **Step 1 is filled in when the skill loads.** Claude Code's dynamic context injection runs the line made of an
   exclamation mark and a command in backticks, and puts its output in place of the line, so the promotion review and
