@@ -110,6 +110,41 @@ class DriftNoticeTest(unittest.TestCase):
         msg = self.run_hook()
         self.assertIn("\n개념 2개 중 1개는 확인 기록(메타 줄)이 없어서 세지 못했어요.", msg)
 
+    def age_shown(self, hours=25):
+        """마지막으로 낸 알림의 기억(drift/shown-*)을 hours시간 전으로 돌린다."""
+        drift = os.path.join(self.cache, "baton", "drift")
+        for name in os.listdir(drift):
+            if name.startswith("shown-"):
+                t = os.path.getmtime(os.path.join(drift, name)) - hours * 3600
+                os.utime(os.path.join(drift, name), (t, t))
+
+    def test_same_notice_once_a_day_and_again_when_the_count_changes(self):
+        # 11-25 실사용: 같은 숫자를 대화 시작마다(/clear·압축 뒤 포함) 약 111번 알렸다 — 같은 알림은 하루 한 번, 숫자가 바뀌면 바로
+        self.commit({"CONCEPTS.md": STALE_MAP, "a.txt": "a\n"})
+        first = "[baton] 개념 지도에서 다시 확인할 개념이 1개 있어요(그대로인 개념 0개). 자세히 보려면 /drift"
+        self.assertEqual(self.run_hook(), first)
+        self.assertIsNone(self.run_hook())  # 같은 날 같은 알림
+        self.commit({"b.txt": "b\n"})
+        self.assertIsNone(self.run_hook())  # 커밋이 늘어도 숫자가 같으면 조용하다
+        self.age_shown(23)
+        self.assertIsNone(self.run_hook())  # 아직 하루가 안 됐다
+        self.age_shown(2)
+        self.assertEqual(self.run_hook(), first)  # 하루가 지나면 한 번 더
+        self.assertIsNone(self.run_hook())
+        self.commit({"CONCEPTS.md": STALE_MAP + "\n## 2. 점수 — 계산\n- **메타**: 확인 2026-09-01 · 파일 a.txt · 커밋 0000000\n본문\n"})
+        self.assertIn("다시 확인할 개념이 2개 있어요", self.run_hook())  # 숫자가 바뀌면 바로
+        self.assertIn("다시 확인할 개념이 2개 있어요", self.run_hook("ko", XDG_CACHE_HOME=os.path.join(self.tmp.name, "c2")))  # 기억은 캐시 폴더에만
+
+    def test_off_switch_from_env_or_config(self):
+        self.commit({"CONCEPTS.md": STALE_MAP, "a.txt": "a\n"})
+        self.assertIsNone(self.run_hook(BATON_DRIFT_NOTICE="off"))
+        cfg = os.path.join(self.tmp.name, "cfg")
+        os.makedirs(os.path.join(cfg, "baton"))
+        with open(os.path.join(cfg, "baton", "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "global": {"BATON_DRIFT_NOTICE": "off"}}, f)
+        self.assertIsNone(self.run_hook(XDG_CONFIG_HOME=cfg))
+        self.assertIn("다시 확인할 개념이 1개 있어요", self.run_hook(XDG_CONFIG_HOME=cfg, BATON_DRIFT_NOTICE="on"))  # 환경변수가 이긴다
+
     def test_repo_local_module_is_not_imported(self):  # 알림 JSON을 만드는 python3 -c가 저장소의 json.py를 불러오면 안 된다
         marker = os.path.join(self.tmp.name, "planted-ran")
         self.commit({"CONCEPTS.md": STALE_MAP, "a.txt": "a\n",
@@ -158,6 +193,7 @@ class DriftNoticeEnglishTest(DriftNoticeTest):
         self.assertIn("개념 지도에서 다시 확인할 개념이 1개 있어요", self.run_hook("ko"))
         self.assertEqual(self.run_hook("en"), "[baton] 1 concept in the concept map needs another look (0 unchanged). "
                                               "For details: /drift")
+        self.age_shown()  # 같은 알림은 하루에 한 번 — 하루 지난 것으로 두고 한국어 캐시가 영어로 덮이지 않았는지 본다
         self.assertIn("개념 지도에서 다시 확인할 개념이 1개 있어요", self.run_hook("ko"))
 
     def test_locale_fallback(self):

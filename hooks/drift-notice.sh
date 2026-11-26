@@ -6,15 +6,26 @@
 #  2) 지도가 있는데 쓸 수 없는 상태면 그것을 알린다. 조용한 것과 구분한다.
 #
 # 매 세션 도는 훅이라 느리면 안 된다. 전수 계산 대신 메타 줄만 센다.
+# 같은 지도의 같은 알림은 하루에 한 번만 낸다 — 숫자가 바뀌면 문장이 달라져 바로 다시 낸다(11-25 실사용: 같은 숫자를 대화 시작마다
+# 약 111번 알렸고 /drift는 한 번도 안 돌렸다. /clear·압축 뒤에도 SessionStart가 돈다). 끄기: BATON_DRIFT_NOTICE=off(환경변수 또는 설정 파일).
 # 출력은 JSON additionalContext — 일반 stdout은 Claude Code만 맥락에 넣고 Codex는 버린다(10-01 확인, handoff-inject.py와 같은 이유).
 set -uo pipefail
 
 # -I: 현재 폴더(저장소 루트)를 import 경로에 넣지 않는다 — 저장소에 json.py 같은 파일이 있으면 그것을 불러와 실행했다
+# SEEN(이 지도·언어에 마지막으로 낸 알림)과 내용이 같고 그 뒤 하루가 안 지났으면 내지 않는다. 낸 뒤에 SEEN을 쓴다
 emit() {
+  if [ -r "$SEEN" ] && [ "$(cat "$SEEN" 2>/dev/null)" = "$1" ] && [ -n "$(find "$SEEN" -mmin -1440 2>/dev/null)" ]; then
+    return 0
+  fi
   python3 -I -c 'import json, sys; print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": sys.argv[1]}}, ensure_ascii=False))' "$1"
+  mkdir -p "$CACHE_DIR" 2>/dev/null && printf '%s' "$1" > "$SEEN" 2>/dev/null
 }
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# 끄기 스위치는 다른 훅처럼 lib/config.py로 읽는다(환경변수 > 저장소 절 > 전역 절). 못 읽으면 켠 것으로 본다
+SW=$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import config; print(config.get("BATON_DRIFT_NOTICE", sys.argv[2]).strip().lower())' \
+     "$CLAUDE_PLUGIN_ROOT/lib" "$ROOT" 2>/dev/null)
+case "$SW" in off|0|false|no) exit 0 ;; esac
 MAP=$(find "$ROOT" -maxdepth 2 -name CONCEPTS.md -not -path "*/node_modules/*" 2>/dev/null | head -1)
 [ -n "$MAP" ] || exit 0
 # 메시지 언어는 한 번만 정하고 자식(concepts.py·fresh.sh)에게 BATON_LANG으로 넘긴다. 순서는 lib/i18n.py,
@@ -23,6 +34,10 @@ MAP=$(find "$ROOT" -maxdepth 2 -name CONCEPTS.md -not -path "*/node_modules/*" 2
 L=$(python3 "$CLAUDE_PLUGIN_ROOT/lib/i18n.py" "$ROOT" 2>/dev/null) || L=$(baton_lang_sh 2>/dev/null)
 [ "$L" = ko ] || L=en
 export BATON_LANG="$L"
+# 전용 하위 폴더 — baton/ 바로 아래에는 관찰 로그·알림 상태·설치 사본(stage-plugin.sh 기본값)이 있다.
+# 10-01 이전에는 baton/ 전체에서 7일 넘은 파일을 지워 그것들까지 지웠다.
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/baton/drift"
+SEEN="$CACHE_DIR/shown-$(printf '%s|%s' "$L" "$MAP" | cksum | tr -d ' ')"
 
 # 개념·메타 줄 수는 파서로 센다 — grep은 코드 펜스 안의 예시 제목·메타 줄까지 세어 "개념 2개 중 메타 줄 1개" 같은 거짓 알림을 냈다(재현 저장소 t6)
 PARSER="$CLAUDE_PLUGIN_ROOT/lib/concepts.py"
@@ -48,10 +63,7 @@ To fill them in, run /drift or say \"update the concept map\"."
 fi
 
 # 여기서부터가 무거운 계산이다 (개념 수 × git log).
-# HEAD와 지도 내용이 그대로면 결과도 그대로이므로 캐시한다.
-# 전용 하위 폴더 — baton/ 바로 아래에는 관찰 로그·알림 상태·설치 사본(stage-plugin.sh 기본값)이 있다.
-# 10-01 이전에는 baton/ 전체에서 7일 넘은 파일을 지워 그것들까지 지웠다.
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/baton/drift"
+# HEAD와 지도 내용이 그대로면 결과도 그대로이므로 캐시한다(CACHE_DIR은 위).
 # fresh.sh도 키에 넣는다 — 플러그인을 갱신해 출력 형식이 바뀌면 옛 캐시를 읽지 않게. 언어도 — 출력 낱말이 다르다
 KEY=$(printf '%s|%s|%s|%s|%s' "$L" "$MAP" \
       "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" \
