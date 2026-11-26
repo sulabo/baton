@@ -623,10 +623,11 @@ def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=Tr
                    + dec_note + show(marked, min(len(marked), room)))
         room -= min(len(marked), room)
     if plain:
-        out.append(t(f"경고: 마지막 커밋판에 있던 줄 {len(plain)}개가 새 인계서에 없다 — 아직 참이면 되살리고, 끝난 일이면 "
-                     f"'이미 한 변경'으로 옮기고, 아니면 알고 지운다:",
+        # 보는 절은 실패한 접근법·승격 후보·기각됨뿐이다 — "끝난 일은 '이미 한 변경'으로"는 그 절들에 맞지 않는다(리뷰 11-26)
+        out.append(t(f"경고: 마지막 커밋판에 있던 줄 {len(plain)}개가 새 인계서에 없다 — 아직 해당하는 줄은 되살리고, "
+                     f"DECISIONS.md로 옮겼거나 일부러 지운 줄은 빼 둔다:",
                      f"warning: {len(plain)} line(s) from the last committed version are not in the new handoff — keep each "
-                     f"one that is still true, move finished work to 'Changes made', or delete it on purpose:")
+                     f"one that still applies; if it moved to DECISIONS.md or you removed it on purpose, leave it out:")
                    + dec_note + show(plain, room))
     return partial + out
 

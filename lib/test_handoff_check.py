@@ -509,7 +509,8 @@ class DropCheckTest(unittest.TestCase):
         self.assertTrue(out[0].startswith("경고: 결정·제약으로 보이는 줄 1개가 마지막 커밋판에서 빠졌다 — DECISIONS.md로 옮겼는지"), out[0])
         self.assertIn("\n    - [실패한 접근법] 배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다", out[0])  # 표지가 있는 실패는 더 세게
         self.assertNotIn("배포는 사람이 한다", "\n".join(out))  # 빠진 사실 줄은 표지가 있어도 알리지 않는다
-        self.assertTrue(out[1].startswith("경고: 마지막 커밋판에 있던 줄 13개가 새 인계서에 없다 — 아직 참이면 되살리고"), out[1])
+        self.assertTrue(out[1].startswith("경고: 마지막 커밋판에 있던 줄 13개가 새 인계서에 없다 — 아직 해당하는 줄은 되살리고, "
+                                          "DECISIONS.md로 옮겼거나 일부러 지운 줄은 빼 둔다:"), out[1])
         self.assertEqual(out[1].count("\n    - [실패한 접근법]"), 7)  # 내용은 모두 합쳐 8줄까지
         self.assertTrue(out[1].endswith("\n    - … 외 6개"), out[1])
         self.assertNotIn("someone", "\n".join(out))
@@ -652,6 +653,9 @@ class DropCostTest(unittest.TestCase):
                                              private_terms=[])
             self.assertIn("the last committed version is large, only its first 256 KB was read", en[0])
             self.assertIn("50 line(s) from the last committed version are not in the new handoff", en[1])
+            self.assertIn("keep each one that still applies; if it moved to DECISIONS.md or you removed it on purpose, leave it out:",
+                          en[1])  # 보는 절(실패한 접근법·승격 후보·기각됨)에 맞는 안내 — 끝난 일을 '이미 한 변경'으로 옮기라고 하지 않는다
+            self.assertNotIn("Changes made", en[1])
 
     def test_keep_rule_unchanged_by_the_index(self):
         # 색인(비둘기집) 비교는 예전의 "한 줄이 열쇠의 DROP_KEEP 이상을 가진다"와 같은 답을 낸다
