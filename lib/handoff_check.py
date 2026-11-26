@@ -407,18 +407,22 @@ def must_read_line(text, lang=None):
 
 
 # ── 저장 때 빠진 줄 검사(경고) ─────────────────────────────────────────
-# 마지막 커밋판의 사실·실패·다음 행동·승격 후보·기각 절 목록 줄마다, 새 인계서(와 DECISIONS.md) 어느 줄에든 비슷한 줄이 있는지 본다.
-# 다른 절로 옮긴 줄(끝난 다음 행동 → 이미 한 변경)·결정 기록으로 올린 줄은 빠진 것이 아니다 — 그래서 같은 절이 아니라 전체에서 찾는다.
+# 마지막 커밋판의 이어 가야 하는 절(실패한 접근법·승격 후보·기각됨) 목록 줄마다, 새 인계서(와 DECISIONS.md) 어느 줄에든 비슷한 줄이
+# 있는지 본다. 빠진 줄은 모두 알리고, 결정·제약 표지(DECISION_MARK)가 있는 줄은 따로 더 세게 말한다.
+# 다른 절로 옮긴 줄·결정 기록으로 올린 줄은 빠진 것이 아니다 — 그래서 같은 절이 아니라 전체에서 찾는다.
 # 비슷함: 옛 줄의 낱말 열쇠(line_keys) 중 DROP_KEEP 이상이 한 줄에 있다.
-# 어느 절의 줄을 알리나: 이어 가야 하는 절(실패한 접근법·승격 후보·기각됨)은 빠진 줄 모두, 끝난 일을 지우는 게 보통인 절
-# (확인된 사실·다음 행동)은 결정·제약 표지(DECISION_MARK)가 있는 줄만.
-# 근거(11-23, ~/baton 인계서 커밋판 12개·연속 쌍 11개, 추적 줄 245개): 모든 절·문턱 0.6이면 127줄이 걸렸고 표본 20줄 중 진짜 빠짐은
-# 12줄(사실 절은 9줄 중 3줄만 — 대부분 끝난 일). 위 규칙·문턱 0.5·DECISIONS.md 포함이면 64줄, 새 표본에서 오탐 약 20%.
-# 0.5~0.6 사이 7줄은 모두 고쳐 쓴 줄이나 끝난 일(오탐), 0.4~0.5 사이에는 진짜 빠짐이 섞였다 — 그래서 0.5.
+# 확인된 사실·다음 행동 절은 보지 않는다(소유자 결정 11-26, 전에는 표지가 있는 줄만 봤다). 근거(11-26, 한 저장소의 HANDOFF.md 커밋
+# 이력 20개에 검사기를 다시 돌림): 경고 128개(같은 파일을 가진 두 커밋 때문에 두 번 센 7개를 뺀 수). 두 사람이 따로 라벨을 붙여
+# 둘 다 판정한 127개 중 121개가 같았고(코언 카파 0.90), 오탐은 전체의 61~63%였다(예전에 적은 "약 20%"는 20줄 표본에서 나온 값이고
+# 틀렸다). 두 사람이 같게 본 것만 절별로: 사실 26개 중 오탐 20·진짜 1, 다음 행동 27개 중 오탐 23·진짜 3, 실패한 접근법 66개 중
+# 오탐 27·진짜 38, 승격 후보 9개 중 오탐 6·진짜 3. 오탐은 대부분 일부러 지운 끝난 일, 합치거나 고쳐 쓴 줄, 다른 절·DECISIONS.md로
+# 옮긴 줄이었다. 경고가 "되살린다"고 하니 오탐이면 에이전트가 끝난 일을 다시 넣는다. 바꾼 뒤: 경고 75개, 오탐 44~45%.
+# 잃은 것: 두 사람이 같게 본 진짜 빠짐 4개(모두 끈 두 절). 라벨은 개인 인계서 내용이라 저장소에 두지 않는다(두 사람의 따로 라벨, 로컬 이력).
+# 문턱(11-23, ~/baton 인계서 커밋판 12개): 0.5~0.6 사이 7줄은 모두 고쳐 쓴 줄이나 끝난 일(오탐), 0.4~0.5 사이에는 진짜 빠짐이
+# 섞였다 — 그래서 0.5.
 # ponytail: 한 사람·한 저장소 이력으로 맞춘 값이다. 다른 저장소의 오탐률은 모른다
-DROP_SPECS = [s[:2] for s in (SECTIONS[1], SECTIONS[4], SECTIONS[6], SECTIONS[7])] + [(("기각",), ("rejected",))]
-DROP_NAMES = [s[2:] for s in (SECTIONS[1], SECTIONS[4], SECTIONS[6], SECTIONS[7])] + [("기각됨", "Rejected")]
-DROP_CARRY = {1, 3, 4}  # DROP_SPECS 번호 — 실패한 접근법·승격 후보·기각됨. 나머지 절은 표지가 있는 줄만
+DROP_SPECS = [s[:2] for s in (SECTIONS[4], SECTIONS[7])] + [(("기각",), ("rejected",))]
+DROP_NAMES = [s[2:] for s in (SECTIONS[4], SECTIONS[7])] + [("기각됨", "Rejected")]
 DROP_KEEP = 0.5
 DROP_LIST = 8  # 경고에 내용을 적는 줄 수. 나머지는 개수만
 DROP_SHOW = 100  # 한 줄을 이 글자에서 자른다
@@ -447,8 +451,8 @@ def line_keys(line):
 
 
 def dropped(old, new, decisions="", deadline=None):
-    """old(마지막 커밋판)의 항목 중 new·decisions(DECISIONS.md 본문)에 비슷한 줄이 없는 것.
-    이어 가야 하는 절(DROP_CARRY)은 모두, 나머지 절은 결정·제약 표지가 있는 줄만. 자리표시("- 없음")는 뺀다.
+    """old(마지막 커밋판)의 DROP_SPECS 절(실패한 접근법·승격 후보·기각됨) 항목 중 new·decisions(DECISIONS.md 본문)에 비슷한 줄이
+    없는 것. 확인된 사실·다음 행동 절은 보지 않는다. 자리표시("- 없음")는 뺀다.
     돌려주는 값: ([(DROP_SPECS 번호, 항목 글)], 본 항목 수, 전체 항목 수). deadline(time.monotonic)이 지나면 거기서 멈춘다.
     비교: 낱말 열쇠 → 줄 번호 색인. 남는 줄이 되려면 옛 줄 열쇠 n개 중 need개가 한 줄에 있어야 하니, 그 줄은 가장 드문 열쇠
     n − need + 1개 중 하나를 꼭 가진다(비둘기집) — 그 열쇠들이 든 줄만 확인한다."""
@@ -460,7 +464,7 @@ def dropped(old, new, decisions="", deadline=None):
     items, seen = [], set()
     for n, _, body in section_items(old, DROP_SPECS):
         keys = line_keys(body)
-        if not keys or NOTHING.match(body) or body in seen or not (n in DROP_CARRY or DECISION_MARK.search(body)):
+        if not keys or NOTHING.match(body) or body in seen:
             continue
         seen.add(body)
         items.append((n, body, keys))
@@ -554,7 +558,8 @@ def committed(path, timeout=3.0):
 
 
 def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=True, deadline=None):
-    """마지막 커밋판보다 빠진 줄 경고(막지 않음). 결정·제약 표지가 있는 줄은 따로 더 세게 말한다. 내용은 DROP_LIST줄까지.
+    """마지막 커밋판보다 빠진 줄 경고(막지 않음). 보는 절은 dropped()와 같다(실패한 접근법·승격 후보·기각됨).
+    결정·제약 표지가 있는 줄은 따로 더 세게 말한다. 내용은 DROP_LIST줄까지.
     strict=False(훅)면 baton 형식으로 보이는 인계서에만 한다(looks_ours).
     같은 폴더의 DECISIONS.md(지금 파일)에 옮긴 줄은 빠진 것이 아니다.
     줄이 유출 검사(비밀값·홈 경로·개인 자료 목록)에 걸리면 내용을 적지 않는다(맥락에 다시 옮기지 않으려고).

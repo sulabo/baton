@@ -158,10 +158,10 @@ characters, it says how many to cut and names the two largest sections; while th
 makes it shorter than the last check only warns, and a size problem blocks at most once per turn. If a list item under
 "Verified facts and decisions" ("확인된 사실과 결정" in the Korean template) has no [V] or [?] mark, it warns without
 blocking. It also warns, without blocking, about lines dropped since the last committed version (lines in "Failed
-approaches", "Promotion candidates" and "Rejected", and lines elsewhere that carry a decision or constraint marker)
-and about more than 3 must-read marks. On Claude Code, saving with `Write`/`Edit` makes a hook run the checker and add
-one line to the context: "check passed (N lines, M chars)", or the problems and warnings. Codex's `apply_patch` gives
-the hook no path, so no check line appears there.
+approaches", "Promotion candidates" and "Rejected"; "Verified facts and decisions" and "Risks and next actions" are
+not checked) and about more than 3 must-read marks. On Claude Code, saving with `Write`/`Edit` makes a hook run the
+checker and add one line to the context: "check passed (N lines, M chars)", or the problems and warnings. Codex's
+`apply_patch` gives the hook no path, so no check line appears there.
 
 **Why commit.** The `-- HANDOFF.md` keeps files the user had already staged out of this commit. Without a commit, the
 next version cannot see this one, and the promotion review does not work. The commit prints one line,

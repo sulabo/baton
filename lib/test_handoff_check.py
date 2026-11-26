@@ -446,24 +446,48 @@ def git_repo(root):
 
 
 class DropCheckTest(unittest.TestCase):
-    """저장 때 마지막 커밋판보다 빠진 줄을 경고한다(막지 않음). 이어 가야 하는 절은 모두, 사실·다음 행동은 결정·제약 표지가 있는 줄만."""
+    """저장 때 마지막 커밋판보다 빠진 줄을 경고한다(막지 않음). 실패한 접근법·승격 후보·기각됨 절의 빠진 줄 모두.
+    확인된 사실·다음 행동 절은 보지 않는다(소유자 결정 11-26 — 표지가 있는 줄도)."""
     OLD = GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "## 확인된 사실과 결정\n- [V] 테스트 168개 통과(11-23)\n"
                        "- [V] 소유자 결정: 배포는 사람이 한다\n").replace(
         "## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n"
-        "- 세션 기억 파일을 잠금 없이 동시에 쓰기\n").replace(
-        "## 남은 리스크와 다음 행동\n- 다음 행동: 설치\n", "## 남은 리스크와 다음 행동\n- 다음 행동: 설치 스크립트 고치기\n")
+        "- 세션 기억 파일을 잠금 없이 동시에 쓰기\n- 배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다\n").replace(
+        "## 남은 리스크와 다음 행동\n- 다음 행동: 설치\n", "## 남은 리스크와 다음 행동\n- 다음 행동: 설치 스크립트 고치기\n"
+        "- main에 직접 푸시 금지\n")
+    FACT_MARKED = "- [V] 소유자 결정: 배포는 사람이 한다\n"
+    NEXT_MARKED = "- main에 직접 푸시 금지\n"
+    FAIL_MARKED = "- 배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다\n"
 
     def test_dropped_lines_by_section_rule(self):
-        new = self.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "").replace(
-            "- [V] 테스트 168개 통과(11-23)\n", "").replace("- [V] 소유자 결정: 배포는 사람이 한다\n", "")
+        new = self.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "").replace(self.FAIL_MARKED, "").replace(
+            "- [V] 테스트 168개 통과(11-23)\n", "").replace(self.FACT_MARKED, "").replace(self.NEXT_MARKED, "")
+        # 실패한 접근법은 표지가 있든 없든 알린다. 사실·다음 행동은 표지가 있는 줄(소유자 결정·금지)을 지워도 알리지 않는다
         self.assertEqual(gone(self.OLD, new),
-                         [(0, "[V] 소유자 결정: 배포는 사람이 한다"), (1, "rtk가 감싼 diff 출력을 믿기 — md5로 확인")])
-        # 표지 없는 끝난 사실(테스트 통과)은 지워도 알리지 않는다. 고쳐 쓴 줄·다른 절로 옮긴 줄·DECISIONS.md로 올린 줄은 빠진 것이 아니다
-        moved = new.replace("## 이미 한 변경\n- 없음\n", "## 이미 한 변경\n- 다음 행동이던 설치 스크립트를 고쳤다\n").replace(
-            "- 다음 행동: 설치 스크립트 고치기\n", "- 다음 행동: 배포\n") + "- rtk가 감싼 diff 출력은 믿지 않는다 — md5로\n"
-        self.assertEqual(gone(self.OLD, moved, decisions="## 배포는 사람이 한다(소유자 결정)\n"), [])
+                         [(0, "rtk가 감싼 diff 출력을 믿기 — md5로 확인"), (0, "배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다")])
+        self.assertEqual(gone(self.OLD, self.OLD.replace(self.FACT_MARKED, "").replace(self.NEXT_MARKED, "")), [])
+        # 고쳐 쓴 줄·다른 절로 옮긴 줄·DECISIONS.md로 올린 줄은 빠진 것이 아니다
+        moved = new + "- rtk가 감싼 diff 출력은 믿지 않는다 — md5로\n"
+        self.assertEqual(gone(self.OLD, moved, decisions="## 배포 스크립트는 훅에서 돌리지 않는다(소유자 결정)\n"), [])
         self.assertEqual(gone(GOOD, GOOD.replace("## 실패한 접근법 (다시 시도 금지)\n- 없음\n",
                                                                   "## 실패한 접근법 (다시 시도 금지)\n")), [])  # 자리표시는 줄이 아니다
+
+    def test_facts_and_next_actions_are_not_checked(self):
+        # 소유자 결정 11-26: 오탐이 대부분이던 두 절은 결정·제약 표지가 있는 줄이 빠져도 경고하지 않는다
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "HANDOFF.md")
+        old = GOOD.replace("## 확인된 사실과 결정\n- 없음\n", "## 확인된 사실과 결정\n" + self.FACT_MARKED).replace(
+            "## 남은 리스크와 다음 행동\n- 다음 행동: 설치\n", "## 남은 리스크와 다음 행동\n" + self.NEXT_MARKED)
+        old_en = GOOD_EN.replace("## Verified facts and decisions\n- None\n",
+                                 "## Verified facts and decisions\n- [V] Owner decided: a person deploys\n").replace(
+            "## Risks and next actions\n- Next action: install\n", "## Risks and next actions\n- Never push to main directly\n")
+        for lang in ("ko", "en"):
+            self.assertEqual(handoff_check.drop_warnings(path, GOOD, lang=lang, old=old, private_terms=[]), [], lang)
+            self.assertEqual(handoff_check.drop_warnings(path, GOOD_EN, lang=lang, old=old_en, private_terms=[]), [], lang)
+        # 같은 줄이 실패한 접근법에 있으면 여전히 알린다(대조군)
+        failed = GOOD.replace("## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n" + self.NEXT_MARKED)
+        out = handoff_check.drop_warnings(path, GOOD, lang="ko", old=failed, private_terms=[])
+        self.assertEqual(out, ["경고: 결정·제약으로 보이는 줄 1개가 마지막 커밋판에서 빠졌다 — DECISIONS.md로 옮겼는지 확인하고, "
+                               "아니면 되살린다:\n    - [실패한 접근법] main에 직접 푸시 금지"])
 
     def test_english_sections_and_markers(self):
         old = GOOD_EN.replace("## Failed approaches (do not retry)\n- None\n",
@@ -471,9 +495,8 @@ class DropCheckTest(unittest.TestCase):
             "### Rejected (do not raise again)\n- None\n", "### Rejected (do not raise again)\n- Retry loop / 2026-10-03 / owner said no\n"
         ).replace("## Risks and next actions\n- Next action: install\n",
                   "## Risks and next actions\n- Never push to main directly\n- Next action: install the hook\n")
-        self.assertEqual(gone(old, GOOD_EN),
-                         [(1, "Trusting the wrapped diff output — check with md5"), (2, "Never push to main directly"),
-                          (4, "Retry loop / 2026-10-03 / owner said no")])
+        self.assertEqual(gone(old, GOOD_EN),  # 다음 행동의 "Never push …"는 표지가 있어도 보지 않는다
+                         [(0, "Trusting the wrapped diff output — check with md5"), (2, "Retry loop / 2026-10-03 / owner said no")])
         self.assertEqual(gone(old, old.replace("Trusting the wrapped diff output", "Trusted wrapped diff outputs")), [])
 
     def test_warning_messages(self):
@@ -484,7 +507,8 @@ class DropCheckTest(unittest.TestCase):
         out = handoff_check.drop_warnings(path, GOOD, lang="ko", old=many, private_terms=[])
         self.assertEqual(len(out), 2, out)
         self.assertTrue(out[0].startswith("경고: 결정·제약으로 보이는 줄 1개가 마지막 커밋판에서 빠졌다 — DECISIONS.md로 옮겼는지"), out[0])
-        self.assertIn("\n    - [확인된 사실과 결정] [V] 소유자 결정: 배포는 사람이 한다", out[0])
+        self.assertIn("\n    - [실패한 접근법] 배포 스크립트를 훅에서 돌리기 — 소유자가 금지했다", out[0])  # 표지가 있는 실패는 더 세게
+        self.assertNotIn("배포는 사람이 한다", "\n".join(out))  # 빠진 사실 줄은 표지가 있어도 알리지 않는다
         self.assertTrue(out[1].startswith("경고: 마지막 커밋판에 있던 줄 13개가 새 인계서에 없다 — 아직 참이면 되살리고"), out[1])
         self.assertEqual(out[1].count("\n    - [실패한 접근법]"), 7)  # 내용은 모두 합쳐 8줄까지
         self.assertTrue(out[1].endswith("\n    - … 외 6개"), out[1])
@@ -492,7 +516,7 @@ class DropCheckTest(unittest.TestCase):
         en = handoff_check.drop_warnings(path, GOOD, lang="en", old=many, private_terms=[])
         self.assertTrue(en[0].startswith("warning: 1 line(s) that look like a decision or constraint are gone since the last "
                                          "committed version — check that they moved to DECISIONS.md, otherwise restore them:"))
-        self.assertIn("\n    - [Verified facts and decisions] [V] 소유자 결정", en[0])
+        self.assertIn("\n    - [Failed approaches] 배포 스크립트를", en[0])
         self.assertTrue(en[1].endswith("\n    - … and 6 more"), en[1])
         hidden = handoff_check.drop_warnings(path, GOOD, lang="en", old=GOOD.replace(
             "## 실패한 접근법 (다시 시도 금지)\n- 없음\n", "## 실패한 접근법 (다시 시도 금지)\n- 경로 /Users/someone/x 에서 실패\n"), private_terms=[])
@@ -504,7 +528,7 @@ class DropCheckTest(unittest.TestCase):
         self.assertNotIn("홍길동", ko[0])
         self.assertEqual(handoff_check.drop_warnings(path, GOOD, old=""), [])
         with open(os.path.join(tmp.name, "DECISIONS.md"), "w", encoding="utf-8") as f:
-            f.write("## 11-23 배포는 사람이 한다 (소유자 결정)\n")
+            f.write("## 11-26 훅에서 배포 스크립트 돌리기 금지 (소유자 결정)\n")
         self.assertEqual(len(handoff_check.drop_warnings(path, GOOD, lang="ko", old=many, private_terms=[])), 1)  # 결정 기록으로 올라갔다
 
     def test_against_git_head_and_silent_without_history(self):
