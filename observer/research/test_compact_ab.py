@@ -357,6 +357,15 @@ class Round3Test(unittest.TestCase):
         self.assertIsNone(cab.version_problem(p, TMP))
         p["plugins"].append({"name": "host-view", "version": "0.2.0", "source": "host-view@inline", "path": "/h"})
         self.assertIn("['host-view']", cab.version_problem(p, TMP))
+        old = (cab.BATON_REQUIRED, cab.BATON_INSTALLED)
+        try:  # W2: staged 1.0.0 (CVH_BATON) and installed 0.9 (CVH_BATON_INSTALLED) are checked apart
+            cab.BATON_REQUIRED, cab.BATON_INSTALLED = "1.0.0", "0.9"
+            p["plugins"] = p["plugins"][:2]
+            self.assertIsNone(cab.version_problem(p, TMP))
+            self.assertIn("baton 1.0.0 loaded, 0.9 required", cab.version_problem(p))
+        finally:
+            cab.BATON_REQUIRED, cab.BATON_INSTALLED = old
+            p["plugins"].append({"name": "host-view", "version": "0.2.0", "source": "host-view@inline", "path": "/h"})
         os.environ["CLAUDE_CODE_PLUGIN_DIRS"] = "/h"
         try:
             self.assertNotIn("CLAUDE_CODE_PLUGIN_DIRS", cab.child_env())
@@ -550,6 +559,20 @@ class WTest(unittest.TestCase):
         st = self.wstate([0.5] * 5, five)
         st["transitions"]["H3"]["added_markers"]["F2"] = False
         self.assertEqual(cab.w_required(st), ["F1"])
+
+    def test_wverdict_against_a_reference_w(self):
+        """W2: with ref_states the reference is the earlier W's valid runs; round 2 still gives the required markers."""
+        five = [True] * 5
+        a, b = self.wstate([0.5] * 5, five, r2_warm=(0.4,) * 5), self.wstate([0.5] * 5, five, r2_warm=(0.4,) * 5)
+        v = lambda ref: cab.wverdict({"a": a, "b": b}, ref).split("  ")[0]
+        self.assertEqual(v(None), "W VERDICT: not cheaper")  # against round 2 (0.4)
+        ref = {"a": self.wstate([0.6] * 5, five), "b": self.wstate([0.6] * 5, five)}
+        self.assertEqual(v(ref), "W VERDICT vs the reference W: cheaper")
+        ref["b"] = self.wstate([0.45] * 5, five)
+        self.assertEqual(v(ref), "W VERDICT vs the reference W: not cheaper")
+        ref["b"]["write"] = dict(list(ref["b"]["write"].items())[:2])
+        self.assertTrue(v(ref).startswith("W VERDICT vs the reference W: inconclusive (b: 2 valid reference"))
+        self.assertIn("vs ref W 0.600", cab.wverdict({"a": a}, {"a": self.wstate([0.6] * 5, five)}))
 
     def test_leak_forms_and_staged_checks(self):
         for x in ("~/.claude/plugins/cache/baton/baton/1.0.0/lib/promote.sh", "$HOME/.claude/plugins/cache/baton/x",

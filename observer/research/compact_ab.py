@@ -37,6 +37,11 @@ PROBE_USD = float(os.environ.get("CVH_PROBE_USD", 2.902))  # feasibility probes 
 # Round 2 (2026-11-24, handoff arm only after the beta.5 fix): CVH_DATA=<new folder> CVH_CAP_USD=40 CVH_PROBE_USD=0
 # CVH_BATON=1.0.0-beta.5 — every phase must load exactly that baton version (round 1 mixed beta.3 and beta.4).
 BATON_REQUIRED = os.environ.get("CVH_BATON")
+# W2 (2026-11-26): the staged build (CVH_BATON) and the owner's install may differ in version; CVH_BATON_INSTALLED is the
+# installed one (preflight, and any call without --plugin-dir). Unset: the same as CVH_BATON, as in rounds 1-3 and W.
+BATON_INSTALLED = os.environ.get("CVH_BATON_INSTALLED") or BATON_REQUIRED
+# W2: CVH_WREF=<an earlier W data folder> also judges the new W runs against that folder's valid W runs (not only round 2).
+WREF = os.environ.get("CVH_WREF")
 # Round 3 (2026-11-25): also pin OMC and the Claude Code CLI (round 2 drifted from OMC 5.8.4 to 5.8.7 mid-run, unnoticed).
 OMC_REQUIRED = os.environ.get("CVH_OMC")
 CLI_REQUIRED = os.environ.get("CVH_CLI")
@@ -267,7 +272,7 @@ def diff_against(repo, tree, out):
 
 # ---------------- one claude call ----------------
 def plugin_problem(p, staged):
-    """W: the staged build must be the only baton loaded, and from the staged folder (its version string equals
+    """W: the staged build must be the only baton loaded, and from the staged folder (its version string may equal
     the installed one, so the path is the guard)."""
     batons = [x for x in p["plugins"] or [] if x["name"] == "baton"]
     if len(batons) != 1:
@@ -278,7 +283,7 @@ def plugin_problem(p, staged):
 
 
 def version_problem(p, plugin_dir=None):
-    for want, got, what in ((BATON_REQUIRED, p["baton"], "baton"), (OMC_REQUIRED, p["omc"], "OMC"),
+    for want, got, what in ((BATON_REQUIRED if plugin_dir else BATON_INSTALLED, p["baton"], "baton"), (OMC_REQUIRED, p["omc"], "OMC"),
                             (CLI_REQUIRED, p["cli"], "Claude Code"), (MODEL_REQUIRED, p.get("model"), "model")):
         if want and got != want:
             return f"{what} {got} loaded, {want} required (do not update anything mid-run)"
@@ -1548,7 +1553,7 @@ def cmd_preflight(a):
         if not cond:
             fails.append(what)
     iv = installed()
-    for key, want in (("baton", BATON_REQUIRED), ("omc", OMC_REQUIRED), ("cli", CLI_REQUIRED)):
+    for key, want in (("baton", BATON_INSTALLED), ("omc", OMC_REQUIRED), ("cli", CLI_REQUIRED)):
         ok(want is not None and iv[key] == want, f"installed {key} {iv[key]} == required {want}")
     ok("/versions/" not in CLAUDE_BIN or os.path.basename(CLAUDE_BIN) == CLI_REQUIRED, f"pinned binary {CLAUDE_BIN}")
     ok(bool(MODEL_REQUIRED) and bool(EFFORT), f"model pinned {MODEL_REQUIRED}, effort pinned {EFFORT}")
@@ -1976,32 +1981,41 @@ def w_required(st):
     return sorted(f for f in ref[0]["added_markers"] if all(t["added_markers"][f] for t in ref)) if ref else []
 
 
-def wverdict(states):
+def wverdict(states, ref_states=None):
     """W decision rule (pre-registered in docs/research/compact-vs-handoff-r3.md, before any W run; amended by
     Deviations 9-10 before any W run): 'cheaper' only if the median warm-normalized write cost of the valid W runs is
     lower than round 2's in both repos AND at most one valid W run misses a required marker in its handoff's added
     lines (a run that wrote no handoff misses them all); 'loses facts' if more miss; otherwise 'not cheaper'. Each
-    repo needs >= 3 valid W runs, else 'inconclusive'."""
+    repo needs >= 3 valid W runs, else 'inconclusive'. W2 (pre-registered in docs/research/handoff-write-w2.md before any
+    W2 run): with ref_states (CVH_WREF's states) the reference is that folder's valid W runs instead of round 2; the
+    required markers stay round 2's."""
     import statistics as stt
     lower, total, kept, per = {}, 0, 0, {}
+    label, rl = ("", "r2") if ref_states is None else (" vs the reference W", "ref W")
     for name, st in states.items():
-        ref = [t for t in st["transitions"].values() if t["arm"] == "H" and t.get("ok")]
         need = w_required(st)
         w = [r for r in st.get("write", {}).values() if r.get("valid", r.get("ok"))]
         if len(w) < 3:
-            return f"W VERDICT: inconclusive ({name}: {len(w)} valid W runs)"
-        mw, mr = stt.median(r["warm"] for r in w), stt.median(warm_cost(t) for t in ref)
+            return f"W VERDICT{label}: inconclusive ({name}: {len(w)} valid W runs)"
+        if ref_states is None:
+            mr = stt.median(warm_cost(t) for t in st["transitions"].values() if t["arm"] == "H" and t.get("ok"))
+        else:
+            ref = [r["warm"] for r in (ref_states.get(name) or {}).get("write", {}).values() if r.get("valid", r.get("ok"))]
+            if len(ref) < 3:
+                return f"W VERDICT{label}: inconclusive ({name}: {len(ref)} valid reference W runs)"
+            mr = stt.median(ref)
+        mw = stt.median(r["warm"] for r in w)
         lower[name] = mw < mr
         miss = [r["i"] for r in w if not (r.get("written", True) and all((r.get("added_markers") or {}).get(f) for f in need))]
         total, kept = total + len(w), kept + len(w) - len(miss)
-        per[name] = f"warm W {mw:.3f} vs r2 {mr:.3f} (ratio {mw / mr:.2f}); required (added lines) {need}; W runs missing one: {miss}"
+        per[name] = f"warm W {mw:.3f} vs {rl} {mr:.3f} (ratio {mw / mr:.2f}); required (added lines) {need}; W runs missing one: {miss}"
     if kept < total - 1:
         v = "loses facts"
     elif all(lower.values()):
         v = "cheaper"
     else:
         v = "not cheaper"
-    return f"W VERDICT: {v}  (valid runs with every required marker {kept}/{total}; " + "; ".join(f"{k}: {x}" for k, x in per.items()) + ")"
+    return f"W VERDICT{label}: {v}  (valid runs with every required marker {kept}/{total}; " + "; ".join(f"{k}: {x}" for k, x in per.items()) + ")"
 
 
 def cmd_wreport(a):
@@ -2032,6 +2046,13 @@ def cmd_wreport(a):
         if bad:
             print(f"    invalid W runs (harness failures, rerun): {bad}")
     print(wverdict(states))
+    if WREF:
+        refs = {n: json.load(open(os.path.join(os.path.expanduser(WREF), "state", f"{n}.json"))) for n in names}
+        for name in names:
+            rw = [r for r in refs[name].get("write", {}).values() if r.get("valid", r.get("ok"))]
+            print(f"=== {name}: reference W ({WREF}) n={len(rw)} assistant calls={rng([r['turns'] for r in rw])}"
+                  f" warm=${rng([r['warm'] for r in rw])} raw=${rng([r['delta']['cost'] for r in rw])}")
+        print(wverdict(states, refs))
     print(f"ledger total ${spent():.2f} of ${CAP_USD}")
 
 
