@@ -2,7 +2,9 @@
 # PostToolUse 훅. 검사 스크립트가 0건을 냈을 때 그게 "없음"인지 "못 셌음"인지
 # 구분하라고 상기시킨다. 이 플러그인이 존재하는 이유가 그 구분이다.
 #
-# 울리는 조건은 둘 다다: ① 명령이 check.sh·fresh.sh·promote.sh를 실행했다(명령 조각의 첫 실행 파일)
+# 울리는 조건은 둘 다다: ① 명령이 check.sh·fresh.sh·promote.sh를 실행했다(명령 조각의 첫 실행 파일). 그 파일이 lib/ 폴더에
+# 있을 때만 — 플러그인의 검사 스크립트 자리(<플러그인 루트>/lib/, baton 저장소·워크트리도 같다)다. 저장소 자기 ./check.sh·
+# scripts/check.sh가 "errors: 0"을 내도 울리지 않게(1.0.3). 폴더가 변수 하나($L/fresh.sh)면 값을 모르니 실행으로 본다
 # ② 그 실행의 출력에 0건 신호가 있다. 2026-11-21 전에는 입력 문자열 어디든 스크립트 이름과 '없음'이 같이 있으면
 # 울려서, `cat lib/fresh.sh` 같은 읽기 호출 대부분에서 떴다 — 매번 울리는 알람은 무시당한다.
 set -uo pipefail
@@ -75,7 +77,8 @@ def runs_seg(w, depth):
             if b == "timeout" and i < len(w):
                 i += 1                                       # 시간 값
             continue
-        return b in SCRIPTS
+        d = os.path.dirname(w[i])
+        return b in SCRIPTS and (os.path.basename(d) == "lib" or bool(re.fullmatch(r"\$\{?\w+\}?", d)))
     return False
 if not runs_cmd(cmd):
     sys.exit(0)
