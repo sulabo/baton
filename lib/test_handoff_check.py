@@ -693,6 +693,13 @@ class MustReadTest(unittest.TestCase):
                                 f"관련 파일·심볼 38자"])
         self.assertIn(line[0], handoff_check.check(text))  # check()가 같은 줄을 낸다(저장 훅은 이것으로 크기 문제를 가린다)
         self.assertEqual(handoff_check.size_problems(GOOD, "ko"), [])
+        # 줄 상한도 얼마나·어디를(리뷰 11-26) — 큰 절은 줄 수로 센다
+        many = GOOD.replace("## 검증 증거\n- 명령: python3 -m unittest\n", "## 검증 증거\n" + "- 확인\n" * 230)
+        self.assertEqual(handoff_check.size_problems(many, "ko"),
+                         [f"{len(many.splitlines())}줄 — 상한 200줄을 넘는다(넘친 뒤쪽은 다음 세션에 주입되지 않는다). "
+                          f"{len(many.splitlines()) - 200}줄 더 줄인다 — 큰 절: 검증 증거 232줄, 목표와 완료 조건 3줄"])
+        self.assertTrue(handoff_check.size_problems(many, "en")[0].endswith(
+            f"Cut {len(many.splitlines()) - 200} more lines — largest sections: 검증 증거 232 lines, 목표와 완료 조건 3 lines"))
         # 제목에 비밀값·개인 자료 단어가 있으면 이름 대신 줄 번호, 코드 블록 안 제목은 절이 아니다, 40자 넘는 제목은 자른다
         odd = ("# Session Handoff\n## 홍길동 메모\n" + "가\n" * 3000 + "## /Users/bob 경로\n" + "나\n" * 2000
                + "## " + "긴" * 50 + "\n```\n## 코드 안\n" + "다\n" * 1000 + "```\n")
