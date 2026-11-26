@@ -289,6 +289,54 @@ class AutoSplitTest(unittest.TestCase):
         self.assertNotIn("파일 1개를 고쳤다", out["reason"])  # 파일 수 까닭(기본 3개)은 그대로
         self.assertEqual([e["mode"] for e in self.events()], ["ask"])
 
+    def background(self, tid, agent_id, edits):
+        """뒤에서 도는 위임(run_in_background) 한 번: 메인 기록의 Agent 호출 줄과 async_launched 결과 줄. 서브에이전트 기록에는 edits."""
+        call_line = json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tid, "name": "Agent", "input": {
+            "prompt": "x", "subagent_type": "oh-my-claudecode:executor", "run_in_background": True}}]}})
+        result = json.dumps({"type": "user", "toolUseResult": {"agentId": agent_id, "status": "async_launched"},
+                             "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "content": "launched"}]}})
+        d = os.path.join(os.path.splitext(self.transcript)[0], "subagents")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"agent-{agent_id}.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "isSidechain": True, "message": {"content": "task"}}) + "\n")
+            for name, inp in edits:
+                f.write(json.dumps({"type": "assistant", "isSidechain": True,
+                                    "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}) + "\n")
+        return [call_line, result]
+
+    def test_background_subagent_work_counts_at_its_notification_turn(self):
+        # 리뷰 11-26(sim2): 작업 알림이 연 턴에서 뒤에서 돈 서브에이전트가 고친 것을 버렸다(1.0.1은 셌다) — 알림 턴은 기다리던 위임을 다시 본다
+        r = self.root
+        note_plain = prompt("<task-notification>agent abc completed</task-notification>")
+        note_meta = json.dumps({"type": "user", "isMeta": True, "origin": {"kind": "task-notification"},
+                                "message": {"content": "<task-notification><task-id>abc</task-id></task-notification>"}})
+        for i, note in enumerate((note_plain, note_meta)):
+            with self.subTest(shape=i):
+                launch = [call(40000), prompt("고쳐 줘(백그라운드로)")] + self.background("t1", "abc", [("Edit", {"file_path": f"{r}/a.py"})])
+                self.write(launch + [call(100000), prompt("그동안 이건 뭐야?"), call(120000), note, call(260000)])
+                out = self.run_auto(sid=f"bg{i}")
+                self.assertIsNotNone(out)
+                self.assertIn("25만 토큰을 넘었다", out["reason"])
+        reads = self.background("t2", "rd", [("Read", {"file_path": f"{r}/a.py"})])  # 읽기만 한 위임 — 알림 턴에도 일이 아니다
+        self.write([call(40000), prompt("찾아 줘(백그라운드로)")] + reads + [call(100000), note_plain, call(260000)])
+        self.assertIsNone(self.run_auto(sid="bg-read"))
+        self.write([call(40000), prompt("고쳐 줘(백그라운드로)")] + self.background("t3", "bg3", [("Edit", {"file_path": f"{r}/a.py"})])
+                   + [call(100000), prompt("이건 뭐야?"), call(260000)])  # 사람이 연 질문 턴에는 세지 않는다(알림이 와야 센다)
+        self.assertIsNone(self.run_auto(sid="bg-human"))
+
+    def test_peer_message_starts_a_turn_and_stop_feedback_does_not(self):
+        # 리뷰 11-26: 다른 세션 메시지(isMeta, origin.kind peer)는 턴을 여는데 열지 않는 것으로 읽었다. Stop 훅 피드백 줄은 턴을 열지 않는다
+        peer = json.dumps({"type": "user", "isMeta": True, "origin": {"kind": "peer"},
+                           "message": {"content": 'Another Claude session sent a message:\n<agent-message from="a1">끝</agent-message>'}})
+        self.write([call(40000), WORK, call(100000), peer, call(260000)])
+        self.assertIsNone(self.run_auto(sid="peer"))  # 앞 턴에 한 일은 있지만 메시지에 답한 턴은 아무것도 안 했다
+        self.write([call(40000), WORK, call(100000), peer, call(260000), edit(f"{self.root}/b.py"), call(262000)])
+        self.assertIn("25만 토큰을 넘었다", self.run_auto(sid="peer")["reason"])
+        feedback = json.dumps({"type": "user", "isMeta": True, "hookText": "[baton] …",
+                               "message": {"role": "user", "content": [{"type": "text", "text": "Stop hook feedback:\n[baton] …"}]}})
+        self.write([call(40000), prompt("고쳐 줘"), WORK, call(100000), feedback, call(260000)])
+        self.assertIn("25만 토큰을 넘었다", self.run_auto(sid="fb")["reason"])  # 피드백은 같은 턴이다 — 고친 일이 그대로 남는다
+
     def test_question_or_read_only_turn_waits_for_a_turn_that_works(self):
         # 1.0.1 재돌림(대화 6개, Stop 155곳): 막힘 10번 중 5번이 질문·읽기만 한 턴 끝이었다(앞선 턴에 한 일이 있어서).
         # 소유자 결정 11-26: 이번 턴에 일했을 때만 묻는다. 문턱은 남겨 뒀다가 다음에 일한 턴 끝에 한 번

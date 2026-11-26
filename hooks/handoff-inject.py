@@ -380,6 +380,13 @@ def main():
     repo = rules.repo_root()  # HEAD와 같이 프로세스 cwd 기준(Claude Code는 CLAUDE_PROJECT_DIR, Codex는 세션 cwd에서 훅을 돌린다)
     # 다른 세션·작업 알림이 보낸 메시지에는 인계서도 개념도 넣지 않는다 — 사람이 부른 것이 아니다
     machine = rules.machine_prompt(prompt)
+    if not machine:  # 새 턴 — 저장 검사의 크기 막기 표지(턴에 한 번, hooks/handoff-check.py block_once)를 지운다. 끊긴 턴은 Stop이 없다
+        d = runlog.session_dir("handoff-seen", data.get("session_id"))
+        try:
+            if d:
+                os.remove(os.path.join(d, "blocked"))
+        except OSError:
+            pass
     # 개념 색인 몫을 먼저 잡는다 — 무엇이 터져도 색인만 빠지고 인계서는 그대로 간다
     itext, iskip = "", None
     try:
