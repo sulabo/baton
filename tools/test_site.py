@@ -75,16 +75,23 @@ class ContextRuleDocsTest(unittest.TestCase):
                     self.assertIn(cond, b, b[:120])
 
     def test_small_window_note_in_readme_guide_and_skill(self):
-        # 리뷰 11-25: "낮춰라"는 근거가 없다 — 낮출 수는 있지만 그 크기에서 더 싼지는 재지 않았다고 쓴다
+        # 리뷰 11-25: "낮춰라"는 근거가 없다 — 낮출 수는 있지만 그 크기에서 더 싼지는 재지 않았다고 쓴다.
+        # 1.0.3: 스킬의 맥락 문턱 설명은 skills/baton/REFERENCE.md로 옮겼다(SKILL.md는 12KB 안의 지시만, 문턱 수를 적지 않는다)
         en_words, ko_words = ("1M-token", "200K window", "wasn't measured", "150K was usually a loss"), ("100만 토큰", "20만 토큰", "재지 않았")
+        bads = ("so set `BATON_SPLIT_TOKENS` lower", "낮게 정해 주세요", "더 낮게 정합니다", "낮게 정합니다", "낮춰야")
         for parts, words in ((("README.md",), en_words), (("README.ko.md",), ko_words), (("docs", "GUIDE.md"), en_words),
-                             (("docs", "GUIDE.ko.md"), ko_words), (("skills", "baton", "SKILL.md"), en_words),
+                             (("docs", "GUIDE.ko.md"), ko_words), (("skills", "baton", "REFERENCE.md"), en_words),
                              (("CHANGELOG.md",), ko_words)):
             text = " ".join(doc(*parts).split())
             for w in words:
                 self.assertIn(w, text, parts)
-            for bad in ("so set `BATON_SPLIT_TOKENS` lower", "낮게 정해 주세요", "더 낮게 정합니다", "낮게 정합니다", "낮춰야"):
+            for bad in bads:
                 self.assertNotIn(bad, text, parts)
+        skill = " ".join(doc("skills", "baton", "SKILL.md").split())
+        for bad in bads:
+            self.assertNotIn(bad, skill)
+        self.assertNotRegex(skill, r"250K|450K|25만|45만")  # 문턱 수를 말하면 작은 창 단서도 함께 있어야 한다 — 수는 REFERENCE.md에만
+        self.assertIn("`REFERENCE.md`", skill)
 
     def test_current_default_in_concepts_and_north_star(self):
         concept = doc("CONCEPTS.md").split("## 5. 세션 끊기 알림", 1)[1].split("\n## ", 1)[0]
