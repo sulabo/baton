@@ -1,0 +1,20 @@
+{
+ "name": "baton",
+ "task": "W",
+ "markers": {
+  "F1": "2026\\.11",
+  "F2": "min-date",
+  "F4": "dateutil",
+  "F6": "on or after",
+  "F3": "hooks/[\\s\\S]*lib/rules\\.py|lib/rules\\.py[\\s\\S]*hooks/",
+  "F5": "Usage"
+ },
+ "facts": {
+  "F1": "early: date filter accepts 2026-11-20 and 2026.11.20, in the option and in headings (prompt 1)",
+  "F2": "flag is --min-date, never --since (prompt 2)",
+  "F3": "never modify hooks/ or lib/rules.py (prompt 6)",
+  "F4": "stdlib only: dateutil attempt failed, no third-party packages (prompts 4-5)",
+  "F5": "module docstring Usage: block lists every option (prompt 5)",
+  "F6": "no match prints 'baton: no sections on or after <date>' and exits 0 (final prompt only)"
+ }
+}
