@@ -344,22 +344,39 @@ class AutoSplitTest(unittest.TestCase):
                                                                 self.note(f"t{i}"), call(260000)])
                 self.assertIn("25만 토큰을 넘었다", self.run_auto(sid=f"flag{i}")["reason"])
 
-    def test_completion_queued_into_a_running_turn_counts_in_that_turn_once(self):
-        # 같은 기록: 뒤 위임의 완료 알림 247개 중 222개는 도는 턴에 끼어 왔다(attachment queued_command) — 그 턴에 센다
+    def test_completion_queued_into_a_question_turn_waits_for_a_turn_that_qualifies(self):
+        # 같은 기록: 뒤 위임의 완료 알림 247개 중 222개는 도는 턴에 끼어 왔다(attachment queued_command).
+        # 소유자 규칙(11-26): 질문만 한 턴은 막지 않는다 — 사람이 질문으로 연 턴에 끼어 온 완료는 그 턴을 일한 턴으로 만들지 않고,
+        # 그 위임은 다음에 기계가 연 턴(또는 스스로 일한 턴)에서 센다(리뷰 11-26)
         r = self.root
         bg = self.background("t1", "abc", [("Edit", {"file_path": f"{r}/a.py"})], flag=None)
         note = "<task-notification><task-id>x</task-id><tool-use-id>t1</tool-use-id><status>completed</status></task-notification>"
-        head = [call(40000), prompt("뒤에서 고쳐 줘")] + bg + [call(100000), prompt("이건 뭐야?"), call(120000)]
-        self.write(head + [self.queued(note), call(260000)])
-        self.assertIsNotNone(self.run_auto(sid="q"))
-        self.write(head + [self.queued(note), call(200000), prompt("다른 질문"), call(260000)])
-        self.assertIsNone(self.run_auto(sid="q-later"))  # 알림이 온 턴에서 한 번만 — 다음 질문 턴은 막지 않는다
-        self.write(head + [self.queued("사람이 친 말 <tool-use-id>t1</tool-use-id>"), call(260000)])
+        head = [call(40000), prompt("뒤에서 고쳐 줘")] + bg + [call(100000), prompt("이건 뭐야?"), call(120000), self.queued(note)]
+        self.write(head + [call(260000)])
+        self.assertIsNone(self.run_auto(sid="q-question"))  # 질문 턴 + 끼어 온 완료 → 막지 않는다
+        self.assertEqual(self.events(), [])
+        self.write(head + [call(260000), prompt("그럼 b도 고쳐 줘"), edit(f"{r}/b.py"), call(262000)])
+        self.assertIn("25만 토큰을 넘었다", self.run_auto(sid="q-question")["reason"])  # 다음에 일한 턴 → 막는다(문턱이 기다렸다)
+        monitor = prompt("<task-notification><event>log line</event></task-notification>")
+        self.write(head + [call(200000), monitor, call(260000)])
+        self.assertIsNotNone(self.run_auto(sid="q-deferred"))  # 미뤄 둔 위임은 다음에 기계가 연 턴에서 센다
+        self.write(head + [call(200000), prompt("고쳐 줘"), edit(f"{r}/b.py"), call(210000), monitor, call(260000)])
+        self.assertIsNone(self.run_auto(sid="q-used"))  # 그 사이 일한 턴에서 센 것으로 친다 — 알림 턴에서 다시 세지 않는다
+        # 기계가 연 턴에 끼어 온 완료는 그 턴에 센다 — 한 번만
+        mine = [call(40000), prompt("뒤에서 고쳐 줘")] + bg + [call(100000), monitor, call(120000), self.queued(note)]
+        self.write(mine + [call(260000)])
+        self.assertIsNotNone(self.run_auto(sid="q-machine"))
+        self.write(mine + [call(200000), prompt("다른 질문"), call(260000)])
+        self.assertIsNone(self.run_auto(sid="q-later"))  # 알림을 센 턴은 지났다 — 다음 질문 턴은 막지 않는다
+        self.write(mine[:-1] + [self.queued("사람이 친 말 <tool-use-id>t1</tool-use-id>"), call(260000)])
         self.assertIsNone(self.run_auto(sid="q-human"))  # 사람이 도는 중에 친 말은 알림이 아니다
         reads = self.background("t2", "rd", [("Read", {"file_path": f"{r}/a.py"})], flag=None)
-        self.write([call(40000), prompt("찾아 줘")] + reads + [call(100000), prompt("이건 뭐야?"),
+        self.write([call(40000), prompt("찾아 줘")] + reads + [call(100000), monitor,
                                                             self.queued(note.replace("t1", "t2")), call(260000)])
         self.assertIsNone(self.run_auto(sid="q-read"))  # 읽기만 한 위임은 끼어 온 알림에도 일이 아니다
+        self.write(head + [call(200000), prompt("인계서 써 줘"), edit(os.path.join(r, "HANDOFF.md")), call(210000), monitor,
+                           call(260000)])
+        self.assertIsNone(self.run_auto(sid="q-handoff"))  # 인계서를 쓰면 미뤄 둔 위임도 넘긴 것으로 친다
 
     def test_only_the_notified_delegation_is_rechecked_once(self):
         # 리뷰 11-26(sim_old_bg): 끝난 뒤 위임을 잊지 않아, 인계서를 쓴 뒤의 다른 알림 턴(뒤 Bash 끝남, 일 없음, 26만)에서 다시 세어 막았다

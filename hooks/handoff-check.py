@@ -466,15 +466,16 @@ TOOL_USE_ID = re.compile(r"<tool-use-id>\s*([\w-]+)\s*</tool-use-id>")  # 끝난
 
 def transcript_events(path):
     """세션 기록을 한 번 읽는다 — ("tool", 사이드체인인가, 이름, 입력, tool_use id, 시각), ("agent", tool_use id, agentId, 뒤에서 도나, 시각),
-    ("prompt", 알림이 가리키는 tool_use id들, 시각), ("queued", 알림이 가리키는 tool_use id들, 시각). 시각은 그 줄의 timestamp(초) 또는 None.
+    ("prompt", 알림이 가리키는 tool_use id들, 기계가 연 턴인가, 시각), ("queued", 알림이 가리키는 tool_use id들, 시각). 시각은 그 줄의
+    timestamp(초) 또는 None.
     tool_use는 assistant 줄에서만, 결과(tool_result)는 user 줄에서만 본다. agentId는 Agent·Task 결과 줄의 toolUseResult에 있고, 그 서브에이전트
     기록은 <세션>/subagents/agent-<agentId>.jsonl이다. 뒤에서 도나는 그 결과의 status가 "async_launched"인가 — run_in_background를
     적지 않은 호출도, 문자열 "true"로 적은 호출도 Claude Code가 뒤에서 띄우면 그렇게 적는다(이 기계 기록 11-26: 뒤에서 뜬 위임 250개 중
     run_in_background가 불리언 true인 것은 15개).
     "prompt"는 메인 스레드에서 턴을 여는 줄이다(candidates.human_text와 같은 규칙: 글이거나 text 블록만, 압축 요약·사이드체인 줄은 아님).
     메타 줄(Stop 훅 피드백 등)은 턴을 열지 않는다 — 단 origin.kind가 다른 세션 메시지(peer)·작업 알림(task-notification)이면 연다.
-    그런 줄과 본문이 <task-notification>·<agent-message>로 시작하는 줄(rules.machine_prompt)이면 본문의 <tool-use-id>를 함께 낸다
-    (사람이 친 프롬프트는 빈 묶음). "queued"는 턴이 도는 중에 와서 그 턴에 끼워 넣은 작업 알림(attachment queued_command)이다 — 턴을 열지
+    그런 줄과 본문이 <task-notification>·<agent-message>로 시작하는 줄(rules.machine_prompt)은 기계가 연 턴이고, 본문의 <tool-use-id>를
+    함께 낸다(사람이 친 프롬프트는 빈 묶음). "queued"는 턴이 도는 중에 와서 그 턴에 끼워 넣은 작업 알림(attachment queued_command)이다 — 턴을 열지
     않는다(같은 기록: 뒤에서 뜬 위임의 완료 알림 247개 중 222개가 이렇게 왔다)."""
     from candidates import human_text, when
     with open(path, encoding="utf-8", errors="ignore") as f:
@@ -503,7 +504,7 @@ def transcript_events(path):
             if text is not None and not (d.get("isSidechain") or d.get("isCompactSummary")) \
                     and (not d.get("isMeta") or origin in MACHINE_ORIGINS):
                 machine = origin in MACHINE_ORIGINS or rules.machine_prompt(text)
-                yield "prompt", tuple(TOOL_USE_ID.findall(text)) if machine else (), ts
+                yield "prompt", tuple(TOOL_USE_ID.findall(text)) if machine else (), machine, ts
                 continue
             for name, inp, tid in tool_blocks(d):
                 yield "tool", bool(d.get("isSidechain")), name, inp, tid, ts
@@ -675,11 +676,15 @@ def work_since_handoff(path, deadline=None, written=None):
       ponytail: 기록을 못 찾거나 깨졌으면(결과가 아직 없음·옛 형식·읽히는 줄 0개) 메인 기록의 사이드체인 줄에 쓰기가 있으면 일로 세고, 없으면 종류로 가른다 —
       읽기만 하는 종류(read_only_agent)는 안 세고 나머지는 센다. 서브에이전트가 또 맡긴 일은 따라가지 않는다.
       뒤에서 도는 위임(결과가 async_launched이거나 run_in_background가 불리언 true)은 그 위임의 tool_use id를 <tool-use-id>에 담은 작업
-      알림이 온 턴에서 한 번 다시 본다 — 그 알림이 턴을 열었든, 도는 턴에 끼어 왔든("queued"). 인계서를 쓰면 기다리던 위임도 넘긴 것으로 친다.
+      알림이 온 턴에서 한 번 다시 본다 — 그 알림이 턴을 열었든, 도는 턴에 끼어 왔든("queued"). 단 끼어 온 알림은 그 턴을 기계가 열었거나
+      그 턴이 스스로 일했을 때만 그 턴에 센다(소유자 규칙 11-26: 질문만 한 턴은 막지 않는다). 사람이 연 턴이면 그 위임을 미뤄 두고(done)
+      다음에 기계가 연 턴에서 센다 — 그 사이 일한 턴이 있으면 거기서 센 것으로 치고 비운다. 인계서를 쓰면 기다리던 위임도 넘긴 것으로 친다.
+      ponytail: 사람이 연 턴의 일이 앞에서 맡긴 서브에이전트의 쓰기뿐이면(메인 스레드 쓰기 없음) 미뤄 둔 위임을 비우지 않는다 — 그 턴을
+      일한 턴으로 보려면 서브에이전트 기록을 턴마다 읽어야 해서다. 그때 미뤄 둔 위임은 다음 기계가 연 턴에서 한 번 더 셀 수 있다.
       ponytail: <tool-use-id>가 없는 알림으로만 끝을 알린 위임은 세지 못한다. 이 기계 기록(11-26)에서 그런 알림은 Monitor 사건(<event>)과
       아티팩트 알림뿐이었고, 뒤에서 뜬 위임 250개 중 247개는 <tool-use-id>가 든 완료 알림이 왔다. 서브에이전트가 보내는 넘김 메시지
       (<agent-message from="agentId">)에는 <tool-use-id>가 없어 쓰지 않는다."""
-    work, agents, side, ids, background, kinds = [], [], False, {}, {}, {}
+    work, agents, side, ids, background, kinds, done, machine = [], [], False, {}, {}, {}, {}, False
     for ev in with_handoff_mark(transcript_events(path), written):
         if deadline is not None and time.monotonic() > deadline:
             return None
@@ -687,20 +692,28 @@ def work_since_handoff(path, deadline=None, written=None):
             # 턴이 바뀌었다. 작업 알림이 연 턴이면 그 알림의 <tool-use-id>가 가리키는 뒤 위임(run_in_background)만 이 턴에 다시 보고 기다림에서
             # 뺀다 — 그 일이 끝났다고 알리는 턴이다(리뷰 11-26: 알림 턴에서 서브에이전트가 고친 것을 버렸다, 1.0.1은 셌다. 다른 알림·다른 세션
             # 메시지는 위임을 다시 불러오지 않는다)
-            work, side = [], False
+            work, side, machine = [], False, ev[2]
             agents = [(t, background.pop(t)) for t in ev[1] if t in background]
+            if machine:  # 기계가 연 턴 — 사람이 연 질문 턴에 끼어 와 미뤄 둔 완료도 여기서 센다
+                agents += list(done.items())
+                done.clear()
             continue
         if ev[0] == "handoff":
             work, agents, side = [], [], False
             background.clear()  # 인계서를 쓰면 그 앞의 위임은 넘긴 것으로 친다(리뷰 11-26)
+            done.clear()
             continue
         if ev[0] == "agent":
             ids[ev[1]] = ev[2]
             if ev[3] and ev[1] in kinds:
                 background[ev[1]] = kinds[ev[1]]
             continue
-        if ev[0] == "queued":  # 도는 턴에 끼어 온 완료 알림 — 그 위임을 이 턴에 다시 보고 기다림에서 뺀다(턴은 그대로)
-            agents += [(t, background.pop(t)) for t in ev[1] if t in background]
+        if ev[0] == "queued":  # 도는 턴에 끼어 온 완료 알림 — 기다림에서 뺀다(턴은 그대로)
+            hit = [(t, background.pop(t)) for t in ev[1] if t in background]
+            if machine or work:
+                agents += hit
+            else:  # 사람이 연 턴이 아직 일하지 않았다 — 질문만 한 턴을 일한 턴으로 만들지 않게 미뤄 둔다(리뷰 11-26)
+                done.update(hit)
             continue
         _, sidechain, name, inp, tid, _ = ev
         writes, handoff = call_kind(name, inp)
@@ -709,8 +722,10 @@ def work_since_handoff(path, deadline=None, written=None):
         elif handoff:
             work, agents, side = [], [], False
             background.clear()
+            done.clear()
         elif writes:
             work.append(inp.get("file_path") or inp.get("notebook_path") or "Bash")
+            done.clear()  # 이 턴이 일했다 — 미뤄 둔 위임은 이 턴에서 센 것으로 친다
         elif name in AGENT_TOOLS:
             agents.append((tid, inp.get("subagent_type")))
             kinds[tid] = inp.get("subagent_type")

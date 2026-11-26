@@ -183,7 +183,10 @@ Explore don't count when its record can't be found), or a Bash command that clea
 `HANDOFF.md` counts as writing the handoff, and so does a Bash call that names a handoff file and during which the
 repo-root `HANDOFF.md` changed (so a write inside a python heredoc counts too). A turn starts at a human prompt, a
 message from another session or a task notification (Stop hook feedback stays in the same turn); a background
-subagent's edits count once, in the turn opened by its completion notification (matched by `<tool-use-id>`). It also
+subagent's edits count once, when its completion notification arrives (matched by `<tool-use-id>`): in the turn the
+notification opens, or in a running turn it is queued into if a notification or another session opened that turn or
+the turn did work itself. Queued into a turn a person opened, it does not make that turn work; it counts in the next
+turn a notification or another session opens. It also
 doesn't ask when the new conversation would start almost as large (the context is not yet 24K tokens past the first
 call; also under the ratio rule). Then the line tells the user the handoff was saved; from 250K up it adds that, by a
 recount of the author's sessions, a new conversation is usually cheaper from this size on (below 250K it makes no cost

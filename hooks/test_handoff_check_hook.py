@@ -922,8 +922,8 @@ class BashWritesTest(unittest.TestCase):
             with open(tr, "w", encoding="utf-8") as f:
                 f.write("\n".join(rows) + "\n")
             self.assertEqual(list(self.hook.transcript_events(tr)),  # 기계가 보낸 프롬프트만 본문의 <tool-use-id>를 낸다
-                             [("prompt", (), None)] * 3 + [("prompt", (), 1000.0), ("prompt", (), None), ("prompt", ("toolu_9",), None),
-                                                           ("prompt", (), None)])
+                             [("prompt", (), False, None)] * 3 + [("prompt", (), True, 1000.0), ("prompt", (), True, None),
+                                                                  ("prompt", ("toolu_9",), True, None), ("prompt", (), False, None)])
 
     def test_work_counting_has_a_deadline_and_stop_falls_back_to_edits(self):
         import contextlib, io, tempfile, time
