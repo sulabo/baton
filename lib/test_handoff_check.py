@@ -733,6 +733,27 @@ class PluginRootTest(unittest.TestCase):
                 self.assertTrue(any(cmd in pre for pre in prefixes), (rel, cmd))
 
 
+class DoctorSkillShadowTest(unittest.TestCase):
+    def test_doctor_lists_every_plugin_skill_name(self):
+        # 1.0.2: 같은 이름의 개인 스킬(~/.claude/skills/handoff·ontology)이 플러그인 스킬을 가렸다(11-25 실사용, 9월 사본) —
+        # /baton-doctor의 ls가 플러그인 스킬 이름(SKILL.md의 name:)을 빠짐없이 본다. 스킬 이름을 바꾸면 이 줄도 바꿔야 한다
+        import glob, re
+        root = os.path.dirname(HERE)
+        names = []
+        for p in glob.glob(os.path.join(root, "skills", "*", "SKILL.md")):
+            with open(p, encoding="utf-8") as f:
+                names.append(re.search(r"^name: (\S+)$", f.read(), re.M).group(1))
+        with open(os.path.join(root, "commands", "baton-doctor.md"), encoding="utf-8") as f:
+            doctor = f.read()
+        line = re.search(r'^ls -d "\$\{CLAUDE_CONFIG_DIR:-\$HOME/\.claude\}"/skills/\{([^}]*)\} 2>/dev/null', doctor, re.M)
+        self.assertTrue(line, "doctor has no personal-skill check")
+        self.assertEqual(sorted(line.group(1).split(",")), sorted(names))
+        self.assertIn("handoff", names)
+        self.assertIn("ontology", names)
+        for n in names:
+            self.assertIn(f"`{n}`", doctor.split(line.group(0), 1)[1])  # 경고 문장이 이름을 말한다
+
+
 class SkillCostRulesTest(unittest.TestCase):
     """인계서 쓰기 호출을 줄이는 스킬 규칙(11-25)과 그 리뷰 반영. 문장이 빠지면 모델이 예전처럼 다시 부른다.
     줄바꿈 위치에 기대지 않게 공백을 하나로 모은 뒤 본다."""

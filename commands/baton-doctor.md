@@ -13,12 +13,17 @@ grep -c -E '^- \*\*(메타|Meta)\*\*:' <that file>                 # does it hav
 git ls-files --error-unmatch HANDOFF.md                          # is the handoff tracked (not tracked: no promotion review)
 ls DECISIONS.md                                                  # is there a decision log
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/config.py                      # was /baton-setup run, can the config file be read, output language
+ls -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/skills/{handoff,ontology,baton-setup} 2>/dev/null   # personal skills with the plugin's skill names
 ```
 
 Run the `config.py` line exactly as written (pre-approved, read only). Claude Code fills in the plugin path when it
 loads this file; the plugin-root variable is not set in the shell, so don't replace the path with a shell variable.
 Don't answer each item only with works / doesn't work. When something doesn't work, write **what it stops from
 working**.
+If the `skills/` line prints a folder, warn about it: the plugin's skills are named `handoff`, `ontology` and
+`baton-setup`, and a personal skill with the same name hides the plugin's one, so "write a handoff" or "build a concept
+map" runs that personal copy (often an older one) instead. Recommend moving the folder out of `skills/` (for example to
+`~/.claude/skills-backup/`); don't move it yourself. No output means none of those folders exists.
 No config file means the thresholds are the author's defaults (recommend `/baton-setup`). If it exists but can't be
 read, the hooks run without it: have the user fix or delete it.
 Report the output language and where it came from, as the last line of `config.py` prints it: the `BATON_LANG`

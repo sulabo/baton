@@ -43,12 +43,16 @@
 # 43MB 실측 30~112ms). 넘치면 다시 넣고 offset이 새로 잡힌다. 훑은 끝 위치를 기억해 이어 읽는 쪽으로 올릴 수 있다.
 # 실험: BATON_CONCEPT_INJECT=on 이면 프롬프트가 개념 제목을 가리킬 때 CONCEPTS.md의 해당 절만 넣는다.
 #
+# 옛 판 창 알림(1.0.2): 플러그인은 Claude Code를 시작할 때만 읽혀, 오래 열어 둔 창은 업데이트 뒤에도 옛 판 훅을 돌린다(11-25 실사용:
+# 한 폴더 대화 30개 중 29개가 11-05부터 열린 창의 beta.1). 이 훅의 판이 설치 기록의 판과 다르면 대화에 한 번 사용자에게 알린다(version_notice).
+#
 # 관찰(북극성 길 단계 1): 프롬프트마다 규칙 판단(lib/rules.py)과 실제로 넣은 것을 판단 로그에 한 줄 남긴다.
 # 행동은 판단 때문에 바뀌지 않는다. 로그 위치는 BATON_LOG(기본 ~/.cache/baton/runs.jsonl) — 저장소마다 .baton/을 만들지 않으려고
 # 사용자 캐시 한 곳에 저장소 이름을 붙여 쓴다(정본 43절은 .baton/runs.jsonl). 끄기: BATON_OBSERVE=off. 로그 실패는 조용히 넘긴다.
 import hashlib, json, os, sys, time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
+PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(PLUGIN, "lib"))
 import concepts, config, handoff_check, i18n, rules, runlog
 
 LIMIT = 200
@@ -317,6 +321,56 @@ def observe(repo, prompt, data, handoff, concept, skip=None, index_chars=None, i
         pass  # 관찰이 실패해도 주입과 프롬프트는 그대로 간다
 
 
+def installed_versions(plugins):
+    """Claude Code 설치 기록(plugins/installed_plugins.json)의 baton 항목들 [(version, installPath 또는 None)]. 못 읽거나 모양이 다르면 []."""
+    try:
+        with open(os.path.join(plugins, "installed_plugins.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        out = []
+        for key, val in rec["plugins"].items():
+            if isinstance(key, str) and key.split("@", 1)[0] == "baton":
+                for e in val if isinstance(val, list) else [val]:
+                    if isinstance(e, dict) and isinstance(e.get("version"), str):
+                        out.append((e["version"], e["installPath"] if isinstance(e.get("installPath"), str) else None))
+        return out
+    except Exception:
+        return []
+
+
+def version_notice(data, lang):
+    """이 훅의 플러그인 판이 설치 기록의 판과 다르면 사용자에게 보일 한 줄(대화에 한 번), 아니면 "". 같으면 기억하지 않는다 —
+    대화 중에 업데이트해도 다음 프롬프트에서 알아챈다. 한 번만이라는 약속을 못 지키면(세션 id 없음·캐시에 못 씀) 말하지 않는다.
+    ponytail: 설치 기록은 Claude Code의 <설정 폴더(CLAUDE_CONFIG_DIR, 없으면 ~/.claude)>/plugins/installed_plugins.json에서
+    plugins → "baton@…" → 항목의 version·installPath만 읽는다. 공개 문서에 없는 형식이라 파일이 없거나 모양이 다르면 조용히 꺼진다.
+    이 훅이 그 plugins 폴더 밖에서 돌면(Codex 설치본·--plugin-dir 개발판) 비교하지 않는다. 판이 다르다는 것만 보고 어느 쪽이 새것인지는 안 본다."""
+    sid = data.get("session_id")
+    # 경로 글자로만 먼저 가른다 — plugins 폴더 밖(개발판·테스트)에서는 설정 폴더를 건드리지 않는다
+    plugins = os.path.abspath(os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "plugins"))
+    if not isinstance(sid, str) or not sid or not PLUGIN.startswith(plugins + os.sep):
+        return ""
+    try:
+        with open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+            mine = json.load(f)["version"]
+    except Exception:
+        return ""
+    found = installed_versions(plugins)
+    if not isinstance(mine, str) or not found or mine in {v for v, _ in found} \
+            or any(p and os.path.realpath(p) == os.path.realpath(PLUGIN) for _, p in found):
+        return ""
+    mark = os.path.join(runlog.cache_dir(), "version-notice", hashlib.sha1(sid.encode("utf-8", "surrogatepass")).hexdigest()[:16])
+    try:
+        os.makedirs(os.path.dirname(mark), mode=0o700, exist_ok=True)
+        os.close(os.open(mark, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except OSError:  # 이미 알렸거나(FileExistsError) 기억을 못 남긴다
+        return ""
+    installed = ", ".join(sorted({v for v, _ in found}))
+    if lang == "ko":
+        return (f"[baton] 이 창의 baton({mine})이 설치된 버전({installed})과 달라요. 설치된 버전을 쓰려면 Claude Code를 다시 시작하세요. "
+                f"이 알림은 한 대화에 한 번만 나와요.")
+    return (f"[baton] The baton running in this window ({mine}) differs from the installed version ({installed}). Restart Claude "
+            f"Code to use the installed version. You'll see this notice only once per conversation.")
+
+
 def main():
     t0 = time.monotonic()
     data = read_input()
@@ -351,10 +405,15 @@ def main():
             itext, iskip = "", "error"
     if unreserved and not itext:  # 색인이 빠졌다 — 색인 몫 때문에 더 자른 인계서를 되돌린다
         htext, handoff["lines"] = unreserved
-    if htext or itext or ctext:
+    try:  # 사람이 친 프롬프트에만. 무엇이 터져도 알림만 빠진다
+        note = "" if machine else version_notice(data, i18n.lang(repo))
+    except Exception:
+        note = ""
+    if htext or itext or ctext or note:
         # 일반 stdout은 Claude Code만 맥락에 넣는다. Codex는 additionalContext만 받는다(10-01 실제 Codex 세션 확인) — 둘 다 받는 JSON으로 낸다
         ctx = "\n".join(x for x in (htext, itext, ctext) if x)
-        out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ctx}}
+        out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ctx}} if ctx else {}
+        out.update({"systemMessage": note} if note else {})  # 사용자에게만 보이는 줄
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
         sys.stdout.flush()
     observe(repo, prompt, data, handoff, concept, skip, len(itext) if itext else None, iskip)
