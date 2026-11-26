@@ -571,6 +571,21 @@ class BashHandoffCheckTest(unittest.TestCase):
         self.assertTrue(self.bash(tool_use_id="toolu_during")["reason"].startswith(BASH_HEAD))
         self.assertIsNotNone(self.bash_ts())
 
+    def test_codex_hooks_file_is_the_claude_one_without_unknown_events(self):
+        # 리뷰 11-26: codex-cli 0.164 바이너리의 훅 이벤트 목록에 PostToolUseFailure가 없다 — 모르는 키로 훅 전체가
+        # 버려지는지 확인하지 못해 Codex는 그 이벤트만 뺀 파일을 쓴다. 두 파일이 어긋나지 않게 여기서 묶는다.
+        codex_events = {"PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart",
+                        "SessionEnd", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop"}
+        with open(os.path.join(HERE, "hooks.json"), encoding="utf-8") as f:
+            claude = json.load(f)
+        with open(os.path.join(HERE, "hooks.codex.json"), encoding="utf-8") as f:
+            codex = json.load(f)
+        want = dict(claude, hooks={k: v for k, v in claude["hooks"].items() if k in codex_events})
+        self.assertEqual(codex, want)
+        self.assertIn("PostToolUseFailure", claude["hooks"])
+        with open(os.path.join(HERE, "..", ".codex-plugin", "plugin.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["hooks"], "./hooks/hooks.codex.json")
+
     def test_failed_bash_call_is_checked_too(self):
         # 리뷰 11-26(sim5): 인계서를 쓰고 0이 아닌 코드로 끝난 Bash(쓴 뒤 python 예외, 실패한 && git commit, pre-commit 훅, 검사기의 1)는
         # PostToolUseFailure로만 온다 — 다음 Bash의 빠른 길이 새 내용을 조용히 기억해 검사도 Bash 쓰기 시각도 없었다

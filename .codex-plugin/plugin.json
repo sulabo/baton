@@ -8,5 +8,5 @@
   "license": "MIT",
   "keywords": ["codex", "plugin", "knowledge-graph", "handoff", "token-efficiency", "drift-detection"],
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/hooks.codex.json"
 }
