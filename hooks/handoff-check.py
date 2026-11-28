@@ -55,7 +55,7 @@ import hashlib, json, os, re, sys, time
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PLUGIN, "lib"))
-import runlog  # 가볍다(설정 모듈은 runlog.append 안에서 부른다) — 아래 Bash 빠른 길(quiet_bash)은 이것만 쓴다
+import person, runlog  # 가볍다(설정 모듈은 runlog.append 안에서 부른다) — 아래 Bash 빠른 길(quiet_bash)은 이것만 쓴다
 
 # Bash 명령이 인계서 파일을 말하나(HANDOFF.md·HANDOFF_트랙.md·handoff-x.md) — 말했을 때만 그 뒤 바뀐 HANDOFF.md를 검사한다. 낱말 handoff만
 # 보던 것은 너무 넓었다(리뷰 11-26: baton 저장소 실제 Bash 명령의 37%가 handoff_check·테스트 이름으로 걸렸다)
@@ -130,7 +130,9 @@ def quiet_bash(data):
         if seen(sid, path).get("stat") == [st.st_size, st.st_mtime_ns]:
             return True
         with open(path, encoding="utf-8", errors="replace") as f:
-            remember(sid, path, f.read())
+            text = f.read()
+        remember(sid, path, text)
+        person.saved_by_ai(path, text, None)  # 1.0.4: AI 턴 안의 변화는 AI 것(항목은 모름 — 사람이 지운 줄로 셈하지 않는다, lib/person.py)
     except OSError:
         pass
     return True
@@ -350,6 +352,7 @@ def on_bash(data):
         start = start if start is not None else float("inf")  # 대화 시작도 모르면 처음 본 파일은 기억만
     if not said or (start is not None and mtime < start):  # 말하지 않았거나, 이 호출(또는 대화) 전에 바뀐 파일 — 기억만
         remember(sid, path, text)
+        person.saved_by_ai(path, text, handoff_check.drop_items(text))  # 1.0.4: AI 턴 안의 변화는 AI 것
         return
     check_handoff(path, data, t0, text=text, bash=True)
 
@@ -360,7 +363,12 @@ def check_handoff(path, data, t0, text=None, bash=False):
     (리뷰 11-26), 그 시각을 <해시>.bash_ts로 남긴다(Stop이 인계서 쓰기로 센다). 그 기억을 못 남기면 아무 말도 하지 않는다 — 한 번만이라는
     약속을 못 지키면 말하지 않는다(split.mark·version_notice와 같은 규칙)."""
     repo = repo_of(os.path.dirname(path) or None)
-    if off("BATON_HANDOFF_CHECK", repo):
+    if off("BATON_HANDOFF_CHECK", repo):  # 검사는 꺼도 AI 판은 남긴다 — Stop 없이 끝난 턴에서 AI가 지운 줄이 사람 몫이 되지 않게(1.0.4)
+        try:
+            t_ = handoff_check.read(path) if text is None else text
+            person.saved_by_ai(path, t_, handoff_check.drop_items(t_))
+        except OSError:
+            pass
         return
     lang = i18n.lang(repo)
     t = handoff_check.tr(lang)
@@ -374,6 +382,7 @@ def check_handoff(path, data, t0, text=None, bash=False):
     prev = seen(sid, path)
     if not remember(sid, path, text) and bash:
         return
+    person.saved_by_ai(path, text, handoff_check.drop_items(text))  # 1.0.4: 다음 프롬프트 때 이 판과 다르면 사람이 고친 것(lib/person.py)
     if bash:  # Stop이 인계서 쓰기로 센다(bash_write_ts). 못 남기면 그 시각만 빠진다
         write_state(seen_file(sid, path, ".bash_ts"), repr(time.time()))
     # 상한을 넘은 채 줄여 가는 편집(머리 주석): 직전 검사보다 짧아졌거나 이번 턴에 이미 크기로 막았으면 크기 문제만 경고로 낮춘다.
@@ -841,6 +850,21 @@ def nudge_message(n, lang):
             f"You'll see this suggestion only once per conversation.")
 
 
+def turn_end(data):
+    """1.0.4: AI 턴이 끝날 때 저장소 루트 HANDOFF.md를 AI 판으로 남긴다(lib/person.py) — 저장 검사가 못 본 AI 쓰기(인계서 이름을 말하지 않은
+    Bash, Codex apply_patch, BATON_HANDOFF_CHECK=off인 동안)가 다음 프롬프트에 사람 판으로 잡혀 AI가 지운 줄의 경고가 사라지지 않게(리뷰 11-28)."""
+    root = rules.repo_root(data["cwd"] if isinstance(data.get("cwd"), str) else None)
+    path = os.path.join(root, "HANDOFF.md")
+    try:
+        if os.path.getsize(path) > person.READ_MAX:
+            return
+        text = handoff_check.read(path)
+    except OSError:
+        return
+    if not person.known(path, text):
+        person.saved_by_ai(path, text, handoff_check.drop_items(text))
+
+
 def on_stop(data):
     """Stop 결정 한 곳 — 까닭 둘(파일 고침 F·맥락 문턱 S)을 함께 보고 한 Stop에 많아야 한 번 묻는다.
     물을 수 있으면(BATON_HANDOFF_AUTO 켬, HANDOFF.md가 없거나 baton 형식) decision "block" 하나에 두 까닭을 같이 적는다.
@@ -854,6 +878,11 @@ def on_stop(data):
         except OSError:
             pass
     prune_seen(data.get("session_id"))
+    try:  # 1.0.4 사람 판 기억 — 무엇이 터져도 Stop의 나머지는 그대로
+        turn_end(data)
+        person.prune()
+    except Exception:
+        pass
     cwd = data["cwd"] if isinstance(data.get("cwd"), str) else None
     repo = repo_of(cwd)
     split = split_mod() if not off("BATON_SPLIT_NOTICE", repo) else None
