@@ -53,7 +53,7 @@ import hashlib, json, os, sys, time
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PLUGIN, "lib"))
-import concepts, config, handoff_check, i18n, rules, runlog
+import concepts, config, handoff_check, i18n, person, rules, runlog
 
 LIMIT = 200
 LIMIT_CHARS = 9600  # 훅 출력 전체(문서 상한 10,000자 − 여유 400)
@@ -371,6 +371,32 @@ def version_notice(data, lang):
             f"Code to use the installed version. You'll see this notice only once per conversation.")
 
 
+PERSON_NOTE_MAX = 300  # 사람이 고친 인계서 알림 한 줄의 상한 — LIMIT_CHARS 여유(400자) 안에 든다
+
+
+def person_edit(repo):
+    """1.0.4: HANDOFF.md가 마지막 AI 저장판과 다르면 — 사람이 편집기로 고쳤거나 git이 바꿨다 — 사람 판으로 기억한다(lib/person.py).
+    그러면 저장 검사의 빠진 줄 경고가 사람이 지운 줄을 되살리라고 하지 않는다. 지금 내용이 사람 판이면 인계서와 함께 넣을 한 줄을 돌려준다:
+    고친 내용을 이어 쓰고 지운 줄을 되살리지 말 것, 그리고 저장 검사를 거치지 않았으니 남은 문제(크기·필수 절 등)."""
+    path = os.path.join(repo, "HANDOFF.md")
+    if off("BATON_HANDOFF_CHECK", repo) or not os.path.isfile(path) or os.path.getsize(path) > person.READ_MAX:
+        return None  # 저장 검사가 꺼져 있으면 이것도 끈다(그동안의 AI 쓰기는 Stop이 AI 판으로 남긴다)
+    text = handoff_check.read(path)
+    person.note(path, text, lambda: handoff_check.text_line_keys(text), lambda: handoff_check.committed(path, 1.0),
+                handoff_check.DROP_KEEP)
+    if not person.is_person(path, text):
+        return None
+    lang = i18n.lang(repo)
+    t = handoff_check.tr(lang)
+    line = t("[baton] 이 인계서는 마지막 AI 저장 뒤 바깥에서 고쳐졌다(사람이 고쳤을 수 있다) — 고친 내용을 그대로 이어 쓰고, 지운 줄은 되살리지 않는다.",
+             "[baton] This handoff was changed outside the AI after its last save (a person may have edited it) — carry the edits "
+             "forward and do not restore removed lines.")
+    probs = handoff_check.check_file(path, strict=False, text=text, lang=lang, terms=config.terms("private_terms", repo))
+    full = line + (t(" 저장 검사를 거치지 않아 남은 문제(다음에 쓸 때 고친다): ", " It skipped the save-time check; problems to fix when "
+                     "you next write it: ") + "; ".join(probs[:2]) if probs else "")
+    return (full if len(full) <= PERSON_NOTE_MAX else full[:PERSON_NOTE_MAX - 1] + "…"), line
+
+
 def main():
     t0 = time.monotonic()
     data = read_input()
@@ -398,21 +424,29 @@ def main():
             iskip = None if itext else "empty"
     except Exception:
         mtext, itext, iskip = "", "", "error"
+    try:  # 사람이 친 프롬프트에만. 무엇이 터져도 이 한 줄과 기억만 빠진다
+        pnote, pbase = ("", "") if machine else person_edit(repo) or ("", "")
+    except Exception:
+        pnote, pbase = "", ""
     htext, handoff, skip = inject_handoff(repo, prompt, data, machine, t0 + HOOK_DEADLINE,
-                                          len(itext) + 1 if itext else 0)
+                                          (len(itext) + 1 if itext else 0) + (len(pnote) + 1 if pnote else 0))
     unreserved = handoff.pop("unreserved", None) if handoff else None
     ctext, concept = ("", None) if machine else inject_concept(repo, prompt)
     if itext:
         try:  # 인계서·개념 절 뒤에 남은 자리만 쓴다. 안 맞으면 색인을 줄이고, 그래도 안 되면 뺀다
             sep = 1 if htext else 0
-            room = LIMIT_CHARS - len(htext) - len(ctext) - sep - (1 if ctext else 0)
+            room = LIMIT_CHARS - len(htext) - len(ctext) - sep - (1 if ctext else 0) - (len(pnote) + 1 if htext and pnote else 0)
             if len(itext) > room:
                 itext = concepts.index(mtext, room, rel, lang=i18n.lang(repo)) if room > 0 else ""
                 iskip = None if itext else "budget"
         except Exception:
             itext, iskip = "", "error"
-    if unreserved and not itext:  # 색인이 빠졌다 — 색인 몫 때문에 더 자른 인계서를 되돌린다
+    if unreserved and not itext and not pnote:  # 색인이 빠졌다 — 색인 몫 때문에 더 자른 인계서를 되돌린다(사람 판 알림이 있으면 그 몫으로 둔다)
         htext, handoff["lines"] = unreserved
+    rest = len(htext) + 1 + (len(itext) + 1 if itext else 0) + (len(ctext) + 1 if ctext else 0)
+    pline = next((x for x in (pnote, pbase) if x and rest + len(x) <= LIMIT_CHARS), "") if htext else ""
+    if pline:  # 자리가 모자라면 문제 목록을 떼고 기본 문장만(리뷰 11-28: 영어에서 통째로 빠지던 것), 그래도 안 되면 뺀다
+        htext = pline + "\n" + htext  # 인계서를 넣을 때만, 맨 앞에. 몫은 위(reserve·색인 room)에서 잡았다
     try:  # 사람이 친 프롬프트에만. 무엇이 터져도 알림만 빠진다
         note = "" if machine else version_notice(data, i18n.lang(repo))
     except Exception:

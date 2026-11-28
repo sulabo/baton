@@ -15,7 +15,7 @@
 import math, os, re, subprocess, sys, time, unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import config, i18n, rules
+import config, i18n, person, rules
 
 MAX_LINES = 200
 MAX_CHARS = 8700  # 주입 훅 본문 예산보다 작아야 한다. 지금 예산 = LIMIT_CHARS 9,600 − 머리말 − 신선도 한 줄(최대 rules.FRESHNESS_MAX)
@@ -482,6 +482,23 @@ def dropped(old, new, decisions="", deadline=None):
     return out, len(items), len(items)
 
 
+def drop_items(text):
+    """빠진 줄 검사가 보는 절(DROP_SPECS)의 항목 [(본문, 낱말 열쇠)] — 자리표시와 겹친 본문은 뺀다(dropped와 같은 규칙).
+    사람이 지운 줄 기억(lib/person.py)이 AI 판마다 이것의 해시만 남긴다."""
+    out, seen = [], set()
+    for _, _, body in section_items(text, DROP_SPECS):
+        keys = line_keys(body)
+        if keys and not NOTHING.match(body) and body not in seen:
+            seen.add(body)
+            out.append((body, keys))
+    return out
+
+
+def text_line_keys(text):
+    """text의 줄마다 낱말 열쇠 — 사람 판에 비슷한 줄이 남았는지 볼 때(lib/person.note)."""
+    return [line_keys(ln) for ln in text.splitlines() if ln.strip()]
+
+
 class ReadFailed(Exception):
     """마지막 커밋판을 못 읽었다 — git이 시한 안에 답하지 않았거나, 못 띄웠거나, 알 수 없는 까닭으로 실패했다.
     미추적·이력 없음(그때는 committed가 None)과 다르다: 못 본 것을 "빠진 줄 없음"으로 말하지 않으려고 따로 알린다."""
@@ -576,6 +593,7 @@ def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=Tr
                       "Dropped lines weren't checked (couldn't read the previous version).")]
     if not old:
         return []
+    by_person = person.removed(path, old)  # 1.0.4: 사람이 지운 항목(본문 해시) — 자르기 전의 커밋판으로 맞춘다(lib/person.py)
     cut_old = len(old.encode("utf-8", "replace")) > DROP_READ_MAX
     old = old.encode("utf-8", "replace")[:DROP_READ_MAX].decode("utf-8", "ignore")
     try:
@@ -586,6 +604,8 @@ def drop_warnings(path, text, lang=None, old=None, private_terms=None, strict=Tr
     cut_dec = len(raw) > DROP_READ_MAX
     decisions = raw[:DROP_READ_MAX].decode("utf-8", "ignore")
     gone, done, total = dropped(old, text, decisions, deadline)
+    if by_person:  # 사람이 지운 줄은 되살리라고 하지 않는다(조용히 뺀다) — 본문이 같거나 낱말이 비슷하면 같은 줄
+        gone = [g for g in gone if not person.matches(line_keys(g[1]), g[1], by_person, DROP_KEEP)]
     partial = []
     if done < total or cut_old:
         partial.append(t(f"경고: 빠진 줄 검사를 다 못 했다(마지막 커밋판 항목 {total}개 중 {done}개만 봤다"

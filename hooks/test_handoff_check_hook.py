@@ -311,6 +311,245 @@ class HandoffCheckHookTest(unittest.TestCase):
         self.assertEqual(out["decision"], "block")
         self.assertIn("결정·제약으로 보이는 줄", out["reason"])
 
+    def inject(self, prompt, sid="s1"):
+        """사람 프롬프트 하나를 주입 훅에 — 같은 캐시를 써서 두 훅이 사람 판 기억을 함께 본다."""
+        env = os.environ.copy()
+        env.update(XDG_CACHE_HOME=os.path.join(self.root, "cache"), BATON_LOG=self.log, CLAUDE_PROJECT_DIR=self.root)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "handoff-inject.py")], text=True, capture_output=True, env=env,
+                           cwd=self.root, input=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt,
+                                                            "session_id": sid, "cwd": self.root}), check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout).get("hookSpecificOutput", {}).get("additionalContext", "") if r.stdout.strip() else ""
+
+    def post_as(self, path, sid):
+        return self.run_hook({"hook_event_name": "PostToolUse", "tool_name": "Write", "session_id": sid,
+                              "tool_input": {"file_path": path}, "cwd": self.root})
+
+    def test_lines_a_person_removed_are_not_asked_back(self):
+        # 1.0.4: 사람이 편집기로 지운 줄은 다음 AI 저장의 빠진 줄 경고에 나오지 않는다 — AI가 지운 줄은 그대로 나온다
+        from test_handoff_check import DropCheckTest, git_repo
+        rtk_line, deploy = "rtk가 감싼 diff 출력을 믿기", "배포 스크립트를 훅에서 돌리기"
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)  # AI가 저장했다 — 이것이 마지막 AI 저장판
+        person = DropCheckTest.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "")
+        self.handoff(person)  # 사람이 편집기로 한 줄을 지웠다
+        ctx = self.inject("이어서")  # 다음 프롬프트: 사람 판으로 기억하고, 인계서와 함께 알린다
+        self.assertTrue(ctx.startswith("[baton] 이 인계서는 마지막 AI 저장 뒤 바깥에서 고쳐졌다"), ctx[:200])
+        self.assertIn("지운 줄은 되살리지 않는다", ctx)
+        self.handoff(person.replace(DropCheckTest.FAIL_MARKED, ""))  # AI가 사람 판에서 이어 쓰며 다른 줄을 지웠다
+        ctx = self.post(p)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(deploy, ctx, "the line the AI dropped is still reported")
+        self.assertNotIn(rtk_line, ctx, "the line the person removed is not asked back")
+        self.assertNotIn(rtk_line, self.post_as(p, "s2")["hookSpecificOutput"]["additionalContext"], "nor in a new conversation")
+        self.assertNotIn("바깥에서 고쳐졌다", self.inject("이어서", "s3"), "the AI's own save is not a person's edit")
+
+    def test_a_line_the_person_removed_and_a_later_commit_brought_back_is_reported_again(self):
+        # 사람이 지운 기억은 마지막 커밋판이 그대로일 때만 — 그 줄이 새 커밋에 다시 들어온 뒤 AI가 지우면 알린다
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)
+        self.handoff(DropCheckTest.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", ""))
+        self.inject("이어서")  # 사람이 rtk 줄을 지웠다
+        again = DropCheckTest.OLD.replace("## 실패한 접근법 (다시 시도 금지)\n", "## 실패한 접근법 (다시 시도 금지)\n- 캐시 폴더를 손으로 지우기\n")
+        self.handoff(again)  # 그 줄이 돌아왔고(다른 줄 하나와 함께) 커밋됐다
+        self.post(p)
+        g("add", "HANDOFF.md"); g("commit", "-qm", "h2")
+        self.handoff(again.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", ""))  # 이번엔 AI가 지웠다
+        self.assertIn("rtk가 감싼 diff", self.post(p)["hookSpecificOutput"]["additionalContext"])
+
+    def test_a_commit_ends_the_person_version(self):
+        # 사람 판은 마지막 커밋판이 그대로일 때만 쓴다 — 커밋 뒤에 AI가 더한 줄을 다시 지우면 그대로 알린다
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)
+        self.handoff(DropCheckTest.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", ""))
+        self.inject("이어서")
+        added = DropCheckTest.OLD.replace("## 실패한 접근법 (다시 시도 금지)\n", "## 실패한 접근법 (다시 시도 금지)\n- 캐시 폴더를 손으로 지우기\n")
+        self.handoff(added)
+        self.post(p)
+        g("add", "HANDOFF.md"); g("commit", "-qm", "h2")
+        self.handoff(DropCheckTest.OLD)  # AI가 방금 커밋된 줄을 지웠다(사람 판에는 그 줄이 원래 없었다)
+        self.assertIn("캐시 폴더를 손으로 지우기", self.post(p)["hookSpecificOutput"]["additionalContext"])
+
+    def test_without_a_known_ai_save_nothing_changes(self):
+        # 이 컴퓨터에서 baton이 그 인계서를 검사한 적이 없으면 누가 고쳤는지 모른다 — 예전처럼 커밋판과만 견준다
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.handoff(DropCheckTest.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", ""))
+        self.assertNotIn("바깥에서 고쳐졌다", self.inject("이어서"))
+        self.assertIn("rtk가 감싼 diff", self.post(p)["hookSpecificOutput"]["additionalContext"])
+
+    def turn_stop(self):
+        return self.run_hook({"hook_event_name": "Stop", "session_id": "s1", "cwd": self.root, "transcript_path": self.transcript})
+
+    def test_an_ai_write_the_check_did_not_see_stays_the_ais(self):
+        # 리뷰 11-28 S1·Codex·검사 끔: 저장 검사가 못 본 AI 쓰기(이름을 말하지 않은 Bash, apply_patch)는 턴 끝(Stop)에 AI 판이 된다
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)
+        self.handoff(DropCheckTest.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", ""))  # 훅이 못 본 AI 쓰기
+        self.turn_stop()  # 그 AI 턴의 끝
+        self.assertNotIn("바깥에서 고쳐졌다", self.inject("이어서"))
+        self.assertIn("rtk가 감싼 diff", self.post(p)["hookSpecificOutput"]["additionalContext"], "the AI's drop is still reported")
+
+    def test_a_small_person_edit_does_not_adopt_the_ais_earlier_drops(self):
+        # 리뷰 11-28 S2: 사람이 오타만 고쳐도 그 전에 AI가 지운 줄이 사람 몫이 되던 결함 — 사람이 지운 줄은 마지막 AI 판과 견준다
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        ai = DropCheckTest.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "")
+        self.handoff(ai)
+        self.assertIn("rtk가 감싼 diff", self.post(p)["hookSpecificOutput"]["additionalContext"])
+        self.handoff(ai.replace("설치 스크립트 고치기", "설치 스크립트를 고치기"))  # 사람: 다른 절의 오타만
+        self.assertIn("바깥에서 고쳐졌다", self.inject("이어서"))
+        self.assertIn("rtk가 감싼 diff", self.post(p)["hookSpecificOutput"]["additionalContext"])
+
+    def committed_old(self):
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)  # AI 판
+        return p, g, DropCheckTest
+
+    RTK = "- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n"
+
+    def test_a_stop_in_between_keeps_what_the_person_removed(self):
+        # 리뷰 11-28 HIGH: 사람 편집 → 프롬프트 → (AI가 인계서를 안 건드린) Stop → AI 저장에서 사람이 지운 줄을 다시 묻던 결함
+        p, g, D = self.committed_old()
+        person = D.OLD.replace(self.RTK, "")
+        self.handoff(person)
+        self.inject("이어서")
+        self.turn_stop()
+        self.assertIn("바깥에서 고쳐졌다", self.inject("이어서", "s2"), "the note lasts while the file is the person's version")
+        self.handoff(person.replace(D.FAIL_MARKED, ""))
+        ctx = self.post(p)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("rtk가 감싼 diff", ctx)
+        self.assertIn("배포 스크립트를 훅에서 돌리기", ctx)
+        self.assertNotIn("바깥에서 고쳐졌다", self.inject("이어서", "s3"), "a new AI version ends the note")
+
+    def test_a_line_the_person_put_back_is_reported_when_the_ai_drops_it(self):
+        # 리뷰 11-28: 사람이 지웠다가 되살린 줄은 기억에서 빠진다 — 그 뒤 AI가 지우면 알린다
+        p, g, D = self.committed_old()
+        self.handoff(D.OLD.replace(self.RTK, ""))
+        self.inject("이어서")
+        self.handoff(D.OLD)  # 사람이 되살렸다(파일이 다시 AI 판과 같다)
+        self.inject("이어서")
+        self.handoff(D.OLD.replace(self.RTK, "").replace("설치 스크립트 고치기", "설치 스크립트를 고치기"))  # 이번엔 AI가 지웠다
+        self.assertIn("rtk가 감싼 diff", self.post(p)["hookSpecificOutput"]["additionalContext"])
+
+    def test_a_reworded_line_the_person_removed_is_not_asked_back(self):
+        # 리뷰 11-28: 커밋 뒤 AI가 조금 고친 줄을 사람이 지우면 — 낱말이 비슷하면 같은 줄로 본다
+        p, g, D = self.committed_old()
+        reworded = D.OLD.replace(self.RTK, "- rtk가 감싼 diff 출력을 믿기 — md5로 확인(11-28 다시 봄)\n")
+        self.handoff(reworded)
+        self.post(p)
+        self.handoff(reworded.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인(11-28 다시 봄)\n", ""))
+        self.inject("이어서")
+        out = self.post(p) or {}
+        self.assertNotIn("rtk가 감싼 diff", out.get("hookSpecificOutput", {}).get("additionalContext", ""))
+
+    def test_an_unseen_ai_bash_write_without_a_stop_stays_the_ais(self):
+        # 리뷰 11-28: Stop 없이 끝난 턴의, 인계서 이름을 말하지 않은 Bash 쓰기도 그 Bash 훅이 AI 판(항목 모름)으로 남긴다
+        p, g, D = self.committed_old()
+        self.handoff(D.OLD.replace(self.RTK, ""))
+        self.run_hook({"hook_event_name": "PostToolUse", "tool_name": "Bash", "session_id": "s1", "cwd": self.root,
+                       "tool_input": {"command": "python3 tools/gen.py"}, "transcript_path": self.transcript})
+        self.assertNotIn("바깥에서 고쳐졌다", self.inject("이어서"))
+        self.assertIn("rtk가 감싼 diff", self.post(p)["hookSpecificOutput"]["additionalContext"])
+
+    def test_a_second_person_edit_after_a_bash_turn_is_remembered(self):
+        # 리뷰 11-28 R9: 사람 편집 → 프롬프트 → (AI가 아무 Bash나) → Stop → 사람 편집 → 프롬프트 → AI 저장
+        p, g, D = self.committed_old()
+        first = D.OLD.replace(self.RTK, "")
+        self.handoff(first)
+        self.inject("이어서")
+        self.run_hook({"hook_event_name": "PostToolUse", "tool_name": "Bash", "session_id": "s1", "cwd": self.root,
+                       "tool_input": {"command": "ls"}, "transcript_path": self.transcript})
+        self.turn_stop()
+        second = first.replace(D.FAIL_MARKED, "")
+        self.handoff(second)
+        self.inject("이어서")
+        self.handoff(second.replace("설치 스크립트 고치기", "설치 스크립트를 고치기"))
+        ctx = (self.post(p) or {}).get("hookSpecificOutput", {}).get("additionalContext", "")
+        self.assertNotIn("배포 스크립트를 훅에서 돌리기", ctx)
+        self.assertNotIn("rtk가 감싼 diff", ctx)
+
+    def test_a_long_line_the_person_removed_does_not_hide_a_short_sibling_the_ai_dropped(self):
+        # 리뷰 11-28 R10d: 비슷함은 긴 쪽 열쇠 수로 센다
+        from test_handoff_check import DropCheckTest, git_repo
+        long_, short = "- rtk가 감싼 diff 출력을 믿기 — md5로 확인하고 캐시 폴더도 지우기\n", "- rtk가 감싼 diff 출력 무시\n"
+        base = DropCheckTest.OLD.replace(self.RTK, long_ + short)
+        p = self.handoff(base)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)
+        self.handoff(base.replace(long_, ""))  # 사람이 긴 줄을 지웠다
+        self.inject("이어서")
+        self.handoff(base.replace(long_, "").replace(short, ""))  # AI가 짧은 형제 줄을 지웠다
+        ctx = self.post(p)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("rtk가 감싼 diff 출력 무시", ctx)
+        self.assertNotIn("캐시 폴더도 지우기", ctx)
+
+    def test_the_cache_keeps_no_handoff_text(self):
+        # 리뷰 11-28: 첫 설계는 사람 판 전문(비밀값 포함)을 캐시에 남겼다 — 이제 해시만
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)
+        self.handoff(DropCheckTest.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", "") + "- 사람이 붙인 줄 sk-ant-api03-" + "x" * 40 + "\n")
+        self.inject("이어서")
+        d = os.path.join(self.root, "cache", "baton", "handoff-files")
+        blob = ""
+        for n in os.listdir(d):
+            with open(os.path.join(d, n), encoding="utf-8") as f:
+                blob += f.read()
+        self.assertTrue(os.listdir(d))
+        for word in ("rtk", "배포", "sk-ant", "Session Handoff"):
+            self.assertNotIn(word, blob)
+        self.assertEqual(oct(os.stat(d).st_mode & 0o777), "0o700")
+
+    def test_the_person_note_is_off_with_the_check_and_on_machine_prompts(self):
+        from test_handoff_check import DropCheckTest, git_repo
+        p = self.handoff(DropCheckTest.OLD)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)
+        self.handoff(DropCheckTest.OLD.replace("- rtk가 감싼 diff 출력을 믿기 — md5로 확인\n", ""))
+        env = os.environ.copy()
+        env.update(XDG_CACHE_HOME=os.path.join(self.root, "cache"), BATON_LOG=self.log, CLAUDE_PROJECT_DIR=self.root,
+                   BATON_HANDOFF_CHECK="off")
+        r = subprocess.run([sys.executable, os.path.join(HERE, "handoff-inject.py")], text=True, capture_output=True, env=env, cwd=self.root,
+                           input=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "이어서", "session_id": "s1", "cwd": self.root}))
+        self.assertNotIn("바깥에서 고쳐졌다", r.stdout)
+        self.inject("<task-notification>\n<task-id>x</task-id>\n<status>completed</status>\n</task-notification>")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "cache", "baton", "handoff-files")) and any(
+            n.endswith(".person.json") for n in os.listdir(os.path.join(self.root, "cache", "baton", "handoff-files"))),
+            "no person version from a machine prompt or with the check off")
+
+    def test_the_person_note_never_pushes_the_output_past_the_limit(self):
+        for lang, head in (("ko", "[baton] 이 인계서는 마지막 AI 저장 뒤 바깥에서 고쳐졌다"), ("en", "[baton] This handoff was changed outside the AI")):
+            with self.subTest(lang=lang):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.root = self.tmp.name
+                self.transcript, self.log = os.path.join(self.root, "s.jsonl"), os.path.join(self.root, "runs.jsonl")
+                self.budget_case(lang, head)
+
+    def budget_case(self, lang, head):
+        from test_handoff_check import git_repo
+        big = GOOD.replace("## 이미 한 변경\n", "## 이미 한 변경\n" + "".join(f"- 변경 {i}: " + "가" * 70 + "\n" for i in range(105)))
+        self.assertLessEqual(len(big), 8700)
+        p = self.handoff(big)
+        g = git_repo(self.root); g("add", "HANDOFF.md"); g("commit", "-qm", "h")
+        self.post(p)
+        self.handoff(big.replace("## 이미 한 변경\n", "## 이미 한 변경\n" + "".join(f"- 사람이 더한 {i}: " + "나" * 70 + "\n" for i in range(20))))
+        with mock.patch.dict(os.environ, {"BATON_LANG": lang}):
+            ctx = self.inject("이어서")  # 사람이 상한(8,700자)을 넘겨 고쳤다 — 알림이 남고(줄여서라도), 전체는 상한 안이다
+        self.assertTrue(ctx.startswith(head), ctx[:120])
+        self.assertIn("# Session Handoff", ctx)
+        self.assertLessEqual(len(ctx), 9600)
+
     def test_big_drop_check_keeps_the_secret_block_and_hook_timeout(self):
         # 리뷰(11-23): 빠진 줄 검사가 10초 훅 시한을 넘기면 훅이 죽어 비밀값 막기까지 사라졌다
         import time
